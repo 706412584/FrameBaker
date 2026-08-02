@@ -1,0 +1,5 @@
+node_modules/
+storage/
+.venv-matting/
+*.log
+.DS_Store
