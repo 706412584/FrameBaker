@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FrameBaker · 像素逐帧动画编辑器</title>
+    <script>
+      // 首屏前预读主题，避免闪烁（与 src/theme.ts 的 THEME_KEY 保持一致）：
+      // localStorage 有记录（light/dark）→ 用手动选择；无记录 → 跟随系统 prefers-color-scheme
+      (function () {
+        var t = null;
+        try {
+          t = localStorage.getItem("framebaker-theme");
+        } catch (e) {}
+        if (t !== "light" && t !== "dark") {
+          t =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>
