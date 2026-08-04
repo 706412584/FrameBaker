@@ -1,0 +1,111 @@
+import { useEffect, useState } from "react";
+import { ImagePlus, X } from "lucide-react";
+import { api, frameImageUrl, materialImageUrl, type Frame, type Material } from "../api";
+import IconBtn from "./IconBtn";
+
+export interface ReferenceSelection {
+  kind: "material" | "frame";
+  id: string;
+}
+
+interface Props {
+  value: ReferenceSelection | null;
+  onChange: (v: ReferenceSelection | null) => void;
+  /** 是否显示「项目帧」来源 Tab（仅项目编辑器的 ImportModal 为 true） */
+  showFrames: boolean;
+  /** showFrames=true 时用于拉取项目帧 */
+  projectId?: string;
+}
+
+/**
+ * CLI 生成的引用图选择器：素材库 / 项目帧（可选）两个来源，网格单选。
+ * 选中显示缩略图 + 清除按钮。
+ */
+export default function ReferencePicker({ value, onChange, showFrames, projectId }: Props) {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"materials" | "frames">("materials");
+  const [mats, setMats] = useState<Material[] | null>(null);
+  const [frames, setFrames] = useState<Frame[] | null>(null);
+  const [v] = useState(() => Date.now());
+
+  // 展开时按 Tab 懒加载
+  useEffect(() => {
+    if (!open) return;
+    if (tab === "materials" && mats === null) {
+      api.listMaterials().then(setMats).catch((e) => alert(`加载素材库失败: ${e.message}`));
+    }
+    if (tab === "frames" && frames === null && projectId) {
+      api.getFrames(projectId).then(setFrames).catch((e) => alert(`加载项目帧失败: ${e.message}`));
+    }
+  }, [open, tab, mats, frames, projectId]);
+
+  const pick = (sel: ReferenceSelection) => {
+    onChange(sel);
+    setOpen(false);
+  };
+
+  const thumb =
+    value == null ? null : value.kind === "material" ? materialImageUrl(value.id, v) : frameImageUrl(value.id, v);
+
+  return (
+    <div className="form-row">
+      <label>引用图片（可选，模板占位符 {"{reference}"}）</label>
+      {value == null ? (
+        <div className="file-drop" onClick={() => setOpen((o) => !o)}>
+          <span className="ref-empty">
+            <ImagePlus size={16} /> 选择引用图
+          </span>
+        </div>
+      ) : (
+        <div className="ref-selected">
+          <img src={thumb!} alt="引用图" draggable={false} />
+          <span className="ref-kind">{value.kind === "material" ? "素材" : "项目帧"}</span>
+          <IconBtn title="清除引用图" onClick={() => onChange(null)}>
+            <X size={14} />
+          </IconBtn>
+        </div>
+      )}
+
+      {open && value == null && (
+        <div className="ref-panel">
+          <div className="import-tabs">
+            <button type="button" className={`tab ${tab === "materials" ? "active" : ""}`} onClick={() => setTab("materials")}>
+              素材库
+            </button>
+            {showFrames && (
+              <button type="button" className={`tab ${tab === "frames" ? "active" : ""}`} onClick={() => setTab("frames")}>
+                项目帧
+              </button>
+            )}
+          </div>
+          <div className="mat-pick-grid ref-grid">
+            {tab === "materials" ? (
+              mats === null ? (
+                <div className="empty">加载中…</div>
+              ) : mats.length === 0 ? (
+                <div className="empty">素材库为空</div>
+              ) : (
+                mats.map((m) => (
+                  <div key={m.id} className="mat-pick" title={m.name} onClick={() => pick({ kind: "material", id: m.id })}>
+                    <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
+                    <span className={`mat-dot ${m.status}`} />
+                  </div>
+                ))
+              )
+            ) : frames === null ? (
+              <div className="empty">加载中…</div>
+            ) : frames.length === 0 ? (
+              <div className="empty">项目还没有帧</div>
+            ) : (
+              frames.map((f, i) => (
+                <div key={f.id} className="mat-pick" title={`#${i + 1}`} onClick={() => pick({ kind: "frame", id: f.id })}>
+                  <img src={frameImageUrl(f.id, v)} alt="" draggable={false} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
