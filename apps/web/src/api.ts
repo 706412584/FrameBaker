@@ -4,6 +4,7 @@ import type {
   FramePatch,
   FrameResponse,
   FramesResponse,
+  DoctorResponse,
   Job,
   JobCreatedResponse,
   JobResponse,
@@ -15,6 +16,8 @@ import type {
   Project,
   ProjectResponse,
   ProjectsResponse,
+  ProviderTestRequest,
+  ProviderTestResponse,
   ServerConfig,
   WSMessage,
 } from "@framebaker/shared";
@@ -36,13 +39,15 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-/** CLI 生成请求体（引用图二选一，服务端按 id 解析路径防注入） */
+/** CLI 生成请求体（引用图二选一，服务端按 id 解析路径防注入；providerId/model 生成时选择） */
 interface GenerateBody {
   prompt: string;
   count: number;
   autoMatting?: boolean;
   referenceMaterialId?: string;
   referenceFrameId?: string;
+  providerId?: string;
+  model?: string;
 }
 
 export const api = {
@@ -71,6 +76,9 @@ export const api = {
     req<JobCreatedResponse>("/api/import/generate", { method: "POST", ...json(body) }),
   getJob: (id: string) => req<JobResponse>(`/api/jobs/${id}`).then((r) => r.job),
   getConfig: () => req<ServerConfig>("/api/config"),
+  getDoctor: () => req<DoctorResponse>("/api/doctor"),
+  testProvider: (body: ProviderTestRequest) =>
+    req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),
@@ -86,6 +94,14 @@ export const api = {
   matteMaterial: (id: string) =>
     req<MaterialResponse & { warning: string | null }>(`/api/materials/${id}/matting`, { method: "POST" }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
+  batchMatteMaterials: (ids: string[]) =>
+    req<OkResponse & { count: number }>("/api/materials/batch-matting", { method: "POST", ...json({ ids }) }),
+  replaceMaterialImage: (id: string, file: Blob, slot: "raw" | "processed") => {
+    const fd = new FormData();
+    fd.append("file", file, "crop.png");
+    fd.append("slot", slot);
+    return req<MaterialResponse>(`/api/materials/${id}/replace-image`, { method: "POST", body: fd });
+  },
   importMaterial: (id: string, projectId: string, count = 1) =>
     req<OkResponse & { count: number }>(`/api/materials/${id}/import`, {
       method: "POST",
