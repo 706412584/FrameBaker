@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Texture, type FederatedPointerEvent } from "pixi.js";
 import { frameImageUrl, type Frame, type FramePatch } from "../api";
 import { canvasColors, useTheme } from "../theme";
@@ -14,6 +14,8 @@ interface Props {
   onion: boolean;
   /** 受控网格开关 */
   showGrid: boolean;
+  /** 播放模式：隐藏洋葱皮与网格、禁用拖拽，主精灵由外部按游标换帧 */
+  playing: boolean;
   onPatch: (id: string, patch: FramePatch) => void;
   /** 点击画布空白处（未命中当前帧精灵）时触发，用于清空多选 */
   onCanvasBlank: () => void;
@@ -28,8 +30,8 @@ interface PixiCtx {
   nextS: Sprite;
 }
 
-/** PixiJS 帧画布：拖拽改 offset、洋葱皮、网格、受控缩放（工具栏见 CanvasToolbar） */
-export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGrid, onPatch, onCanvasBlank }: Props) {
+/** PixiJS 帧画布：拖拽改 offset、洋葱皮、网格、受控缩放（工具栏见 CanvasToolbar）；playing 时在画布内播放 */
+export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGrid, playing, onPatch, onCanvasBlank }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const pixi = useRef<PixiCtx | null>(null);
   const [ready, setReady] = useState(false);
@@ -44,6 +46,36 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   onionRef.current = onion;
   const onCanvasBlankRef = useRef(onCanvasBlank);
   onCanvasBlankRef.current = onCanvasBlank;
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
+
+  // 适配缩放（fit-to-view）：让帧完整收进可视画布区域——只缩小不放大
+  // （小图 100% 保持 1:1 像素；大图收进画布，底部不再被裁掉）
+  // 按精灵"实际占用范围"计算：半宽 = 贴图半宽×scale + |offset_x|（半高同理），
+  // 这样带 offset 的帧也整体收进可视区、以画布中心为基准呈现
+  const [fitScale, setFitScale] = useState(1);
+  const updateFit = useCallback(() => {
+    const p = pixi.current;
+    if (!p) return;
+    const f = frameRef.current;
+    const tex = p.main.texture;
+    if (!f || !tex || tex === Texture.EMPTY || tex.width === 0 || tex.height === 0) {
+      setFitScale(1);
+      return;
+    }
+    // 可视区域 = canvas 本身（与时间轴是 flex 兄弟，无覆盖），留 10% 边距
+    const aw = p.app.screen.width * 0.9;
+    const ah = p.app.screen.height * 0.9;
+    const halfW = (tex.width / 2) * f.scale + Math.abs(f.offset_x);
+    const halfH = (tex.height / 2) * f.scale + Math.abs(f.offset_y);
+    if (halfW === 0 || halfH === 0) {
+      setFitScale(1);
+      return;
+    }
+    setFitScale(Math.min(1, aw / (2 * halfW), ah / (2 * halfH)));
+  }, []);
+  const updateFitRef = useRef(updateFit);
+  updateFitRef.current = updateFit;
 
   // ---- 初始化 Pixi（处理卸载竞态）----
   useEffect(() => {
@@ -77,10 +109,12 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       nextS.eventMode = "none";
       viewport.addChild(grid, prevS, nextS, main);
 
-      // viewport 居中，并随 resize 保持（resizeTo 由 ResizeObserver 驱动，布局分隔条拖动也会触发）
+      // viewport 定位到可视画布中心，并随 resize 保持（resizeTo 由 ResizeObserver 驱动，布局分隔条拖动也会触发）
+      // 同步重算适配缩放
       const center = () => {
         viewport.position.set(app.screen.width / 2, app.screen.height / 2);
         app.stage.hitArea = app.screen;
+        updateFitRef.current();
       };
       app.renderer.on("resize", center);
       app.stage.eventMode = "static";
@@ -91,6 +125,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       main.eventMode = "static";
       main.cursor = "grab";
       main.on("pointerdown", (e: FederatedPointerEvent) => {
+        if (playingRef.current) return; // 播放中禁用拖拽
         const p = viewport.toLocal(e.global);
         drag = { startX: p.x, startY: p.y, baseX: main.x, baseY: main.y };
         main.cursor = "grabbing";
@@ -152,6 +187,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
         return;
       }
       try {
+        // 图片 URL 带 .png 后缀（服务端双路由别名），Assets 按扩展名命中 texture parser
         const tex: Texture = await Assets.load(frameImageUrl(f.id, v));
         if (dead) return;
         tex.source.scaleMode = "nearest"; // 像素风：最近邻缩放
@@ -163,13 +199,17 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       }
     };
 
-    loadInto(p.main, frame, true);
+    // 主帧加载完成后按新贴图尺寸重算适配缩放（切换帧时视图回到居中适配状态）
+    (async () => {
+      await loadInto(p.main, frame, true);
+      if (!dead) updateFit();
+    })();
     loadInto(p.prevS, prev, false);
     loadInto(p.nextS, next, false);
     return () => {
       dead = true;
     };
-  }, [frame, prev, next, v, ready]);
+  }, [frame, prev, next, v, ready, updateFit]);
 
   // ---- 帧属性变化时同步主精灵变换（拖拽中 frame 不变，不干扰）----
   useEffect(() => {
@@ -181,18 +221,19 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
     p.main.alpha = frame.opacity;
   }, [frame, ready]);
 
-  // ---- 洋葱皮开关（受控 prop）----
+  // ---- 洋葱皮开关（受控 prop；播放时强制隐藏）----
   useEffect(() => {
     const p = pixi.current;
     if (!p) return;
-    p.prevS.visible = onion && prev != null && p.prevS.texture !== Texture.EMPTY;
-    p.nextS.visible = onion && next != null && p.nextS.texture !== Texture.EMPTY;
-  }, [onion, prev, next, ready]);
+    const show = onion && !playing;
+    p.prevS.visible = show && prev != null && p.prevS.texture !== Texture.EMPTY;
+    p.nextS.visible = show && next != null && p.nextS.texture !== Texture.EMPTY;
+  }, [onion, playing, prev, next, ready]);
 
-  // ---- 缩放（受控 prop）----
+  // ---- 缩放（受控 prop）× 适配缩放（fit）：viewport 整体缩放 = zoom * fitScale ----
   useEffect(() => {
-    pixi.current?.viewport.scale.set(zoom);
-  }, [zoom, ready]);
+    pixi.current?.viewport.scale.set(zoom * fitScale);
+  }, [zoom, fitScale, ready]);
 
   // ---- 主题切换：画布背景跟随 CSS 变量 ----
   useEffect(() => {
@@ -207,7 +248,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
     if (!p) return;
     const g = p.grid;
     g.clear();
-    if (!showGrid) return;
+    if (!showGrid || playing) return; // 播放时隐藏网格
     const colors = canvasColors();
     const step = 32;
     const half = 640;
@@ -217,7 +258,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
     // 中心十字
     g.moveTo(-half, 0).lineTo(half, 0).moveTo(0, -half).lineTo(0, half);
     g.stroke({ color: colors.cross, width: 1, alpha: 0.7 });
-  }, [showGrid, ready, theme]);
+  }, [showGrid, playing, ready, theme]);
 
   return (
     <div className="pixi-wrap" ref={wrapRef}>

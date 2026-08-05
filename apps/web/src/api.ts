@@ -97,13 +97,13 @@ export const api = {
     req<OkResponse & { count: number }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId }) }),
 };
 
-/** 帧图片 URL，v 变化可破缓存 */
+/** 帧图片 URL（.png 后缀：Pixi Assets 按扩展名命中 texture parser；v 变化可破缓存） */
 export const frameImageUrl = (id: string, v?: number) =>
-  `/api/frames/${id}/image?type=processed${v ? `&v=${v}` : ""}`;
+  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}`;
 
 /** 素材图片 URL；type=raw 强制原图，默认 processed（缺失时服务端回退 raw） */
 export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed") =>
-  `/api/materials/${id}/image?type=${type}${v ? `&v=${v}` : ""}`;
+  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}`;
 
 // ---- WS 客户端：断线 3s 重连 ----
 type Listener = (msg: WSMessage) => void;

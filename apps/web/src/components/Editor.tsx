@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Download, Play, Upload } from "lucide-react";
-import { api, wsClient, type Frame, type FramePatch, type Project } from "../api";
+import { Assets } from "pixi.js";
+import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
 import FrameList from "./FrameList";
 import FrameEditor from "./FrameEditor";
 import Timeline from "./Timeline";
 import ImportModal from "./ImportModal";
-import PreviewPlayer from "./PreviewPlayer";
+import PlaybackBar from "./PlaybackBar";
 import BatchBar from "./BatchBar";
 import CanvasToolbar from "./CanvasToolbar";
 import SplitDivider from "./SplitDivider";
@@ -34,7 +35,13 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [frames, setFrames] = useState<Frame[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  // 播放预览：就在 Pixi 画布内播放（不换容器）。showPreview=播放模式，paused=暂停
   const [showPreview, setShowPreview] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [fps, setFps] = useState(8);
+  const [cursor, setCursor] = useState(0);
+  const playTick = useRef(0);
+  const shellRef = useRef<HTMLDivElement>(null);
   // 画布工具栏状态（上提到 Editor：编辑/预览两种模式共用一份，切换不丢）
   const [zoom, setZoom] = useState(1);
   const [onion, setOnion] = useState(true);
@@ -189,6 +196,71 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     [frames, activeId]
   );
 
+  // ---- 播放预览（在 Pixi 画布内播放，不换容器）----
+  const togglePlayback = useCallback(() => {
+    if (!showPreview) {
+      // 从当前编辑帧开始播
+      const idx = frames.findIndex((f) => f.id === activeId);
+      setCursor(idx >= 0 ? idx : 0);
+      playTick.current = 0;
+      setPaused(false);
+    }
+    setShowPreview((s) => !s);
+  }, [showPreview, frames, activeId]);
+
+  // 深链/测试钩子：?autoplay=1 进入项目后自动开始播放
+  const autoPlayed = useRef(false);
+  useEffect(() => {
+    if (autoPlayed.current || frames.length === 0) return;
+    if (new URLSearchParams(location.search).has("autoplay")) {
+      autoPlayed.current = true;
+      togglePlayback();
+    }
+  }, [frames, togglePlayback]);
+
+  // 播放计时器：按 fps tick 推进，每帧停留 duration 个 tick
+  useEffect(() => {
+    if (!showPreview || paused || frames.length === 0) return;
+    const id = setInterval(() => {
+      playTick.current += 1;
+      const dur = Math.max(1, frames[cursor]?.duration ?? 1);
+      if (playTick.current >= dur) {
+        playTick.current = 0;
+        setCursor((c) => (c + 1) % frames.length);
+      }
+    }, 1000 / fps);
+    return () => clearInterval(id);
+  }, [showPreview, paused, fps, frames, cursor]);
+
+  // 帧数变化时防止游标越界
+  useEffect(() => {
+    if (cursor >= frames.length) {
+      setCursor(0);
+      playTick.current = 0;
+    }
+  }, [frames.length, cursor]);
+
+  // 进入播放时预载全部帧贴图：切换只换 sprite.texture，零闪烁
+  useEffect(() => {
+    if (!showPreview) return;
+    for (const f of frames) {
+      Assets.load(frameImageUrl(f.id, v)).catch(() => null);
+    }
+  }, [showPreview, frames, v]);
+
+  // 播放中 Cmd/Ctrl+滚轮缩放（作用于 Pixi viewport，原生监听好 preventDefault）
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el || !showPreview) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? 1.25 : 1 / 1.25);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [showPreview, zoomBy]);
+
   // Esc 清空多选（导入弹窗打开时不抢按键）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -244,6 +316,8 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const active = activeIndex >= 0 ? frames[activeIndex] : null;
   const prev = activeIndex > 0 ? frames[activeIndex - 1] : null;
   const next = activeIndex >= 0 && activeIndex < frames.length - 1 ? frames[activeIndex + 1] : null;
+  // 播放时画布显示游标帧，停止回到当前编辑帧
+  const displayFrame = showPreview ? (frames[cursor] ?? null) : active;
 
   return (
     <div className="editor">
@@ -261,7 +335,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           type="button"
           whileTap={{ scale: 0.95 }}
           className={`px-btn ${showPreview ? "accent-cyan" : ""}`}
-          onClick={() => setShowPreview((s) => !s)}
+          onClick={togglePlayback}
         >
           <Play size={14} /> 播放预览
         </motion.button>
@@ -307,21 +381,34 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onReplace={onReplace}
               onPatch={patchFrame}
             />
-            {showPreview ? (
-              <PreviewPlayer frames={frames} v={v} zoom={zoom} onZoomBy={zoomBy} />
-            ) : (
+            {/* 播放就在 Pixi 画布内：FrameEditor 常驻不卸载，悬浮播放条覆盖在画布框内底部 */}
+            <div className="stage-shell" ref={shellRef}>
               <FrameEditor
-                frame={active}
+                frame={displayFrame}
                 prev={prev}
                 next={next}
                 v={v}
                 zoom={zoom}
                 onion={onion}
                 showGrid={showGrid}
+                playing={showPreview}
                 onPatch={patchFrame}
                 onCanvasBlank={clearSelection}
               />
-            )}
+              <AnimatePresence>
+                {showPreview && (
+                  <PlaybackBar
+                    fps={fps}
+                    paused={paused}
+                    cursor={cursor}
+                    total={frames.length}
+                    zoom={zoom}
+                    onTogglePause={() => setPaused((p) => !p)}
+                    onFpsChange={setFps}
+                  />
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </div>

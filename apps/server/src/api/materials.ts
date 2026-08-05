@@ -46,23 +46,35 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   return frameId;
 }
 
+/** 素材图片流式返回，processed 缺失回退 raw */
+const materialImageHandler = ({
+  params,
+  query,
+  status,
+}: {
+  params: { id: string };
+  query: { type?: string };
+  status: (code: number, msg: string) => unknown;
+}) => {
+  const m = getMaterial(params.id);
+  if (!m) return status(404, "素材不存在");
+  let path: string | null = query.type === "raw" ? m.raw_path : m.processed_path;
+  if (!path || !existsSync(path)) path = m.raw_path;
+  if (!path || !existsSync(path)) return status(404, "图片文件不存在");
+  return new Response(Bun.file(path), {
+    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+  });
+};
+
 export const materialsApi = new Elysia({ prefix: "/api" })
   // 素材列表（按创建时间倒序）
   .get("/materials", () => {
     const rows = db.query("SELECT * FROM materials ORDER BY created_at DESC").all() as MaterialRow[];
     return { materials: rows.map(serializeMaterial) };
   })
-  // 素材图片，processed 缺失回退 raw
-  .get("/materials/:id/image", ({ params, query, status }) => {
-    const m = getMaterial(params.id);
-    if (!m) return status(404, "素材不存在");
-    let path: string | null = query.type === "raw" ? m.raw_path : m.processed_path;
-    if (!path || !existsSync(path)) path = m.raw_path;
-    if (!path || !existsSync(path)) return status(404, "图片文件不存在");
-    return new Response(Bun.file(path), {
-      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
-    });
-  })
+  // 素材图片，processed 缺失回退 raw（.png 后缀别名：让 Pixi Assets 按扩展名命中 parser）
+  .get("/materials/:id/image", materialImageHandler)
+  .get("/materials/:id/image.png", materialImageHandler)
   // 上传素材：单图 → 直接入库；GIF/MP4 → 队列拆帧，每帧一个素材
   .post(
     "/materials/upload",

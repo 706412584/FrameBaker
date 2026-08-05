@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
+import { Crosshair, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
 import type { Frame, FramePatch } from "../api";
 import IconBtn from "./IconBtn";
 
@@ -93,6 +93,14 @@ export default function CanvasToolbar({
         title={editOnly("关键帧")}
       >
         <Star size={15} />
+      </IconBtn>
+      {/* 回中：把当前帧 offset 归零（编辑模式专用） */}
+      <IconBtn
+        disabled={!editMode || !frame || (frame.offset_x === 0 && frame.offset_y === 0)}
+        onClick={() => frame && onPatch(frame.id, { offset_x: 0, offset_y: 0 })}
+        title={editOnly("回到画布中心")}
+      >
+        <Crosshair size={15} />
       </IconBtn>
       <input
         ref={fileRef}

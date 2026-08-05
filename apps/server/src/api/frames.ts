@@ -17,23 +17,35 @@ const patchSchema = t.Partial(
   })
 );
 
+/** 帧图片流式返回，processed 缺失时回退 raw */
+const frameImageHandler = ({
+  params,
+  query,
+  status,
+}: {
+  params: { id: string };
+  query: { type?: string };
+  status: (code: number, msg: string) => unknown;
+}) => {
+  const frame = getFrame(params.id);
+  if (!frame) return status(404, "帧不存在");
+  let path: string | null = query.type === "raw" ? frame.raw_path : frame.processed_path;
+  if (!path || !existsSync(path)) path = frame.raw_path;
+  if (!path || !existsSync(path)) return status(404, "图片文件不存在");
+  return new Response(Bun.file(path), {
+    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+  });
+};
+
 export const framesApi = new Elysia({ prefix: "/api" })
   // 项目帧列表，按 idx 排序
   .get("/projects/:id/frames", ({ params }) => {
     const rows = db.query("SELECT * FROM frames WHERE project_id = ? ORDER BY idx").all(params.id) as any[];
     return { frames: rows.map(serializeFrame) };
   })
-  // 帧图片流式返回，processed 缺失时回退 raw
-  .get("/frames/:id/image", ({ params, query, status }) => {
-    const frame = getFrame(params.id);
-    if (!frame) return status(404, "帧不存在");
-    let path: string | null = query.type === "raw" ? frame.raw_path : frame.processed_path;
-    if (!path || !existsSync(path)) path = frame.raw_path;
-    if (!path || !existsSync(path)) return status(404, "图片文件不存在");
-    return new Response(Bun.file(path), {
-      headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
-    });
-  })
+  // 帧图片流式返回，processed 缺失时回退 raw（.png 后缀别名：让 Pixi Assets 按扩展名命中 parser）
+  .get("/frames/:id/image", frameImageHandler)
+  .get("/frames/:id/image.png", frameImageHandler)
   // 更新帧属性
   .patch(
     "/frames/:id",
