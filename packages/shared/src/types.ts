@@ -19,6 +19,59 @@ export type MaterialStatus = (typeof MATERIAL_STATUSES)[number];
 export const MATTING_ENGINES = ["custom-cli", "rembg-bundled", "rembg-path", "none"] as const;
 export type MattingEngine = (typeof MATTING_ENGINES)[number];
 
+/** rembg 常用模型（设置页 datalist 建议项，仍可自由输入任意模型名） */
+export const REMBG_MODELS = [
+  "u2net",
+  "u2netp",
+  "u2net_human_seg",
+  "isnet-general-use",
+  "isnet-anime",
+  "birefnet-general",
+  "birefnet-portrait",
+] as const;
+
+/** 生成 provider 类型：CLI 模板 / OpenAI 兼容 API */
+export const GEN_PROVIDER_TYPES = ["cli", "api"] as const;
+export type GenProviderType = (typeof GEN_PROVIDER_TYPES)[number];
+
+/**
+ * 一个生成 provider（存 settings 表 key=genProviders 的数组元素）。
+ * CLI 与 API 可配置多个共存；生成时按 id 选择，模型在生成时单独指定
+ */
+export interface GenProvider {
+  id: string;
+  name: string;
+  type: GenProviderType;
+  /** type=cli：命令模板，占位符 {prompt} {output} {index} {reference} {model} */
+  cliTemplate: string;
+  /** type=api：OpenAI 兼容接口，POST {apiBaseUrl}/images/generations */
+  apiBaseUrl: string;
+  apiKey: string;
+  /** type=api：可用模型列表（生成弹窗下拉选项） */
+  apiModels: string[];
+  /** 如 1024x1024，留空则不传 size */
+  apiSize: string;
+}
+
+/** GET /api/config 下发的 provider 摘要（不含 apiKey） */
+export interface GenProviderInfo {
+  id: string;
+  name: string;
+  type: GenProviderType;
+  /** api 可用模型；cli 恒为空数组 */
+  models: string[];
+  /** 关键字段是否齐备（cli=模板非空；api=baseUrl/key 齐全） */
+  configured: boolean;
+}
+
+/** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量） */
+export interface MattingSettings {
+  /** 自定义抠图 CLI 模板，占位符 {input} {output}，可选 {model}；留空走自动探测 */
+  cliTemplate: string;
+  /** rembg 模型名，留空用 env / 默认 u2net */
+  model: string;
+}
+
 /** GET /api/config 响应 */
 export interface ServerConfig {
   matting: {
@@ -26,8 +79,42 @@ export interface ServerConfig {
     model: string;
     /** engine=none 时给用户的安装提示 */
     hint: string | null;
+    /** 当前模型是否已缓存到 storage/models（未缓存则首次抠图会自动下载） */
+    modelCached: boolean;
   };
-  genCliConfigured: boolean;
+  gen: {
+    /** 全部已配置 provider（不含 apiKey）；生成时按 id 选择 */
+    providers: GenProviderInfo[];
+  };
+}
+
+/** GET /api/doctor 单项检查 */
+export interface DoctorCheck {
+  id: string;
+  ok: boolean;
+  label: string;
+  detail: string;
+}
+
+export interface DoctorResponse {
+  checks: DoctorCheck[];
+}
+
+/** POST /api/provider/test 请求（用表单当前值测试，不要求已保存） */
+export interface ProviderTestRequest {
+  apiBaseUrl: string;
+  apiKey: string;
+  apiModel?: string;
+}
+
+/** POST /api/provider/test 响应：连通性 + 延迟 + 模型是否在列表中 */
+export interface ProviderTestResponse {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  /** true=模型在 /models 列表中；false=不在；undefined=响应非标准模型列表 */
+  modelsFound?: boolean;
+  error?: string;
 }
 
 /** WS 广播消息类型 */
@@ -48,7 +135,7 @@ export const WS_EVENTS = [
 export type WSEventType = (typeof WS_EVENTS)[number];
 
 /** 服务端 settings 表白名单 key（PUT /api/settings/:key 校验用） */
-export const SETTING_KEYS = ["layout", "theme"] as const;
+export const SETTING_KEYS = ["layout", "theme", "genProviders", "matting"] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 export interface WSMessage<T = unknown> {

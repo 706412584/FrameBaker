@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob } from "../queue";
@@ -141,6 +141,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           autoMatting: body.autoMatting ?? false,
           target: { kind: "materials" },
           referencePath: ref.referencePath,
+          providerId: body.providerId,
+          model: body.model,
         },
       });
       return { jobId };
@@ -152,6 +154,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         autoMatting: t.Optional(t.Boolean()),
         referenceMaterialId: t.Optional(t.String()),
         referenceFrameId: t.Optional(t.String()),
+        providerId: t.Optional(t.String()),
+        model: t.Optional(t.String()),
       }),
     }
   )
@@ -166,6 +170,49 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       return status(500, (e as Error).message);
     }
   })
+  // 批量抠图：选中的素材逐个入队（不是所有图都需要加工，按需触发）
+  .post(
+    "/materials/batch-matting",
+    ({ body }) => {
+      let count = 0;
+      for (const id of body.ids) {
+        const m = getMaterial(id);
+        if (!m || !m.raw_path || !existsSync(m.raw_path)) continue;
+        createJob("", "matting", { matting: { target: "material", id } });
+        count++;
+      }
+      return { ok: true, count };
+    },
+    { body: t.Object({ ids: t.Array(t.String()) }) }
+  )
+  // 替换图片（剪裁工具产出）：slot=raw 覆盖原图；slot=processed 覆盖/建立抠图结果
+  .post(
+    "/materials/:id/replace-image",
+    async ({ params, body, status }) => {
+      const m = getMaterial(params.id);
+      if (!m) return status(404, "素材不存在");
+      let target: string;
+      if (body.slot === "raw") {
+        if (!m.raw_path) return status(400, "素材缺少 raw 文件");
+        target = m.raw_path;
+      } else {
+        target = m.processed_path ?? join(STORAGE_ROOT, "materials", params.id, "processed.png");
+      }
+      mkdirSync(dirname(target), { recursive: true });
+      await Bun.write(target, Buffer.from(await body.file.arrayBuffer()));
+      if (body.slot === "processed" && (m.status !== "matted" || m.processed_path !== target)) {
+        db.query("UPDATE materials SET status = 'matted', processed_path = ? WHERE id = ?").run(target, params.id);
+      }
+      broadcast("material_updated", { id: params.id });
+      return { material: serializeMaterial(getMaterial(params.id)!) };
+    },
+    {
+      body: t.Object({
+        file: t.File(),
+        slot: t.Union([t.Literal("raw"), t.Literal("processed")]),
+      }),
+    }
+  )
   // 还原原图：删除 processed
   .post("/materials/:id/unmatting", ({ params, status }) => {
     const m = getMaterial(params.id);

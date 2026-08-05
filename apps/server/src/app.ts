@@ -1,23 +1,68 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { join } from "node:path";
 import type { ServerConfig } from "@framebaker/shared";
 import { db } from "./db";
-import { mattingInfo } from "./jobs/matting";
+import { getMattingInfo } from "./jobs/matting";
+import { getGenProviders, providerConfigured } from "./provider";
+import { isModelCached, runDoctor, testApiProvider } from "./doctor";
 import { projectsApi } from "./api/projects";
 import { framesApi } from "./api/frames";
 import { importApi } from "./api/import";
 import { materialsApi } from "./api/materials";
 import { settingsApi } from "./api/settings";
 
+// imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
+let imageOpsWorkerCode: string | null = null;
+
+async function buildImageOpsWorker(): Promise<string> {
+  if (imageOpsWorkerCode && process.env.NODE_ENV === "production") return imageOpsWorkerCode;
+  const result = await Bun.build({
+    entrypoints: [join(import.meta.dir, "..", "..", "web", "src", "imageops", "imageOps.worker.ts")],
+    target: "browser",
+    format: "esm",
+  });
+  if (!result.success) throw new Error(result.logs.map((l) => String(l)).join("\n"));
+  imageOpsWorkerCode = await result.outputs[0].text();
+  return imageOpsWorkerCode;
+}
+
 export const app = new Elysia()
   .get("/api/health", () => ({ ok: true, name: "FrameBaker" }))
-  // 服务端能力探测（抠图引擎、生成 CLI 配置状态）
+  // 服务端能力探测（抠图引擎、生成 provider 列表；每次实时解析，设置页改动即时生效）
   .get("/api/config", (): ServerConfig => {
+    const matting = getMattingInfo();
     return {
-      matting: { engine: mattingInfo.engine, model: mattingInfo.model, hint: mattingInfo.hint },
-      genCliConfigured: !!process.env.FRAMEBAKER_GEN_CLI?.trim(),
+      matting: {
+        engine: matting.engine,
+        model: matting.model,
+        hint: matting.hint,
+        modelCached: isModelCached(matting.model),
+      },
+      gen: {
+        providers: getGenProviders().map((p) => ({
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          models: p.apiModels,
+          configured: providerConfigured(p),
+        })),
+      },
     };
   })
+  // 体检：逐项检查存储 / ffmpeg / 抠图引擎与模型 / 生成 provider（API 方式含联通测试）
+  .get("/api/doctor", () => runDoctor())
+  // API provider 联通测试（用表单当前值，不要求已保存）：GET {baseUrl}/models + Bearer
+  .post(
+    "/api/provider/test",
+    ({ body }) => testApiProvider(body),
+    {
+      body: t.Object({
+        apiBaseUrl: t.String(),
+        apiKey: t.String(),
+        apiModel: t.Optional(t.String()),
+      }),
+    }
+  )
   // 任务状态查询（前端轮询兜底，WS 为主）
   .get("/api/jobs/:id", ({ params, status }) => {
     const job = db.query("SELECT * FROM jobs WHERE id = ?").get(params.id);
@@ -35,6 +80,17 @@ export const app = new Elysia()
         "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
+  })
+  // 图像处理 worker 脚本：Bun 的 HTML 打包不处理 new Worker(URL)，这里按需 Bun.build 后同源下发
+  .get("/imageops/imageOps.worker.js", async ({ status }) => {
+    try {
+      const code = await buildImageOpsWorker();
+      return new Response(code, {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" },
+      });
+    } catch (e) {
+      return status(500, `worker 构建失败: ${(e as Error).message}`);
+    }
   })
   .use(projectsApi)
   .use(framesApi)

@@ -2,10 +2,11 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MattingEngine } from "@framebaker/shared";
 import { db, getFrame, getMaterial, REPO_ROOT, STORAGE_ROOT } from "../db";
+import { getMattingSettings } from "../provider";
 import { broadcast } from "../ws";
 import { runCmd } from "./run";
 
-// ===== 抠图引擎探测（启动时探测一次；解析顺序见下）=====
+// ===== 抠图引擎探测（每次调用重新解析，设置页改动即时生效；解析顺序见下）=====
 
 export interface MattingInfo {
   engine: MattingEngine;
@@ -17,32 +18,27 @@ export interface MattingInfo {
 const BUNDLED_REMBG = join(REPO_ROOT, ".venv-matting", "bin", "rembg");
 const NO_ENGINE_HINT = "未安装抠图引擎，已原样复制：请先执行 scripts/setup_matting.sh";
 
-export function detectMatting(): MattingInfo {
-  const model = process.env.FRAMEBAKER_MATTING_MODEL?.trim() || "u2net";
-  if (process.env.FRAMEBAKER_MATTING_CLI?.trim()) return { engine: "custom-cli", model, hint: null };
+export function getMattingInfo(): MattingInfo {
+  const { cliTemplate, model } = getMattingSettings();
+  if (cliTemplate) return { engine: "custom-cli", model, hint: null };
   if (existsSync(BUNDLED_REMBG)) return { engine: "rembg-bundled", model, hint: null };
   if (Bun.which("rembg")) return { engine: "rembg-path", model, hint: null };
   return { engine: "none", model, hint: NO_ENGINE_HINT };
 }
 
-/** 启动时探测一次（GET /api/config 与抠图执行共用） */
-export const mattingInfo: MattingInfo = detectMatting();
-
 /**
  * 抠图执行，解析顺序：
- * a. FRAMEBAKER_MATTING_CLI 模板（占位符 {input} {output}，可选 {model}）
+ * a. 自定义 CLI 模板（设置页 matting.cliTemplate，或 env FRAMEBAKER_MATTING_CLI；占位符 {input} {output}，可选 {model}）
  * b. <repo>/.venv-matting/bin/rembg（scripts/setup_matting.sh 安装）
  * c. PATH 中的 rembg
  * d. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
  */
 async function runMatting(input: string, output: string): Promise<string | null> {
-  const tpl = process.env.FRAMEBAKER_MATTING_CLI;
-  const model = mattingInfo.model;
+  const { cliTemplate, model } = getMattingSettings();
 
-  if (tpl && tpl.trim()) {
-    const argv = tpl
-      .trim()
+  if (cliTemplate) {
+    const argv = cliTemplate
       .split(/\s+/)
       .map((tok) =>
         tok.replaceAll("{input}", input).replaceAll("{output}", output).replaceAll("{model}", model)

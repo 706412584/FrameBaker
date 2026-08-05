@@ -67,6 +67,8 @@ export const importApi = new Elysia({ prefix: "/api" })
           autoMatting: body.autoMatting ?? false,
           target: { kind: "project", projectId: body.projectId },
           referencePath: ref.referencePath,
+          providerId: body.providerId,
+          model: body.model,
         },
       });
       return { jobId };
@@ -79,6 +81,8 @@ export const importApi = new Elysia({ prefix: "/api" })
         autoMatting: t.Optional(t.Boolean()),
         referenceMaterialId: t.Optional(t.String()),
         referenceFrameId: t.Optional(t.String()),
+        providerId: t.Optional(t.String()),
+        model: t.Optional(t.String()),
       }),
     }
   );
