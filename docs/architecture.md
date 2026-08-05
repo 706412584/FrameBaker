@@ -5,29 +5,35 @@
 ```
                         ┌──────────────────────────────────────────────┐
                         │                浏览器（React 19）             │
-                        │  TopNav(项目/素材库)                          │
+                        │  TopNav(项目/素材库/设置)                      │
                         │  ProjectList   Editor ─ FrameEditor(PixiJS)  │
                         │  Timeline(DnD) PreviewPlayer   ImportModal   │
-                        │  MaterialsPage MaterialModal(对比滑杆)        │
+                        │  MaterialsPage MaterialModal(对比滑杆/剪裁)   │
+                        │  CropModal ─ imageops/（Web Worker 图像处理） │
                         │        │ fetch /api        │ WebSocket /ws   │
                         └────────┼───────────────────┼────────────────┘
                                  │                   │
 ┌────────────────────────────────▼───────────────────▼────────────────┐
 │                    Bun.serve（apps/server/src/index.ts）            │
-│  routes: "/" "/project/:id" "/materials" → HTML import 打包 apps/web│
+│  routes: "/" "/project/:id" "/materials" "/settings" → HTML import 打包 │
 │  fetch:  /ws → server.upgrade ──────► ws.ts（clients 集合广播）      │
 │          其余 → Elysia app（app.ts）                                │
 │                                                                     │
 │  Elysia /api                                                        │
 │   ├─ api/projects.ts   项目 CRUD                                    │
 │   ├─ api/frames.ts     帧查询/PATCH/替换/删除/复制/换序 + 图片流     │
-│   ├─ api/import.ts     上传拆帧 / CLI 生成 → 创建 job（项目帧）      │
-│   ├─ api/materials.ts  素材 CRUD/抠图/还原/导入项目/批量（素材库）   │
+│   ├─ api/import.ts     上传拆帧 / 生成 → 创建 job（项目帧）          │
+│   ├─ api/materials.ts  素材 CRUD/抠图/批量抠图/剪裁替换/导入项目     │
+│   ├─ api/settings.ts   settings 表读写（layout/theme/genProviders/  │
+│   │                    matting 白名单）                             │
 │   └─ /api/jobs/:id     任务状态查询（轮询兜底）                      │
 │                                                                     │
+│  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
+│  doctor.ts（体检 + API 联通测试：/api/doctor /api/provider/test）    │
 │  queue.ts（内存队列，并发 2；JobTarget = project | materials）      │
 │   ├─ jobs/extract.ts   extract_frames / generate_frames             │
-│   │                    └─ ffmpeg / FRAMEBAKER_GEN_CLI（jobs/run.ts）│
+│   │                    ├─ CLI 模板（jobs/run.ts）                    │
+│   │                    └─ OpenAI 兼容 API（jobs/generateApi.ts）     │
 │   └─ jobs/matting.ts   matting（frame | material；引擎探测见下）    │
 │                                                                     │
 │  db.ts（bun:sqlite，WAL）  ──  jobs/frames/projects/materials 四表  │
@@ -49,7 +55,7 @@
 | --- | --- | --- |
 | `@framebaker/server` | `apps/server` | Elysia API + 任务队列 + SQLite；同时经 Bun 全栈模式托管前端 |
 | `@framebaker/web` | `apps/web` | React 19 + PixiJS v8 前端，`index.html` 为打包入口，字体在 `public/fonts` |
-| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material`/`FramePatch`/枚举（FRAME_STATUSES、FRAME_SOURCES、JOB_TYPES、JOB_STATUSES、MATERIAL_STATUSES、WS_EVENTS）/ SOURCE_COLORS / API 响应类型 |
+| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material`/`FramePatch`/枚举（FRAME_STATUSES、FRAME_SOURCES、JOB_TYPES、JOB_STATUSES、MATERIAL_STATUSES、GEN_PROVIDER_TYPES、WS_EVENTS）/ SOURCE_COLORS / `GenProviderSettings` / `MattingSettings` / API 响应类型 |
 
 根 `tsconfig.base.json` 提供共享 compilerOptions（strict、moduleResolution: bundler、noEmit），各 app 的 `tsconfig.json` extends 后补自己的 lib/jsx/types。
 
@@ -60,8 +66,11 @@
 - **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复。所有状态变化经 `ws.ts` 广播。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。
 - **拆帧编号**：ffmpeg 先拆到 `staging/extract_<uuid>/frame_%04d.png`，再按 raw 目录现存最大编号续编搬入 `raw/frame_XXXX.png`，多次导入互不覆盖；`duplicate` 生成的 `dup_<uuid>.png` 不匹配该扫描规则，不会被误收。
-- **注入安全**：外部命令模板（FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，不经 shell，prompt 含空格也安全。
-- **抠图引擎探测**（`jobs/matting.ts`，启动时一次，`GET /api/config` 可查）：a. `FRAMEBAKER_MATTING_CLI` 模板（占位符 `{input}` `{output}` 可选 `{model}`）→ b. `<repo>/.venv-matting/bin/rembg`（`scripts/setup_matting.sh` 安装：python3 venv + `pip install "rembg[cli,cpu]"`）→ c. PATH 里的 `rembg` → d. passthrough 复制并在 job.progress / 响应 warning 里提示安装。rembg 调用为 `rembg i -m <MODEL> in out`，`FRAMEBAKER_MATTING_MODEL` 换模型（默认 u2net），模型缓存在 `storage/models`（spawn 时注入 `U2NET_HOME`）。前端上传/生成表单的「抠图去背」开关默认勾选，`GET /api/config` 驱动引擎状态显示。
+- **注入安全**：外部命令模板（生成 CLI / 抠图 CLI，来自设置页或 FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，不经 shell，prompt 含空格也安全。
+- **生成 provider 解析**（`provider.ts`，每次调用实时读 settings 表）：settings `genProviders` 列表模型——CLI / API 可配多个共存，列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底。生成请求按 `providerId` 选择（缺省第一个配置齐备的）；`type=cli` 走模板 argv（占位符含 `{model}`，由生成时输入填入）；`type=api` 走 `jobs/generateApi.ts`——OpenAI 兼容 `POST {apiBaseUrl}/images/generations`（Bearer key，模型取请求 `model` 缺省列表第一项，`data[0].b64_json` 或 `data[0].url` 取图，120s 超时），API 方式无引用图能力（选了引用图创建 job 时 400）。`GET /api/config` 下发 `gen.providers` 摘要（不含 apiKey）。
+- **体检与联通测试**（`doctor.ts`）：`GET /api/doctor` 逐项检查存储可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 查命令存在，API 实发 `GET /models` 联通测试）；`POST /api/provider/test` 用表单未保存的值单独测某个 API provider（8s 超时，401/403 判认证失败，标准模型列表时核对模型是否在列）。
+- **抠图引擎探测**（`jobs/matting.ts`，每次调用实时解析，`GET /api/config` 可查）：a. 自定义 CLI 模板（设置页 `matting.cliTemplate` 优先于 `FRAMEBAKER_MATTING_CLI`，占位符 `{input}` `{output}` 可选 `{model}`）→ b. `<repo>/.venv-matting/bin/rembg`（`scripts/setup_matting.sh` 安装：python3 venv + `pip install "rembg[cli,cpu]"`）→ c. PATH 里的 `rembg` → d. passthrough 复制并在 job.progress / 响应 warning 里提示安装。rembg 调用为 `rembg i -m <MODEL> in out`，模型名取 设置页 `matting.model` → `FRAMEBAKER_MATTING_MODEL` → 默认 u2net，模型缓存在 `storage/models`（spawn 时注入 `U2NET_HOME`）。前端上传/生成表单的「抠图去背」开关默认勾选，`GET /api/config` 驱动引擎状态显示。
+- **图像处理 worker**（`apps/web/src/imageops/`）：剪裁的解码 / 透明边包围盒扫描 / PNG 编码放 Web Worker（OffscreenCanvas）。Bun 的 HTML 打包不处理 `new Worker(new URL(...))`，worker 脚本由服务端路由 `GET /imageops/imageOps.worker.js` 按需 `Bun.build` 同源下发；`client.ts` 懒加载单例并在 worker 不可用/出错时自动降级主线程 canvas，纯计算（`ops.ts`）两侧共用。
 
 ## 数据流
 
@@ -102,11 +111,14 @@
 上传 GIF/MP4 → 同上入口 → staging 暂存 → extract_frames(target=materials)
   → ffmpeg 拆帧 → 每帧一个素材（name=原文件名 #i，source=gif/mp4）
 CLI 生成 → POST /api/materials/generate → generate_frames(target=materials)
-  → FRAMEBAKER_GEN_CLI 逐项产出 materials/<id>/raw.png（source=cli，metadata 存 prompt）
+  → 按 provider（CLI 模板 / OpenAI 兼容 API）逐项产出 materials/<id>/raw.png（source=cli，metadata 存 prompt 与 provider）
 抠图 → POST /api/materials/:id/matting（同步，rembg 秒级耗时，前端按钮显示"抠图中…"）
   → 引擎解析顺序见「关键设计」；成功产出 processed.png，status='matted'
   → 无引擎时 passthrough 复制并在响应 warning 字段说明
   → 前端对比滑杆查看 raw vs processed；POST /:id/unmatting 删除 processed 还原
+  → 选中多个素材可 POST /api/materials/batch-matting 批量入队（二次加工按需触发）
+剪裁 → CropModal（前端 worker 剪裁出 PNG blob）→ POST /api/materials/:id/replace-image
+  → 覆盖当前显示图对应槽位（processed ?? raw），广播 material_updated
 导入 → POST /api/materials/:id/import 或 /batch-import
   → 优先取 processed（否则 raw）复制为项目帧（raw/mat_<frameId>.png，
     mat_ 前缀避开拆帧扫描规则），idx 追加到项目末尾，source 沿用素材 source
@@ -136,22 +148,26 @@ storage/
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, metadata, created_at)`
-- `settings(key, value, updated_at)`：界面偏好（layout / theme），服务端权威持久化；前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
+- `settings(key, value, updated_at)`：界面偏好（layout / theme）与运行配置（genProvider / matting），服务端权威持久化；主题前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
 
 ## 前端页面与组件
 
-- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库（history.pushState + popstate）
-- `TopNav`：一级导航（项目 / 素材库）+ 主题切换（三态：跟随系统/浅色/深色）；编辑器页有自己的顶栏不显示
+- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/settings` 设置页（history.pushState + popstate）
+- `TopNav`：一级导航（项目 / 素材库 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）；编辑器页有自己的顶栏不显示
+- `SettingsPage`：生成 provider 列表管理（CLI / API 多个共存，增删改 + 保存 + API 测试连接）、抠图配置（CLI 模板 / 默认模型 datalist + 缓存状态）、体检（doctor 结果列表）
 - `ProjectList`：像素卡片网格（motion stagger 入场、hover 上浮）、新建/删除弹窗
-- `MaterialsPage`：素材库页——卡片网格（source 彩色徽标、抠图状态点、复选框 + Cmd/Shift 多选）、批量条（删除/导入项目/取消）、toast 提示
-- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、导入项目（选项目+复制帧数）、删除（二次确认）
-- `MaterialImportModal` / `ProjectPickerModal`：素材上传与 CLI 生成入口 / 项目选择弹窗
+- `MaterialsPage`：素材库页——卡片网格（source 彩色徽标、抠图状态点、复选框 + Cmd/Shift 多选）、批量条（删除/导入项目/批量抠图/取消）、toast 提示
+- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、导入项目（选项目+复制帧数）、删除（二次确认）
+- `MaterialImportModal` / `ProjectPickerModal`：素材上传与生成入口 / 项目选择弹窗；上传 Tab 选文件后询问「是否需要剪裁」（`useCropQueue` 逐张队列或单张重裁，仅静态图）；生成 Tab 用 `ProviderModelPicker` 选 provider + 模型
+- `ProviderModelPicker`：生成弹窗共用的 provider + 模型选择（`GET /api/config` 的 `gen.providers` 驱动；api=模型下拉/输入，cli=`{model}` 占位符值），`resolveProviderSelection` 在提交时解析缺省值
+- `CropModal` + `imageops/` + `hooks/useCropQueue`：像素图剪裁工具——整数像素框选（拖动/八向缩放/数字输入）、滚轮缩放、像素网格（zoom≥8）、自动框选非透明区域；重活走 Web Worker，失败降级主线程；两个导入弹窗与素材详情共用
 - `Editor`：状态中枢（frames/activeId/selectedIds/图片版本号 v），WS 订阅刷新；帧多选与批量操作（BatchBar）
 - `FrameList`：竖排帧列表，左边框色 = shared `SOURCE_COLORS[source]`（浅色主题 color-mix 加深）
 - `FrameEditor`：PixiJS `Application`（async init + cancelled 竞态处理）；viewport 居中缩放；主精灵拖拽改 offset；洋葱皮（prev 红 0.3 / next 蓝 0.2）；网格 Graphics；画布背景与网格色随主题（CSS 变量）；工具栏（替换/时长±/关键帧）
 - `Timeline`：HTML5 DnD 换序、关键帧星标、时长角标
 - `PreviewPlayer`：1–24 fps tick，每帧停留 duration 个 tick
-- `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程）；上传 Tab 多文件逐个分发；提交后轮询 `/api/jobs/:id`（WS 为主）
+- `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程）；上传 Tab 多文件逐个分发，选文件后同样询问「是否需要剪裁」（与素材导入共用 useCropQueue + CropModal）；提交后轮询 `/api/jobs/:id`（WS 为主）
 - `SplitDivider` + `layout.ts`：编辑器布局分隔条（帧列表宽度 180–480 默认 240、时间轴高度 80–320 默认 140），pointer capture 拖动、双击恢复默认、尺寸存 localStorage `framebaker-layout`；画布区依赖 Pixi `resizeTo`（ResizeObserver）自动跟随重绘
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）
+- `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗
 - `api.ts`：fetch 封装 + WS 客户端（断线 3s 重连）

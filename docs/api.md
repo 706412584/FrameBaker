@@ -131,14 +131,19 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 
 ```json
 // 请求
-{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "referenceFrameId": "…" }
+{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "referenceFrameId": "…" }
 // 响应
 { "jobId": "…" }
 ```
 
-逐帧调用 `FRAMEBAKER_GEN_CLI` 模板（占位符 `{prompt}` `{output}` `{index}` `{reference}`）。未配置该环境变量时任务置 `error` 并在 `error` 字段给出配置说明。`count` 1–16。
+provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个 CLI/API 共存；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。
 
-引用图（可选）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）替换 `{reference}` 占位符。前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
+- **CLI provider**：命令模板逐项执行，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（`{model}` 由请求的 `model` 字段填入）。
+- **API provider**：OpenAI 兼容接口 `POST {apiBaseUrl}/images/generations`（Bearer key，`{ model, prompt, size?, n: 1 }`，响应取 `data[0].b64_json` 或 `data[0].url` 下载）；模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。
+
+provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
+
+引用图（可选）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）替换 `{reference}` 占位符。前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / **API provider 下选了引用图**（images/generations 无引用图能力）/ CLI 下选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
 
 ## 素材库 /api/materials
 
@@ -175,11 +180,19 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }`（依赖 `FRAMEBAKER_GEN_CLI`，未配置时 job error 给出配置说明）。引用图规则与 `/api/import/generate` 一致（可选 `referenceMaterialId` / `referenceFrameId`，前置 400 校验）。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。引用图规则与 `/api/import/generate` 一致（可选 `referenceMaterialId` / `referenceFrameId`，前置 400 校验）。
 
 ### POST /api/materials/:id/matting
 
 同步执行抠图（rembg 为秒级耗时）：按 `GET /api/config` 的引擎解析顺序执行——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制。`status` 置 `matted`，响应 `{ "material": {…}, "warning": null }`（passthrough 时 `warning` 为安装提示文本），广播 `material_updated`。
+
+### POST /api/materials/batch-matting
+
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2 }`。选中素材的二次加工：逐个校验存在且有 raw 文件后入队抠图任务（`matting` job，队列并发 2），跳过无效 id。
+
+### POST /api/materials/:id/replace-image
+
+multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪裁工具的落盘端点：覆盖对应槽位文件；`slot=processed` 且尚无 processed 时建立之并置 `status=matted`，`slot=raw` 不影响已有 processed。响应 `{ "material": {…} }`，广播 `material_updated`。
 
 ### POST /api/materials/:id/unmatting
 
@@ -234,15 +247,15 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 | `frames_changed` | 导入完成 / 复制 / 删除 / 素材导入项目 |
 | `frames_reordered` | 换序 |
 | `project_deleted` | 删除项目 |
-| `material_updated` | 素材抠图完成 / 还原原图 |
+| `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
 | `materials_changed` | 素材上传 / 生成 / 批量删除 |
-| `settings_changed` | 界面偏好写入（layout / theme） |
+| `settings_changed` | 设置写入（layout / theme / genProvider / matting） |
 
 前端建议：收到 `frame_updated` / `frames_reordered` / `frames_changed` / `job_done` 后重拉帧列表，收到 `material_updated` / `materials_changed` 后重拉素材列表；断线 3s 重连。
 
 ## 界面偏好 /api/settings
 
-布局（编辑器面板尺寸）与主题模式等 UI 偏好持久化在服务端 `settings` 表（SQLite），换浏览器/重启不丢；前端以 localStorage 为首屏即时缓存，服务端不可达时静默降级。
+布局（编辑器面板尺寸）、主题模式、生成 provider、抠图配置等持久化在服务端 `settings` 表（SQLite），换浏览器/重启不丢；主题前端以 localStorage 为首屏即时缓存，服务端不可达时静默降级。
 
 ### GET /api/settings
 
@@ -251,14 +264,23 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 ```json
 {
   "layout": { "sidebarW": 260, "timelineH": 160 },
-  "theme": "dark"
+  "theme": "dark",
+  "genProviders": [
+    {
+      "id": "…", "name": "OpenAI", "type": "api",
+      "cliTemplate": "", "apiBaseUrl": "https://api.openai.com/v1", "apiKey": "sk-…",
+      "apiModels": ["gpt-image-1"], "apiSize": "1024x1024"
+    },
+    { "id": "…", "name": "本地 mygen", "type": "cli", "cliTemplate": "mygen --prompt \"{prompt}\" -o {output}", "apiBaseUrl": "", "apiKey": "", "apiModels": [], "apiSize": "" }
+  ],
+  "matting": { "cliTemplate": "", "model": "u2net" }
 }
 ```
 
 ### PUT /api/settings/:key
 
 ```json
-// 请求（key 白名单：layout、theme；其他 key 返回 400）
+// 请求（key 白名单：layout、theme、genProviders、matting；其他 key 返回 400）
 { "value": { "sidebarW": 260, "timelineH": 160 } }
 // 响应
 { "ok": true }
@@ -266,21 +288,33 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 `theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。写入后广播 `settings_changed` `{ key }`。
 
+`genProviders`：生成 provider 列表（CLI / API 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"`）/ `cliTemplate`（占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空）。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
+
+`matting`：`cliTemplate`（占位符 `{input}` `{output}`，可选 `{model}`）留空回退 `FRAMEBAKER_MATTING_CLI` / 自动探测；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
+
 ## 其他
 
 - `GET /api/health` → `{ "ok": true, "name": "FrameBaker" }`
-- `GET /api/config` → 服务端能力探测（启动时探测一次）：
+- `GET /api/config` → 服务端能力探测（每次请求实时解析，设置页改动即时生效）：
 
 ```json
 {
   "matting": {
     "engine": "rembg-bundled",
     "model": "u2net",
-    "hint": null
+    "hint": null,
+    "modelCached": true
   },
-  "genCliConfigured": false
+  "gen": {
+    "providers": [
+      { "id": "…", "name": "OpenAI", "type": "api", "models": ["gpt-image-1"], "configured": true }
+    ]
+  }
 }
 ```
 
-  `engine`：`custom-cli`（配置了 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（`FRAMEBAKER_MATTING_MODEL`，默认 `u2net`），模型缓存在 `storage/models`。
+  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备）。
+- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在，API 做联通测试）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
+- `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "apiBaseUrl", "apiKey", "apiModel?" }` → `GET {baseUrl}/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
+- `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）

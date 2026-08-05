@@ -32,14 +32,17 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 - 后端文件路径必须用 `db.ts` 导出的 `STORAGE_ROOT`（基于 import.meta.dir），禁止依赖 cwd 的相对路径。
 - 依赖最小化：不引入新依赖除非确有必要；拖拽用原生 HTML5 DnD，不装 dnd 库；不用 Vite / react-router / drizzle。
 - 外部命令（ffmpeg / 生成 CLI / 抠图 CLI）一律走 `apps/server/src/jobs/run.ts` 的 runCmd（Bun.spawn + stderr 捕获），命令模板按空白 split 后替换占位符，禁止拼 shell 字符串。
+- 生成/抠图的运行配置经 `apps/server/src/provider.ts` 解析：**settings 表（设置页）优先，环境变量兜底**，每次调用实时读取，不要缓存启动时值。生成 provider 是列表（settings key `genProviders`，CLI/API 可配多个共存），生成请求按 `providerId` 选择、模型单独指定（CLI 模板 `{model}` 占位符 / API 请求模型）；生成 API 调用走 `apps/server/src/jobs/generateApi.ts`（OpenAI 兼容 images/generations）。体检与联通测试在 `apps/server/src/doctor.ts`（`GET /api/doctor` / `POST /api/provider/test`）。
+- 前端图像重活（剪裁解码/透明边扫描/PNG 编码）走 `apps/web/src/imageops/` 的 Web Worker（OffscreenCanvas；脚本经服务端路由 `/imageops/imageOps.worker.js` 按需 Bun.build 下发，不要用 `new Worker(new URL(...))` —— Bun HTML 打包不处理），worker 不可用时自动降级主线程 canvas（纯计算在 `ops.ts`，两侧共用）；剪裁 UI 在 `components/CropModal.tsx`，导入弹窗的逐张剪裁队列在 `hooks/useCropQueue.ts`。
 - UI 文案与代码注释用中文；像素风主题（Fusion Pixel 12 字体、box-shadow 阶梯边框、image-rendering: pixelated），配色为 Cassette Futurism 双主题调色板（深色 Magnetic Night 默认 / 浅色 Beige Terminal），全部走 `apps/web/src/styles.css` 的 CSS 变量（`[data-theme="dark"|"light"]`），不要新增硬编码色值；主题管理在 `apps/web/src/theme.ts`。
+- 不用浏览器默认弹窗（alert/confirm/prompt）：错误/提示走 `apps/web/src/notice.ts` 的 `notify()`，确认走 `await askConfirm()`，渲染由 App 根部 `AppModals` 单例完成。
 - 改动 API 时同步更新 `docs/api.md`；改动架构/目录结构时同步更新 `docs/architecture.md` 与本文件。
 - `storage/` 与 `node_modules/` 已 gitignore；smoke test 后清理 storage 与 /tmp 临时文件。
 
 ## 环境变量
 
 - `PORT`（默认 3000）
-- `FRAMEBAKER_GEN_CLI`：CLI 生成模板，占位符 `{prompt}` `{output}` `{index}` `{reference}`（引用图由前端传 referenceMaterialId/referenceFrameId，服务端按 id 解析路径，模板与引用图不一致在创建 job 时 400）
-- `FRAMEBAKER_MATTING_CLI`：自定义抠图模板，占位符 `{input}` `{output}`（可选 `{model}`）；优先于内置 rembg
-- `FRAMEBAKER_MATTING_MODEL`：rembg 模型名（默认 `u2net`）；模型缓存在 `storage/models`（U2NET_HOME）
-- 抠图引擎：未配 CLI 时用 `scripts/setup_matting.sh` 安装的 `.venv-matting/bin/rembg`（已 gitignore），再次之 PATH rembg，最后 passthrough 复制；探测结果见 `GET /api/config`
+- `FRAMEBAKER_GEN_CLI`：CLI 生成模板，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（引用图由前端传 referenceMaterialId/referenceFrameId，服务端按 id 解析路径，模板与引用图不一致在创建 job 时 400）。**兜底项**：设置页可配多个生成 provider（CLI 模板 / OpenAI 兼容 API，存 settings 表 `genProviders`，生成时按 id 选择、模型单独指定）；仅当 provider 列表为空时本 env 合成为 id=`env` 的 CLI provider
+- `FRAMEBAKER_MATTING_CLI`：自定义抠图模板，占位符 `{input}` `{output}`（可选 `{model}`）；**兜底项**，设置页 matting.cliTemplate 优先
+- `FRAMEBAKER_MATTING_MODEL`：rembg 模型名（默认 `u2net`）；**兜底项**，设置页 matting.model 优先；模型缓存在 `storage/models`（U2NET_HOME）
+- 抠图引擎：未配 CLI 时用 `scripts/setup_matting.sh` 安装的 `.venv-matting/bin/rembg`（已 gitignore），再次之 PATH rembg，最后 passthrough 复制；探测结果见 `GET /api/config`（每次请求实时解析）
