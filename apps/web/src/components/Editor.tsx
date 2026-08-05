@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Download, Play, Upload } from "lucide-react";
 import { Assets } from "pixi.js";
 import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
+import { notify } from "../notice";
 import FrameList from "./FrameList";
 import FrameEditor from "./FrameEditor";
 import Timeline from "./Timeline";
@@ -120,7 +121,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDuplicate = useCallback(
     async (id: string) => {
-      await api.duplicateFrame(id, 1).catch((e) => alert(`复制失败: ${e.message}`));
+      await api.duplicateFrame(id, 1).catch((e) => notify(`复制失败: ${e.message}`));
       await loadFrames();
     },
     [loadFrames]
@@ -128,7 +129,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDelete = useCallback(
     async (id: string) => {
-      await api.deleteFrame(id).catch((e) => alert(`删除失败: ${e.message}`));
+      await api.deleteFrame(id).catch((e) => notify(`删除失败: ${e.message}`));
       await loadFrames();
     },
     [loadFrames]
@@ -141,7 +142,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         setV((x) => x + 1);
         await loadFrames();
       } catch (e) {
-        alert(`替换失败: ${(e as Error).message}`);
+        notify(`替换失败: ${(e as Error).message}`);
       }
     },
     [loadFrames]
@@ -155,7 +156,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       arr.splice(to, 0, moved);
       setFrames(arr);
       api.reorder(projectId, arr.map((f) => f.id)).catch((e) => {
-        alert(`排序失败: ${e.message}`);
+        notify(`排序失败: ${e.message}`);
         loadFrames();
       });
     },
@@ -284,7 +285,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames(); // 当前帧被删时 loadFrames 会自动切到剩余第一帧
-    if (failed.length) alert(`${failed.length} 帧删除失败`);
+    if (failed.length) notify(`${failed.length} 帧删除失败`);
   }, [selectedInOrder, loadFrames]);
 
   const batchDuplicate = useCallback(async () => {
@@ -295,7 +296,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames();
-    if (failed.length) alert(`${failed.length} 帧复制失败`);
+    if (failed.length) notify(`${failed.length} 帧复制失败`);
   }, [selectedInOrder, loadFrames]);
 
   const batchSetDuration = useCallback(
@@ -307,7 +308,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       }
       setSelectedIds(new Set());
       await loadFrames();
-      if (failed.length) alert(`${failed.length} 帧设置失败`);
+      if (failed.length) notify(`${failed.length} 帧设置失败`);
     },
     [selectedInOrder, loadFrames]
   );
@@ -344,7 +345,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           whileTap={{ scale: 0.95 }}
           className="px-btn accent"
           disabled={frames.length === 0}
-          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => alert(`导出失败: ${e.message}`))}
+          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(`导出失败: ${e.message}`))}
         >
           <Download size={14} /> 导出精灵表
         </motion.button>

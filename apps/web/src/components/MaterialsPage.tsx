@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Package, Send, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { Check, Package, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialImageUrl, wsClient, type Material } from "../api";
+import { notify } from "../notice";
 import { themedSourceColor, useTheme } from "../theme";
 import MaterialImportModal from "./MaterialImportModal";
 import MaterialModal from "./MaterialModal";
@@ -20,7 +21,6 @@ export default function MaterialsPage() {
   const [showPicker, setShowPicker] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [v, setV] = useState(0);
   const theme = useTheme();
 
@@ -51,10 +51,7 @@ export default function MaterialsPage() {
     return unsub;
   }, [load]);
 
-  const toast = (msg: string) => {
-    setNotice(msg);
-    window.setTimeout(() => setNotice(null), 3200);
-  };
+  const toast = (msg: string) => notify(msg, "info");
 
   const toggleOne = (id: string) => {
     setSelectedIds((prev) => {
@@ -101,7 +98,21 @@ export default function MaterialsPage() {
       await load();
       toast(`已删除 ${r.deleted} 个素材`);
     } catch (e) {
-      alert(`删除失败: ${(e as Error).message}`);
+      notify(`删除失败: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 选中素材二次加工：批量抠图入队（不是所有图都需要加工，按需触发）
+  const batchMatting = async () => {
+    const ids = [...selectedIds];
+    setBusy(true);
+    try {
+      const r = await api.batchMatteMaterials(ids);
+      toast(`已加入 ${r.count} 个抠图任务`);
+    } catch (e) {
+      notify(`抠图失败: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -117,7 +128,7 @@ export default function MaterialsPage() {
       setSelectedIds(new Set());
       toast(`已导入 ${r.count} 个素材到项目`);
     } catch (e) {
-      alert(`导入失败: ${(e as Error).message}`);
+      notify(`导入失败: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -239,6 +250,9 @@ export default function MaterialsPage() {
               <IconBtn title="导入到项目" disabled={busy} onClick={() => setShowPicker(true)}>
                 <Send size={14} />
               </IconBtn>
+              <IconBtn title="批量抠图（对选中素材执行二次加工）" disabled={busy} onClick={batchMatting}>
+                <Wand2 size={14} />
+              </IconBtn>
               <span className="tb-sep" />
               <IconBtn title="取消选择" disabled={busy} onClick={clearSelection}>
                 <X size={14} />
@@ -247,20 +261,6 @@ export default function MaterialsPage() {
           )}
         </AnimatePresence>
       </div>
-
-      {/* toast 提示 */}
-      <AnimatePresence>
-        {notice && (
-          <motion.div
-            className="toast pixel-panel"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-          >
-            {notice}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {importTab && (

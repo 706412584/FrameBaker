@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api, frameImageUrl, type Project } from "../api";
+import { askConfirm, notify } from "../notice";
 
 export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -21,14 +22,14 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
       setName("");
       onOpen(id);
     } catch (e) {
-      alert(`创建失败: ${(e as Error).message}`);
+      notify(`创建失败: ${(e as Error).message}`);
     }
   };
 
   const remove = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm("确定删除该项目及其全部帧吗？此操作不可恢复。")) return;
-    await api.deleteProject(id).catch((err) => alert(`删除失败: ${err.message}`));
+    if (!(await askConfirm("确定删除该项目及其全部帧吗？此操作不可恢复。"))) return;
+    await api.deleteProject(id).catch((err) => notify(`删除失败: ${err.message}`));
     load();
   };
 

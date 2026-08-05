@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
-import { motion } from "motion/react";
-import { Check, MoveHorizontal, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, Crop, MoveHorizontal, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialImageUrl, type Material, type Project } from "../api";
+import { notify } from "../notice";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
+import CropModal from "./CropModal";
 
 interface Props {
   material: Material;
@@ -22,6 +24,8 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [showImport, setShowImport] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
+  // 剪裁二次加工：载入当前显示图（processed ?? raw），确认后覆盖同一槽位
+  const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cfg = useServerConfig();
   const engine = cfg?.matting.engine;
@@ -40,7 +44,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
     try {
       await fn();
     } catch (e) {
-      alert((e as Error).message);
+      notify((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -62,6 +66,24 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       onToast("已还原为原图");
     });
 
+  // 打开剪裁：取当前显示图对应槽位（processed 优先），fetch 成 blob 进剪裁工具
+  const openCrop = () =>
+    run(async () => {
+      const slot = m.processed_path ? "processed" : "raw";
+      const res = await fetch(materialImageUrl(m.id, v, slot));
+      if (!res.ok) throw new Error("读取素材图片失败");
+      setCrop({ blob: await res.blob(), slot });
+    });
+
+  const doCrop = (blob: Blob) =>
+    run(async () => {
+      if (!crop) return;
+      await api.replaceMaterialImage(m.id, blob, crop.slot);
+      setCrop(null);
+      onChanged();
+      onToast("剪裁完成");
+    });
+
   const doDelete = () =>
     run(async () => {
       await api.batchDeleteMaterials([m.id]);
@@ -72,7 +94,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
 
   const openImport = () => {
     if (!showImport && projects === null) {
-      api.listProjects().then(setProjects).catch((e) => alert(`加载项目失败: ${e.message}`));
+      api.listProjects().then(setProjects).catch((e) => notify(`加载项目失败: ${e.message}`));
     }
     setShowImport((s) => !s);
   };
@@ -163,6 +185,9 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               <Undo2 size={14} /> 还原原图
             </motion.button>
           )}
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
+            <Crop size={14} /> 剪裁
+          </motion.button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy} onClick={openImport}>
             <Send size={14} /> 导入到项目
           </motion.button>
@@ -215,6 +240,19 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             )}
           </div>
         )}
+
+        {/* 剪裁二次加工：作用于当前显示图对应槽位 */}
+        <AnimatePresence>
+          {crop && (
+            <CropModal
+              image={crop.blob}
+              title={m.name}
+              subtitle={`作用于：${crop.slot === "processed" ? "抠图后" : "原图"}`}
+              onConfirm={doCrop}
+              onClose={() => setCrop(null)}
+            />
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );

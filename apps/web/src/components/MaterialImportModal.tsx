@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
-import { Sparkles, Upload, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Scissors, Sparkles, Upload, X } from "lucide-react";
 import { api, type Job } from "../api";
+import { useServerConfig } from "../config";
+import { isVideoFile, useCropQueue } from "../hooks/useCropQueue";
+import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
+import CropModal from "./CropModal";
+import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 
 type FileState = "pending" | "uploading" | "queued" | "done" | "error";
 interface UploadItem {
   file: File;
   state: FileState;
+  cropped?: boolean;
   error?: string | null;
 }
 
@@ -17,11 +23,6 @@ interface Props {
   initialTab: "upload" | "cli";
   onClose: () => void;
   onDone: () => void;
-}
-
-function isVideoFile(f: File): boolean {
-  const ext = f.name.split(".").pop()?.toLowerCase();
-  return ext === "gif" || ext === "mp4" || ext === "mov" || ext === "webm";
 }
 
 function stateIcon(s: FileState): string {
@@ -47,15 +48,23 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
   const [fps, setFps] = useState(8);
   const [autoMatting, setAutoMatting] = useState(true); // 默认勾选抠图去背
   const [prompt, setPrompt] = useState("");
+  const [providerId, setProviderId] = useState("");
+  const [model, setModel] = useState("");
   const [reference, setReference] = useState<ReferenceSelection | null>(null);
   const [count, setCount] = useState(4);
   const [job, setJob] = useState<Job | null>(null); // CLI 生成的单任务跟踪
   const [submitting, setSubmitting] = useState(false);
+  const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
+  const cfg = useServerConfig();
 
   const updateItem = (index: number, patch: Partial<UploadItem>) =>
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
+
+  // 剪裁队列：逐张剪裁 / 单张重裁（确认后 PNG 替换原文件并标 cropped）
+  const crop = useCropQueue(items, (i, file) => updateItem(i, { file, cropped: true }));
+  const imageCount = items.filter((it) => !isVideoFile(it.file)).length;
 
   // CLI 生成：单任务轮询
   const startPoll = (jobId: string) => {
@@ -163,16 +172,18 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
     setSubmitting(true);
     resetAll();
     try {
+      const sel = resolveProviderSelection(cfg?.gen.providers ?? [], providerId, model);
       const { jobId } = await api.generateMaterial({
         prompt: prompt.trim(),
         count,
         autoMatting,
+        ...sel,
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
         ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
       startPoll(jobId);
     } catch (e) {
-      alert(`提交失败: ${(e as Error).message}`);
+      notify(`提交失败: ${(e as Error).message}`);
       setSubmitting(false);
     }
   };
@@ -203,7 +214,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
             <Upload size={14} /> 上传文件
           </button>
           <button type="button" className={`tab ${tab === "cli" ? "active" : ""}`} onClick={() => { setTab("cli"); resetAll(); }}>
-            <Sparkles size={14} /> CLI 生成
+            <Sparkles size={14} /> 生成
           </button>
         </div>
 
@@ -223,6 +234,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
                 onChange={(e) => {
                   setItems(Array.from(e.target.files ?? []).map((file) => ({ file, state: "pending" as FileState })));
                   setFinished(false);
+                  setCropDismissed(false);
                   e.target.value = "";
                 }}
               />
@@ -236,10 +248,35 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
                     <span className="up-name" title={it.error ?? it.file.name}>
                       {it.file.name}
                     </span>
+                    {it.cropped && <span className="up-cropped">已剪裁</span>}
                     <span className="up-size">{(it.file.size / 1024).toFixed(1)} KB</span>
+                    {!isVideoFile(it.file) && !submitting && (
+                      <IconBtn className="up-crop" title="剪裁此图" onClick={() => crop.startOne(i)}>
+                        <Scissors size={12} />
+                      </IconBtn>
+                    )}
                   </li>
                 ))}
               </ul>
+            )}
+
+            {imageCount > 0 && !cropDismissed && !submitting && !finished && (
+              <div className="crop-ask">
+                <span>{imageCount} 张图片，导入前需要剪裁吗？（GIF/MP4 不参与）</span>
+                <button
+                  type="button"
+                  className="px-btn mini"
+                  onClick={() => {
+                    setCropDismissed(true);
+                    crop.startAll();
+                  }}
+                >
+                  <Scissors size={12} /> 逐张剪裁
+                </button>
+                <button type="button" className="px-btn mini" onClick={() => setCropDismissed(true)}>
+                  不需要，直接导入
+                </button>
+              </div>
             )}
 
             {hasVideo && (
@@ -291,13 +328,19 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
               <input type="range" min={1} max={16} value={count} onChange={(e) => setCount(Number(e.target.value))} />
             </div>
             <ReferencePicker value={reference} onChange={setReference} showFrames={false} />
+            <ProviderModelPicker
+              providerId={providerId}
+              model={model}
+              onProviderChange={setProviderId}
+              onModelChange={setModel}
+            />
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />
             <div className="hint">
-              需在服务端配置环境变量 <code>FRAMEBAKER_GEN_CLI</code>，例如：
+              生成方式在「设置」页配置（CLI 模板 / OpenAI 兼容 API，可配多个共存；也可用环境变量{" "}
+              <code>FRAMEBAKER_GEN_CLI</code> 兜底）。
               <br />
-              <code>{'FRAMEBAKER_GEN_CLI=\'mygen --prompt "{prompt}" --ref {reference} -o {output}\' bun dev'}</code>
-              <br />
-              可用占位符：{"{prompt}"} {"{output}"} {"{index}"} {"{reference}"}（选了引用图时模板必须含 {"{reference}"}）
+              CLI 模板占位符：{"{prompt}"} {"{output}"} {"{index}"} {"{reference}"} {"{model}"}
+              （选了引用图时模板必须含 {"{reference}"}；API provider 暂不支持引用图）
             </div>
             <div className="modal-actions">
               <motion.button
@@ -338,6 +381,19 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
             )}
           </div>
         )}
+
+        {/* 剪裁工具：逐张队列或单张重裁 */}
+        <AnimatePresence>
+          {crop.cropIndex != null && items[crop.cropIndex] && (
+            <CropModal
+              image={items[crop.cropIndex].file}
+              title={items[crop.cropIndex].file.name}
+              onConfirm={crop.confirm}
+              onSkip={crop.skip}
+              onClose={crop.cancel}
+            />
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );

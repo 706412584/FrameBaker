@@ -1424,3 +1424,266 @@ body.resizing-row * {
 .zoom-reset:hover {
   color: var(--accent);
 }
+
+/* ===== 剪裁工具 ===== */
+.crop-modal {
+  width: min(760px, calc(100vw - 48px));
+}
+.crop-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.crop-stage {
+  position: relative;
+  height: min(420px, 50vh);
+  overflow: hidden;
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: inset 0 0 0 2px var(--border);
+}
+.crop-stage canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.crop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.crop-nums {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.crop-nums .px-input.num {
+  width: 58px;
+}
+.crop-size {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.crop-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 导入弹窗「是否需要剪裁」确认行 */
+.crop-ask {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--elevated);
+  box-shadow:
+    0 -3px 0 0 var(--border),
+    0 3px 0 0 var(--border),
+    -3px 0 0 0 var(--border),
+    3px 0 0 0 var(--border);
+}
+.crop-ask > span {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* 上传列表的剪裁标记与按钮 */
+.up-cropped {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--success);
+}
+.up-item .up-crop {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+
+/* 警告提示 */
+.hint.warn {
+  border-left-color: var(--warning);
+  color: var(--warning);
+}
+
+/* ===== 设置面板 ===== */
+.settings-modal {
+  width: min(640px, calc(100vw - 48px));
+}
+.settings-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 2px var(--border);
+}
+.settings-sec h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text);
+}
+.settings-sec h3 .engine-status {
+  margin-left: auto;
+}
+.settings-radios {
+  display: flex;
+  gap: 20px;
+}
+.px-textarea {
+  resize: vertical;
+  min-height: 44px;
+  font-family: inherit;
+}
+
+/* ===== 全局通知条与确认弹窗（notice.ts / AppModals） ===== */
+.toast-stack {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 300;
+  pointer-events: none;
+}
+.toast-item {
+  position: static;
+  transform: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100vw - 48px));
+  cursor: pointer;
+  pointer-events: auto;
+}
+.toast-item.error {
+  color: var(--error);
+}
+.toast-item.error span {
+  color: var(--text);
+}
+.toast-item.info {
+  color: var(--info);
+}
+.toast-item.info span {
+  color: var(--text);
+}
+
+.confirm-mask {
+  z-index: 320;
+}
+.confirm-modal {
+  width: min(420px, calc(100vw - 48px));
+}
+.confirm-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.confirm-text svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--warning);
+}
+
+/* 危险动作主按钮（确认删除等） */
+.px-btn.danger {
+  background: var(--error);
+  color: #fff;
+  box-shadow:
+    0 -4px 0 0 color-mix(in srgb, var(--error) 58%, black),
+    0 4px 0 0 color-mix(in srgb, var(--error) 58%, black),
+    -4px 0 0 0 color-mix(in srgb, var(--error) 58%, black),
+    4px 0 0 0 color-mix(in srgb, var(--error) 58%, black);
+}
+.px-btn.danger:hover {
+  background: color-mix(in srgb, var(--error) 88%, white);
+}
+
+/* ===== 设置页（SettingsPage） ===== */
+.settings-page .settings-sec {
+  margin-bottom: 20px;
+}
+.settings-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--elevated);
+  box-shadow:
+    0 -3px 0 0 var(--border),
+    0 3px 0 0 var(--border),
+    -3px 0 0 0 var(--border),
+    3px 0 0 0 var(--border);
+}
+.provider-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.provider-name {
+  flex: 1;
+  min-width: 120px;
+  font-weight: bold;
+}
+.provider-type {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--accent-contrast);
+  background: var(--purple);
+}
+.provider-type.api {
+  background: var(--cyan);
+}
+.provider-test {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 下拉选择沿用输入框像素风 */
+select.px-input {
+  appearance: auto;
+  cursor: pointer;
+}
+
+/* 体检列表 */
+.doctor-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doctor-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+.doctor-item .engine-status {
+  flex-shrink: 0;
+}
+.doctor-detail {
+  color: var(--text-muted);
+  word-break: break-all;
+}

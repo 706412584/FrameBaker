@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Clapperboard, X } from "lucide-react";
 import { api, type Project } from "../api";
+import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 
 interface Props {
@@ -19,7 +20,7 @@ export default function ProjectPickerModal({ title, onPick, onClose }: Props) {
     api
       .listProjects()
       .then(setProjects)
-      .catch((e) => alert(`加载项目失败: ${e.message}`))
+      .catch((e) => notify(`加载项目失败: ${e.message}`))
       .finally(() => setLoading(false));
   }, []);
 

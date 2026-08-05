@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
 import { api, frameImageUrl, materialImageUrl, type Frame, type Material } from "../api";
+import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 
 export interface ReferenceSelection {
@@ -32,10 +33,10 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
   useEffect(() => {
     if (!open) return;
     if (tab === "materials" && mats === null) {
-      api.listMaterials().then(setMats).catch((e) => alert(`加载素材库失败: ${e.message}`));
+      api.listMaterials().then(setMats).catch((e) => notify(`加载素材库失败: ${e.message}`));
     }
     if (tab === "frames" && frames === null && projectId) {
-      api.getFrames(projectId).then(setFrames).catch((e) => alert(`加载项目帧失败: ${e.message}`));
+      api.getFrames(projectId).then(setFrames).catch((e) => notify(`加载项目帧失败: ${e.message}`));
     }
   }, [open, tab, mats, frames, projectId]);
 
