@@ -167,19 +167,20 @@ storage/
 
 ## 前端页面与组件
 
-- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/settings` 设置页（history.pushState + popstate）
+- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/settings` 设置页（history.pushState + popstate）；全局屏蔽浏览器原生右键菜单（输入框/文本域保留用于粘贴，帧项走自定义 ContextMenu）
 - `TopNav`：一级导航（项目 / 素材库 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）；编辑器页有自己的顶栏不显示
 - `SettingsPage`：生成 provider 列表管理（CLI / API 多个共存，增删改 + 保存 + API 测试连接）、抠图配置（CLI 模板 / 默认模型 datalist + 缓存状态）、体检（doctor 结果列表）
 - `ProjectList`：像素卡片网格（motion stagger 入场、hover 上浮）、新建/删除弹窗
 - `MaterialsPage`：素材库页——卡片网格（source 彩色徽标、抠图状态点、复选框 + Cmd/Shift 多选）、批量条（删除/导入项目/批量抠图/取消）、toast 提示
-- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、网格切分（GridSplitModal：多宫格精灵图按行×列逐格切成独立素材，网格线预览，复用 imageops cropImage + `/api/materials/upload` 单图入库，原素材保留）、导入项目（选项目+复制帧数）、删除（二次确认）
+- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、网格切分（GridSplitModal：多宫格精灵图按行×列逐格切成独立素材，网格线预览，复用 imageops cropImage + `/api/materials/upload` 单图入库，原素材保留）、多动作生成（ActionGenModal：以当前素材为引用图，按 shared `ACTION_PRESETS` 动作预设逐动作调 `/api/materials/generate`，可选 `name` 按「素材名_动作」命名，每动作一个生成任务）、导入项目（选项目+复制帧数）、删除（二次确认）
 - `MaterialImportModal` / `ProjectPickerModal`：素材上传与生成入口 / 项目选择弹窗；上传 Tab 选文件后询问「是否需要剪裁」（`useCropQueue` 逐张队列或单张重裁，仅静态图）；生成 Tab 用 `ProviderModelPicker` 选 provider + 模型，提交即关窗（同 ImportModal，进度交给 JobPanel）
 - `ProviderModelPicker`：生成弹窗共用的 provider + 模型选择（`GET /api/config` 的 `gen.providers` 驱动；api=模型下拉/输入，cli=`{model}` 占位符值），`resolveProviderSelection` 在提交时解析缺省值
 - `CropModal` + `imageops/` + `hooks/useCropQueue`：像素图剪裁工具——整数像素框选（拖动/八向缩放/数字输入）、滚轮缩放、像素网格（zoom≥8）、自动框选非透明区域；重活走 Web Worker，失败降级主线程；两个导入弹窗、素材详情与项目帧替换共用，统一产出 PNG
 - `Editor`：状态中枢（frames/activeId/selectedIds/图片版本号 v），WS 订阅刷新；帧多选与批量操作（BatchBar）
-- `FrameList`：竖排帧列表，左边框色 = shared `SOURCE_COLORS[source]`（浅色主题 color-mix 加深）
+- `FrameList`：竖排帧列表，左边框色 = shared `SOURCE_COLORS[source]`（浅色主题 color-mix 加深）；帧项右键出菜单（`onContextMenu` 上抛 Editor）
 - `FrameEditor`：PixiJS `Application`（async init + cancelled 竞态处理）；viewport 居中缩放；主精灵拖拽改 offset；洋葱皮（prev 红 0.3 / next 蓝 0.2）；网格 Graphics；画布背景与网格色随主题（CSS 变量）；工具栏可调 scale（10% 步进）/rotation（15° 步进）/opacity（10% 步进），并支持剪裁替换/时长±/关键帧
-- `Timeline`：HTML5 DnD 换序、关键帧星标、时长角标
+- `Timeline`：HTML5 DnD 换序、关键帧星标、时长角标；帧项右键出菜单（同 FrameList）
+- `ContextMenu`：通用右键菜单——fixed 定位光标处、视口右/下边缘自动收拢，Esc / 点外部 / 滚动 / 失焦关闭，点项先关菜单再执行；编辑器里右键未选中帧 = 设为当前帧出单帧菜单（关键帧/时长 ±1/剪裁/复制/删除），右键落在多选内 = 保留选区出批量菜单（复制/裁透明边/删除，复用 BatchBar 的 handler）
 - `PlaybackBar` + `FrameEditor` 播放模式：1–24 fps tick，每帧停留 duration 个 tick；直接复用 Pixi 变换渲染
 - `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程），顶部搜索框按素材名/prompt 本地过滤（不影响已选）；上传 Tab 多文件逐个分发，选文件后同样询问「是否需要剪裁」（与素材导入共用 useCropQueue + CropModal），提交后弹窗内轮询 `/api/jobs/:id` 汇总；生成 Tab 提交即关窗（不阻塞等待），进度交给 JobPanel；生成 Tab 支持「图片 / 视频」切换（视频模式：fps 抽帧滑杆、`ProviderModelPicker` 只列支持视频的 provider，隐藏数量/引用图/尺寸）
 - `JobPanel`（挂在 App 根部）：右侧常驻任务队列面板——初始 `GET /api/jobs` 接管进行中任务，之后 WS `job_*` 事件驱动 + 活动任务 3s 轮询兜底；完成的停留 6s 自动移除，失败的常驻可手动关闭；无任务时不渲染

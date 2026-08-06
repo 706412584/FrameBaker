@@ -25,6 +25,16 @@
 - **实时同步** —— WebSocket 广播任务进度与帧/素材变更
 - **可调布局** —— 拖拽分隔条调整帧列表宽度与时间轴高度（自动持久化）
 
+## 系统要求
+
+- **macOS** —— 目前唯一经过开发验证的平台
+- **Bun** 1.3+
+- **ffmpeg** —— GIF/MP4 拆帧依赖
+- **python3** —— 仅安装抠图引擎时需要（`scripts/setup_matting.sh`）
+- 支持 WebGL 的现代浏览器（PixiJS v8 画布）
+
+> ⚠️ **Windows 尚未测试**：目前只在 macOS 上开发验证过。Windows 侧虽有兼容设计（`scripts/setup_matting.ps1`、`Scripts/rembg.exe` 探测），但从未在真机跑过，很可能有坑，欢迎反馈。Linux 与 macOS 同为 POSIX 路径，理论上可用，同样未专门测试。
+
 ## 快速开始
 
 ```bash

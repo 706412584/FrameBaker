@@ -25,6 +25,16 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 - **Live sync** — WebSocket broadcasts for job progress and frame/material changes
 - **Adjustable layout** — drag the split dividers to resize the frame list and timeline (persisted)
 
+## System Requirements
+
+- **macOS** — the only platform developed and verified on so far
+- **Bun** 1.3+
+- **ffmpeg** — required for GIF/MP4 frame extraction
+- **python3** — only needed to install the matting engine (`scripts/setup_matting.sh`)
+- A modern browser with WebGL (PixiJS v8 canvas)
+
+> ⚠️ **Windows is untested.** Development and verification have only happened on macOS. Windows support exists on paper (`scripts/setup_matting.ps1`, `Scripts/rembg.exe` detection) but has never been run on a real Windows machine — expect rough edges, feedback welcome. Linux should behave like macOS (POSIX paths) but is likewise untested.
+
 ## Quick Start
 
 ```bash
