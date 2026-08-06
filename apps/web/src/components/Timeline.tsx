@@ -12,10 +12,12 @@ interface Props {
   height?: number;
   onFrameClick: (id: string, mods: FrameClickMods) => void;
   onReorder: (from: number, to: number) => void;
+  /** 右键菜单（Editor 统一渲染，多选内右键 = 批量操作） */
+  onContextMenu: (id: string, pos: { x: number; y: number }) => void;
 }
 
-/** 底部时间轴：原生 HTML5 DnD 拖拽换序 + 多选点击 */
-export default function Timeline({ frames, activeId, selectedIds, v, height, onFrameClick, onReorder }: Props) {
+/** 底部时间轴：原生 HTML5 DnD 拖拽换序 + 多选点击 + 右键菜单 */
+export default function Timeline({ frames, activeId, selectedIds, v, height, onFrameClick, onReorder, onContextMenu }: Props) {
   const dragFrom = useRef<number | null>(null);
 
   return (
@@ -40,6 +42,10 @@ export default function Timeline({ frames, activeId, selectedIds, v, height, onF
             if (from != null && from !== i) onReorder(from, i);
           }}
           onClick={(e) => onFrameClick(f.id, { ctrl: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onContextMenu(f.id, { x: e.clientX, y: e.clientY });
+          }}
           title={`#${i + 1} · ${f.source}`}
         >
           <img src={frameImageUrl(f.id, v)} alt="" draggable={false} />

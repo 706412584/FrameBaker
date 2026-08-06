@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Download, Play, Upload } from "lucide-react";
+import { ArrowLeft, Copy, Crop, Download, Minus, Play, Plus, Scan, Star, Trash2, Upload } from "lucide-react";
 import { Assets } from "pixi.js";
 import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
 import { askConfirm, notify } from "../notice";
@@ -12,6 +12,7 @@ import ImportModal from "./ImportModal";
 import PlaybackBar from "./PlaybackBar";
 import BatchBar from "./BatchBar";
 import CanvasToolbar from "./CanvasToolbar";
+import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import CropModal from "./CropModal";
 import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
@@ -209,6 +210,19 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // ---- 多选 ----
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // 右键菜单（帧列表 / 时间轴共用）：右键未选中帧 → 设为当前帧出单帧菜单；右键多选内帧 → 保留选区出批量菜单
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; frameId: string } | null>(null);
+  const onFrameContextMenu = useCallback(
+    (id: string, pos: { x: number; y: number }) => {
+      if (!(selectedIds.size >= 2 && selectedIds.has(id))) {
+        setActiveId(id);
+        setSelectedIds(new Set());
+      }
+      setCtxMenu({ x: pos.x, y: pos.y, frameId: id });
+    },
+    [selectedIds]
+  );
+
   // FrameList / Timeline 统一的点击入口：plain / ctrl / shift
   const onFrameClick = useCallback(
     (id: string, mods: FrameClickMods) => {
@@ -305,14 +319,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     return () => el.removeEventListener("wheel", onWheel);
   }, [showPreview, zoomBy]);
 
-  // Esc 清空多选（导入弹窗打开时不抢按键）
+  // Esc 清空多选（导入弹窗/右键菜单打开时不抢按键）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !showImport) clearSelection();
+      if (e.key === "Escape" && !showImport && !ctxMenu) clearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showImport, clearSelection]);
+  }, [showImport, ctxMenu, clearSelection]);
 
   // ---- 批量操作：循环调现有 API，完成后统一刷新并清空选区 ----
   const selectedInOrder = useCallback(
@@ -399,6 +413,48 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 播放时画布显示游标帧，停止回到当前编辑帧
   const displayFrame = showPreview ? (frames[cursor] ?? null) : active;
 
+  // ---- 右键菜单项：右键落在多选内 = 批量操作（同 BatchBar），否则单帧操作 ----
+  const ctxFrame = ctxMenu ? (frames.find((f) => f.id === ctxMenu.frameId) ?? null) : null;
+  const ctxBatch = ctxMenu != null && selectedIds.size >= 2 && selectedIds.has(ctxMenu.frameId);
+  const ctxItems: CtxMenuItem[] = !ctxMenu
+    ? []
+    : ctxBatch
+      ? [
+          { label: `复制 ${selectedIds.size} 帧`, icon: <Copy size={13} />, onClick: batchDuplicate },
+          { label: "裁透明边", icon: <Scan size={13} />, onClick: batchTrim },
+          {
+            label: `删除 ${selectedIds.size} 帧`,
+            icon: <Trash2 size={13} />,
+            danger: true,
+            onClick: async () => {
+              if (await askConfirm(`确认删除选中的 ${selectedIds.size} 帧？`)) await batchDelete();
+            },
+          },
+        ]
+      : ctxFrame
+        ? [
+            {
+              label: ctxFrame.is_keyframe ? "取消关键帧" : "标记关键帧",
+              icon: <Star size={13} />,
+              onClick: () => patchFrame(ctxFrame.id, { is_keyframe: ctxFrame.is_keyframe ? 0 : 1 }),
+            },
+            {
+              label: `时长 +1（当前 ×${ctxFrame.duration}）`,
+              icon: <Plus size={13} />,
+              onClick: () => patchFrame(ctxFrame.id, { duration: Math.min(600, ctxFrame.duration + 1) }),
+            },
+            {
+              label: `时长 −1（当前 ×${ctxFrame.duration}）`,
+              icon: <Minus size={13} />,
+              disabled: ctxFrame.duration <= 1,
+              onClick: () => patchFrame(ctxFrame.id, { duration: Math.max(1, ctxFrame.duration - 1) }),
+            },
+            { label: "剪裁图片…", icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
+            { label: "复制", icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
+            { label: "删除", icon: <Trash2 size={13} />, danger: true, onClick: () => onDelete(ctxFrame.id) },
+          ]
+        : [];
+
   return (
     <div className="editor">
       <header className="topbar pixel-bar">
@@ -443,6 +499,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           onPatch={patchFrame}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onContextMenu={onFrameContextMenu}
         />
         <SplitDivider direction="col" onDelta={onSidebarDelta} onReset={() => setLayout((l) => ({ ...l, sidebarW: LAYOUT_DEFAULTS.sidebarW }))} />
         <div className="canvas-wrap">
@@ -503,6 +560,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         height={layout.timelineH}
         onFrameClick={onFrameClick}
         onReorder={onReorder}
+        onContextMenu={onFrameContextMenu}
       />
 
       {/* 批量操作条：多选 >=2 时浮出 */}
@@ -520,6 +578,13 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           )}
         </AnimatePresence>
       </div>
+
+      {/* 帧右键菜单（帧列表/时间轴共用，单帧 or 多选批量） */}
+      <AnimatePresence>
+        {ctxMenu && (ctxBatch || ctxFrame) && (
+          <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxItems} onClose={() => setCtxMenu(null)} />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showImport && (

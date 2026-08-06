@@ -1216,7 +1216,7 @@ input[type="range"] {
 .mat-modal {
   width: min(920px, calc(100vw - 48px));
 }
-/* 按钮多（抠图/还原/剪裁/切分/导入/删除），禁止文字换行 */
+/* 按钮多（抠图/还原/剪裁/切分/多动作/导入/删除），禁止文字换行 */
 .mat-modal .modal-actions {
   gap: 10px;
 }
@@ -1361,6 +1361,131 @@ input[type="range"] {
 .gs-total {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* ===== 右键菜单（ContextMenu，编辑器帧列表/时间轴共用） ===== */
+.ctx-menu {
+  position: fixed;
+  z-index: 150; /* 高于 topbar(70)/batch-bar(60)，低于 toast(300)/confirm(320) */
+  min-width: 172px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ctx-item:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+.ctx-item.danger {
+  color: var(--error);
+}
+.ctx-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ctx-item:disabled:hover {
+  background: transparent;
+  color: var(--text);
+}
+
+/* ===== 多动作生成（ActionGenModal） ===== */
+.ag-modal {
+  width: min(680px, calc(100vw - 48px));
+}
+.ag-main {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.ag-ref {
+  position: relative;
+  flex: 0 0 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: 0 0 0 2px var(--border);
+  overflow: hidden;
+}
+.ag-ref img {
+  max-width: 100%;
+  max-height: 180px;
+  display: block;
+  image-rendering: pixelated;
+}
+.ag-ref-tag {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
+  pointer-events: none;
+}
+.ag-actions {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  align-content: start;
+}
+.ag-chip {
+  padding: 10px 0;
+  text-align: center;
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  box-shadow:
+    0 -3px 0 0 var(--border),
+    0 3px 0 0 var(--border),
+    -3px 0 0 0 var(--border),
+    3px 0 0 0 var(--border);
+}
+.ag-chip:hover {
+  background: var(--hover);
+}
+.ag-chip.on {
+  color: var(--accent);
+  background: var(--selected);
+  box-shadow:
+    0 -3px 0 0 var(--border-focused),
+    0 3px 0 0 var(--border-focused),
+    -3px 0 0 0 var(--border-focused),
+    3px 0 0 0 var(--border-focused);
+}
+.ag-chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+@media (max-width: 560px) {
+  .ag-main {
+    flex-direction: column;
+  }
+  .ag-ref {
+    flex: none;
+  }
+  .ag-actions {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 /* ===== 素材搜索框（导入弹窗素材库 Tab） ===== */

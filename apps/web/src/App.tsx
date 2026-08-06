@@ -24,6 +24,17 @@ export default function App() {
     wsClient.start();
   }, []);
 
+  // 全局屏蔽浏览器原生右键菜单（帧项有自定义右键菜单；输入框/文本域保留原生菜单用于粘贴等）
+  useEffect(() => {
+    const suppress = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", suppress);
+    return () => window.removeEventListener("contextmenu", suppress);
+  }, []);
+
   // 支持浏览器前进/后退
   useEffect(() => {
     const onPop = () => setView(viewFromLocation());

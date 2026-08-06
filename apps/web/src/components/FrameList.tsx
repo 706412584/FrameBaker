@@ -18,6 +18,8 @@ interface Props {
   onPatch: (id: string, patch: FramePatch) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  /** 右键菜单（Editor 统一渲染，多选内右键 = 批量操作） */
+  onContextMenu: (id: string, pos: { x: number; y: number }) => void;
 }
 
 const isMac = /macintosh|mac os/i.test(navigator.userAgent);
@@ -33,12 +35,13 @@ export default function FrameList({
   onPatch,
   onDuplicate,
   onDelete,
+  onContextMenu,
 }: Props) {
   const theme = useTheme();
   return (
     <aside className="frame-list pixel-panel" style={width ? { width } : undefined}>
       <div className="fl-title">帧列表</div>
-      <div className="fl-hint">{isMac ? "Cmd" : "Ctrl"}+点击 多选 · Shift+点击 范围选</div>
+      <div className="fl-hint">{isMac ? "Cmd" : "Ctrl"}+点击 多选 · Shift+点击 范围选 · 右键 菜单</div>
       <div
         className="fl-scroll"
         onClick={(e) => {
@@ -54,6 +57,10 @@ export default function FrameList({
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
             onClick={(e) => onFrameClick(f.id, { ctrl: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onContextMenu(f.id, { x: e.clientX, y: e.clientY });
+            }}
           >
             <img src={frameImageUrl(f.id, v)} alt="" draggable={false} />
             <div className="fl-meta">
