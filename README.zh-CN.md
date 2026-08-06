@@ -76,6 +76,7 @@ Bun workspaces monorepo：
 
 ## 文档
 
+- [docs/guide.md](docs/guide.md) —— 使用指南（设置页、provider 配置、剪裁工具、素材加工、编辑器）
 - [docs/architecture.md](docs/architecture.md) —— 架构图、模块说明、数据流、存储布局
 - [docs/api.md](docs/api.md) —— API 一览（含请求/响应示例）与 WS 事件
 - [docs/roadmap.md](docs/roadmap.md) —— 已完成清单与后续规划

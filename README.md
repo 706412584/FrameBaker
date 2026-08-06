@@ -76,6 +76,7 @@ Bun workspaces monorepo:
 
 ## Docs
 
+- [docs/guide.md](docs/guide.md) — user guide (settings page, provider setup, crop tool, material processing, editor)（中文）
 - [docs/architecture.md](docs/architecture.md) — architecture diagram, modules, data flows, storage layout
 - [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events
 - [docs/roadmap.md](docs/roadmap.md) — shipped features and planned work
