@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Check, Copy, Trash2, X } from "lucide-react";
+import { Check, Copy, Scan, Trash2, X } from "lucide-react";
 import IconBtn from "./IconBtn";
 
 interface Props {
@@ -8,11 +8,13 @@ interface Props {
   onDelete: () => Promise<void>;
   onDuplicate: () => Promise<void>;
   onApplyDuration: (duration: number) => Promise<void>;
+  /** 批量裁掉选中帧的透明边（逐帧 replace，单帧失败不阻塞其余） */
+  onTrim: () => Promise<void>;
   onClear: () => void;
 }
 
 /** 多选批量操作条（>=2 帧时在编辑器顶部浮出） */
-export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration, onClear }: Props) {
+export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration, onTrim, onClear }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [dur, setDur] = useState("2");
   const [busy, setBusy] = useState(false);
@@ -60,6 +62,9 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
       )}
       <IconBtn title="批量复制（各 ×1）" disabled={busy} onClick={() => run(onDuplicate)}>
         <Copy size={14} />
+      </IconBtn>
+      <IconBtn title={busy ? "处理中…" : "剪裁透明边（批量）"} disabled={busy} onClick={() => run(onTrim)}>
+        <Scan size={14} />
       </IconBtn>
       <span className="tb-sep" />
       <span className="batch-dur">

@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Download, Play, Upload } from "lucide-react";
 import { Assets } from "pixi.js";
 import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
-import { notify } from "../notice";
+import { askConfirm, notify } from "../notice";
+import { cropImage, findOpaqueBounds } from "../imageops/client";
 import FrameList from "./FrameList";
 import FrameEditor from "./FrameEditor";
 import Timeline from "./Timeline";
@@ -37,7 +38,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [frames, setFrames] = useState<Frame[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: File } | null>(null);
+  const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: Blob; title: string } | null>(null);
   // 播放预览：就在 Pixi 画布内播放（不换容器）。showPreview=播放模式，paused=暂停
   const [showPreview, setShowPreview] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -158,8 +159,22 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   );
 
   const onReplace = useCallback((id: string, file: File) => {
-    setReplaceCrop({ frameId: id, image: file });
+    setReplaceCrop({ frameId: id, image: file, title: "替换并剪裁帧图片" });
   }, []);
+
+  // 剪裁当前帧：取当前显示图（processed 优先，服务端缺失回退 raw），确认后覆盖写回
+  const onCropFrame = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(frameImageUrl(id, v));
+        if (!res.ok) throw new Error("读取帧图片失败");
+        setReplaceCrop({ frameId: id, image: await res.blob(), title: "剪裁帧图片" });
+      } catch (e) {
+        notify(`剪裁失败: ${(e as Error).message}`);
+      }
+    },
+    [v]
+  );
 
   const confirmReplace = useCallback(
     async (blob: Blob) => {
@@ -170,7 +185,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         setV((x) => x + 1);
         await loadFrames();
       } catch (e) {
-        notify(`替换失败: ${(e as Error).message}`);
+        notify(`剪裁写回失败: ${(e as Error).message}`);
       }
     },
     [loadFrames, replaceCrop]
@@ -341,6 +356,42 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     [selectedInOrder, loadFrames]
   );
 
+  // 批量裁透明边：逐帧取当前显示图，扫透明包围盒，无需剪裁的跳过，单帧失败不阻塞其余
+  const batchTrim = useCallback(async () => {
+    const ids = selectedInOrder();
+    if (ids.length === 0) return;
+    if (!(await askConfirm(`将裁掉 ${ids.length} 帧图片的透明边（覆盖当前帧图片），继续？`))) return;
+    let trimmed = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(frameImageUrl(id, v));
+        if (!res.ok) throw new Error("读取帧图片失败");
+        const blob = await res.blob();
+        const bitmap = await createImageBitmap(blob);
+        const { width, height } = bitmap;
+        bitmap.close();
+        const bounds = await findOpaqueBounds(blob);
+        // 全透明或包围盒已是整图：无需剪裁
+        if (!bounds || (bounds.x === 0 && bounds.y === 0 && bounds.w === width && bounds.h === height)) {
+          skipped += 1;
+          continue;
+        }
+        const cropped = await cropImage(blob, bounds);
+        await api.replaceFrame(id, cropped);
+        trimmed += 1;
+      } catch (e) {
+        console.error(e);
+        failed += 1;
+      }
+    }
+    setSelectedIds(new Set());
+    setV((x) => x + 1);
+    await loadFrames();
+    notify(`已剪裁 ${trimmed} 帧，跳过 ${skipped} 帧，失败 ${failed} 帧`, failed > 0 ? "error" : "info");
+  }, [selectedInOrder, loadFrames, v]);
+
   const activeIndex = frames.findIndex((f) => f.id === activeId);
   const active = activeIndex >= 0 ? frames[activeIndex] : null;
   const prev = activeIndex > 0 ? frames[activeIndex - 1] : null;
@@ -408,6 +459,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onZoomBy={zoomBy}
               onZoomReset={() => setZoom(1)}
               onReplace={onReplace}
+              onCrop={onCropFrame}
               onPatch={patchFrame}
             />
             {/* 播放就在 Pixi 画布内：FrameEditor 常驻不卸载，悬浮播放条覆盖在画布框内底部 */}
@@ -462,6 +514,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onDelete={batchDelete}
               onDuplicate={batchDuplicate}
               onApplyDuration={batchSetDuration}
+              onTrim={batchTrim}
               onClear={clearSelection}
             />
           )}
@@ -485,7 +538,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         {replaceCrop && (
           <CropModal
             image={replaceCrop.image}
-            title="替换并剪裁帧图片"
+            title={replaceCrop.title}
             subtitle="保存为 PNG"
             onConfirm={confirmReplace}
             onClose={() => setReplaceCrop(null)}

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Crosshair, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
+import { Crosshair, Crop, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
 import type { Frame, FramePatch } from "../api";
 import IconBtn from "./IconBtn";
 
@@ -15,6 +15,8 @@ interface Props {
   onZoomBy: (factor: number) => void;
   onZoomReset: () => void;
   onReplace: (id: string, file: File) => void;
+  /** 剪裁当前帧显示图（fetch 当前图进剪裁弹窗） */
+  onCrop: (id: string) => void;
   onPatch: (id: string, patch: FramePatch) => void;
 }
 
@@ -69,6 +71,7 @@ export default function CanvasToolbar({
   onZoomBy,
   onZoomReset,
   onReplace,
+  onCrop,
   onPatch,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -132,6 +135,9 @@ export default function CanvasToolbar({
       <span className="tb-sep" />
       <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("替换并剪裁图片")}>
         <ImagePlus size={15} />
+      </IconBtn>
+      <IconBtn disabled={!editMode || !frame} onClick={() => frame && onCrop(frame.id)} title={editOnly("剪裁图片")}>
+        <Crop size={15} />
       </IconBtn>
       <IconBtn
         disabled={!editMode || !frame || frame.duration <= 1}
