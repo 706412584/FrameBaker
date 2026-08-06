@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useServerConfig } from "../config";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
+import PxSelect from "./PxSelect";
 
 interface Props {
   label: string;
@@ -58,13 +59,12 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
           onChange={(e) => onChange(e.target.value)}
         />
         {enhancers.length > 1 && (
-          <select className="px-input enhance-model" value={enhancerId} onChange={(e) => setEnhancerId(e.target.value)}>
-            {enhancers.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
+          <PxSelect
+            className="enhance-model"
+            value={enhancerId || enhancers[0]?.id || ""}
+            options={enhancers.map((e) => ({ value: e.id, label: e.name }))}
+            onChange={setEnhancerId}
+          />
         )}
         <button
           type="button"

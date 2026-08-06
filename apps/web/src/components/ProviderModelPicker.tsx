@@ -1,5 +1,6 @@
 import type { GenProviderInfo } from "@framebaker/shared";
 import { useServerConfig } from "../config";
+import PxSelect from "./PxSelect";
 
 interface Props {
   providerId: string;
@@ -45,30 +46,21 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
     <div className="form-row">
       <label>生成 Provider / 模型（在「设置」页管理）</label>
       <div className="form-inline">
-        <select
-          className="px-input"
+        <PxSelect
           value={provider.id}
-          onChange={(e) => {
-            onProviderChange(e.target.value);
+          options={providers.map((p) => ({
+            value: p.id,
+            label: `${p.name}（${TYPE_LABEL[p.type]}${p.configured ? "" : "·未配齐"}）`,
+            disabled: !p.configured,
+          }))}
+          onChange={(id) => {
+            onProviderChange(id);
             onModelChange("");
           }}
-        >
-          {providers.map((p) => (
-            <option key={p.id} value={p.id} disabled={!p.configured}>
-              {p.name}（{TYPE_LABEL[p.type]}
-              {p.configured ? "" : "·未配齐"}）
-            </option>
-          ))}
-        </select>
+        />
         {provider.type !== "cli" ? (
           provider.models.length > 0 ? (
-            <select className="px-input" value={effectiveModel} onChange={(e) => onModelChange(e.target.value)}>
-              {provider.models.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+            <PxSelect value={effectiveModel} options={provider.models.map((m) => ({ value: m, label: m }))} onChange={onModelChange} />
           ) : (
             <input
               className="px-input"
@@ -80,7 +72,7 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
         ) : (
           <input
             className="px-input"
-            placeholder="模型（填 {model} 占位符值，可空）"
+            placeholder="模型（按「模型参数名」下发，可空）"
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
           />

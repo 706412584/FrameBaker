@@ -1680,11 +1680,7 @@ body.resizing-row * {
   flex-wrap: wrap;
 }
 
-/* 下拉选择沿用输入框像素风 */
-select.px-input {
-  appearance: auto;
-  cursor: pointer;
-}
+/* 下拉选择统一用 PxSelect 组件（见组件样式区），不再使用原生 select */
 
 /* 体检列表 */
 .doctor-list {
@@ -1773,4 +1769,105 @@ select.px-input {
   .enhance-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== 像素风下拉选择（PxSelect，与 .px-input 同尺寸同字体） ===== */
+.px-select {
+  position: relative;
+  width: 100%;
+}
+.px-select-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  text-align: left;
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  outline: none;
+  box-shadow:
+    0 -4px 0 0 var(--border),
+    0 4px 0 0 var(--border),
+    -4px 0 0 0 var(--border),
+    4px 0 0 0 var(--border);
+}
+.px-select-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.px-select.open .px-select-btn,
+.px-select-btn:focus-visible {
+  box-shadow:
+    0 -4px 0 0 var(--border-focused),
+    0 4px 0 0 var(--border-focused),
+    -4px 0 0 0 var(--border-focused),
+    4px 0 0 0 var(--border-focused);
+}
+.px-select-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.px-select-btn svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.px-select-ph {
+  color: var(--text-placeholder);
+}
+.px-select-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+}
+.px-select-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 401;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--elevated);
+  box-shadow:
+    0 -4px 0 0 var(--border),
+    0 4px 0 0 var(--border),
+    -4px 0 0 0 var(--border),
+    4px 0 0 0 var(--border);
+}
+.px-select-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: none;
+  border: none;
+  color: var(--text);
+}
+.px-select-opt:hover:not(:disabled) {
+  background: var(--hover);
+}
+.px-select-opt.on {
+  color: var(--accent);
+}
+.px-select-opt:disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* form-inline 内与 px-input 同伸缩/同高（.num 单独用时保持紧凑，行内时拉齐尺寸） */
+.form-inline .px-select {
+  flex: 1;
+}
+.form-inline .px-input.num {
+  flex: 0 0 auto;
+  width: 110px;
+  padding: 8px 10px;
+  font-size: 14px;
 }
