@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { PlugZap, Plus, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
@@ -194,25 +194,25 @@ const API_TYPE_META: Record<Exclude<GenProviderType, "cli">, { baseUrlPh: string
     baseUrlPh: "https://api.openai.com/v1（或火山方舟 /api/v3 等兼容端点）",
     modelsPh: "gpt-image-1, doubao-seedream-4-0-250828",
     sizePh: "1024x1024",
-    hint: "文生图 POST {Base URL}/images/generations；选引用图改走 /images/edits（需 gpt-image 系列等支持编辑的模型，dall-e-3 不支持）；测试连接走 GET /models",
+    hint: "文生图 POST {Base URL}/images/generations；选引用图改走 /images/edits（需 gpt-image 系列等支持编辑的模型，dall-e-3 不支持）；测试连接 / 获取模型走 GET /models",
   },
   dashscope: {
     baseUrlPh: "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）",
     modelsPh: "qwen-image-2.0-pro, qwen-image-edit-max",
     sizePh: "2048*2048",
-    hint: "百炼原生 POST {Base URL}/api/v1/services/aigc/multimodal-generation/generation（qwen-image 系列不在 OpenAI 兼容模式内）；引用图 base64 随 messages 上送；尺寸为星号格式；无轻量探测端点，测试连接仅校验字段",
+    hint: "百炼原生 POST {Base URL}/api/v1/services/aigc/multimodal-generation/generation（qwen-image 系列不在 OpenAI 兼容模式内）；引用图 base64 随 messages 上送；尺寸为星号格式；测试连接 / 获取模型走 GET compatible-mode/v1/models",
   },
   gemini: {
     baseUrlPh: "https://generativelanguage.googleapis.com",
     modelsPh: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
     sizePh: "1:1",
-    hint: "banana（Gemini 图像）：POST {Base URL}/v1beta/models/{模型}:generateContent（x-goog-api-key 头）；引用图以 inlineData base64 上送；尺寸填宽高比如 16:9；测试连接走 GET /v1beta/models",
+    hint: "banana（Gemini 图像）：POST {Base URL}/v1beta/models/{模型}:generateContent（x-goog-api-key 头）；引用图以 inlineData base64 上送；尺寸填宽高比如 16:9；测试连接 / 获取模型走 GET /v1beta/models",
   },
   minimax: {
     baseUrlPh: "https://api.minimaxi.com",
     modelsPh: "image-01",
     sizePh: "16:9",
-    hint: "MiniMax：POST {Base URL}/v1/image_generation；引用图走 subject_reference（主体特征保持，限一张）；尺寸填宽高比如 16:9；无轻量探测端点，测试连接仅校验字段",
+    hint: "MiniMax：POST {Base URL}/v1/image_generation；引用图走 subject_reference（主体特征保持，限一张）；尺寸填宽高比如 16:9；测试连接仅校验字段（无轻量探测端点）；获取模型为 best-effort 试 /v1/models，拉不到就手填",
   },
 };
 
@@ -240,6 +240,9 @@ export default function SettingsPage() {
   const [savingMat, setSavingMat] = useState(false);
   const [savingEnh, setSavingEnh] = useState(false);
   const [tests, setTests] = useState<Record<string, { testing: boolean; result: ProviderTestResponse | null }>>({});
+  // 「获取模型」拉取结果：models 为拉到的全量列表（可过滤点选），error 时保持手填
+  const [modelLists, setModelLists] = useState<Record<string, { loading: boolean; models: string[] | null; error: string | null }>>({});
+  const [modelFilters, setModelFilters] = useState<Record<string, string>>({});
   const [doctor, setDoctor] = useState<DoctorResponse | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(false);
   const cfg = useServerConfig();
@@ -333,6 +336,32 @@ export default function SettingsPage() {
     } catch (e) {
       setTests((prev) => ({ ...prev, [d.id]: { testing: false, result: { ok: false, error: (e as Error).message } } }));
     }
+  };
+
+  /** modelsText 逗号分隔文本 ↔ 数组 */
+  const splitModels = (text: string) =>
+    text.split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean);
+
+  /** 获取模型：用表单当前 baseUrl/key 拉模型列表（不要求已保存），拉到后渲染点选 chips */
+  const fetchModels = async (d: ProviderDraft) => {
+    if (d.type === "cli") return;
+    setModelLists((prev) => ({ ...prev, [d.id]: { loading: true, models: null, error: null } }));
+    try {
+      const r = await api.listProviderModels({ type: d.type, apiBaseUrl: d.apiBaseUrl, apiKey: d.apiKey });
+      setModelLists((prev) => ({
+        ...prev,
+        [d.id]: { loading: false, models: r.models ?? null, error: r.ok ? null : (r.error ?? "拉取失败") },
+      }));
+    } catch (e) {
+      setModelLists((prev) => ({ ...prev, [d.id]: { loading: false, models: null, error: (e as Error).message } }));
+    }
+  };
+
+  /** 点选 chip：已在列表则移除，否则追加（保留手输项） */
+  const toggleModel = (d: ProviderDraft, model: string) => {
+    const list = splitModels(d.modelsText);
+    const next = list.includes(model) ? list.filter((m) => m !== model) : [...list, model];
+    patchDraft(d.id, { modelsText: next.join(", ") });
   };
 
   const saveMatting = async () => {
@@ -440,6 +469,7 @@ export default function SettingsPage() {
 
         {drafts.map((d) => {
           const t = tests[d.id];
+          const ml = modelLists[d.id];
           return (
             <div key={d.id} className="provider-card">
               <div className="provider-head">
@@ -562,12 +592,22 @@ export default function SettingsPage() {
                     <div className="form-inline">
                       <label className="field">
                         <span>可用模型（逗号分隔，生成时下拉选择）</span>
-                        <input
-                          className="px-input"
-                          placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
-                          value={d.modelsText}
-                          onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
-                        />
+                        <div className="models-fetch-row">
+                          <input
+                            className="px-input"
+                            placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
+                            value={d.modelsText}
+                            onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
+                          />
+                          <button
+                            type="button"
+                            className="px-btn mini"
+                            disabled={ml?.loading}
+                            onClick={() => fetchModels(d)}
+                          >
+                            <RefreshCw size={12} /> {ml?.loading ? "拉取中…" : "获取模型"}
+                          </button>
+                        </div>
                       </label>
                       <label className="field">
                         <span>尺寸（可留空）</span>
@@ -580,6 +620,39 @@ export default function SettingsPage() {
                       </label>
                     </div>
                   </div>
+                  {ml?.error && <div className="hint">获取模型失败：{ml.error}（可继续手填）</div>}
+                  {ml?.models && (
+                    <div className="model-fetch">
+                      <input
+                        className="px-input model-filter"
+                        placeholder={`过滤模型（共 ${ml.models.length} 个，点击加入/移除）`}
+                        value={modelFilters[d.id] ?? ""}
+                        onChange={(e) =>
+                          setModelFilters((prev) => ({ ...prev, [d.id]: e.target.value }))
+                        }
+                      />
+                      <div className="model-chips">
+                        {ml.models
+                          .filter((m) => {
+                            const q = (modelFilters[d.id] ?? "").trim().toLowerCase();
+                            return !q || m.toLowerCase().includes(q);
+                          })
+                          .map((m) => {
+                            const active = splitModels(d.modelsText).includes(m);
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                className={`model-chip${active ? " active" : ""}`}
+                                onClick={() => toggleModel(d, m)}
+                              >
+                                {m}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                   <div className="provider-test">
                     <button
                       type="button"

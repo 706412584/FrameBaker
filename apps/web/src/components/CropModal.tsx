@@ -12,7 +12,7 @@ interface Props {
   /** 标题与副标题（如「作用于：抠图后」） */
   title?: string;
   subtitle?: string;
-  onConfirm: (blob: Blob) => void;
+  onConfirm: (blob: Blob) => void | Promise<void>;
   /** 逐张剪裁时提供「跳过本张」 */
   onSkip?: () => void;
   onClose: () => void;
@@ -86,23 +86,35 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
   useEffect(() => {
     let alive = true;
     let bmp: ImageBitmap | null = null;
-    createImageBitmap(image).then((b) => {
-      if (!alive) {
-        b.close();
-        return;
+    setBitmap(null);
+    setRect(null);
+    (async () => {
+      try {
+        const b = await createImageBitmap(image);
+        if (!alive) {
+          b.close();
+          return;
+        }
+        bmp = b;
+        setBitmap(b);
+        const wrap = wrapRef.current;
+        if (wrap) fitView(wrap.clientWidth, wrap.clientHeight, b.width, b.height);
+        let bounds: CropRect | null = null;
+        try {
+          bounds = await findOpaqueBounds(image);
+        } catch {
+          // 扫描失败仍可按整图剪裁
+        }
+        if (alive) setRect(bounds ?? { x: 0, y: 0, w: b.width, h: b.height });
+      } catch (e) {
+        if (alive) notify(`图片解码失败: ${(e as Error).message}`);
       }
-      bmp = b;
-      setBitmap(b);
-      findOpaqueBounds(image).then((bounds) => {
-        if (!alive) return;
-        setRect(bounds ?? { x: 0, y: 0, w: b.width, h: b.height });
-      });
-    });
+    })();
     return () => {
       alive = false;
       bmp?.close();
     };
-  }, [image]);
+  }, [image, fitView]);
 
   // ---- 画布尺寸跟随容器（ResizeObserver），初始适配视图 ----
   useEffect(() => {
@@ -303,10 +315,13 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     setRect(clampRect({ ...rect, ...patch }, imgW, imgH));
   };
 
-  const resetBounds = () => {
-    findOpaqueBounds(image).then((bounds) => {
+  const resetBounds = async () => {
+    try {
+      const bounds = await findOpaqueBounds(image);
       if (bitmap) setRect(bounds ?? { x: 0, y: 0, w: bitmap.width, h: bitmap.height });
-    });
+    } catch (e) {
+      notify(`自动框选失败: ${(e as Error).message}`);
+    }
   };
 
   const fullImage = () => {
@@ -318,9 +333,10 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     setBusy(true);
     try {
       const blob = await cropImage(image, rect);
-      onConfirm(blob);
+      await onConfirm(blob);
     } catch (e) {
       notify(`剪裁失败: ${(e as Error).message}`);
+    } finally {
       setBusy(false);
     }
   };

@@ -18,9 +18,9 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 - **Multi-source import** — GIF / MP4 frame extraction via ffmpeg (adjustable fps), multi-select PNG upload, external generator CLI (`FRAMEBAKER_GEN_CLI`)
 - **Built-in matting** — rembg works out of the box (u2net by default, custom models supported); custom CLI template optional; before/after compare slider to review cutouts
 - **Materials library** — a first-class staging area: generate or upload, matte, compare, then import into any project — single or batch
-- **Frame editor** — PixiJS v8 canvas with onion skin (prev red / next blue), grid, 25–400% zoom, draggable frame offsets, replace image, per-frame duration, keyframes
+- **Frame editor** — PixiJS v8 canvas with onion skin, grid, viewport zoom, draggable offsets, scale / rotation / opacity controls, crop-and-replace, per-frame duration, and keyframes
 - **Timeline & batch ops** — drag to reorder, Cmd/Ctrl+Click and Shift+Click multi-select, batch delete / duplicate / set duration
-- **Spritesheet export** — pure client-side canvas packing → `*.spritesheet.png` + `*.json`
+- **Spritesheet export** — pure client-side canvas packing with frame transforms baked into aligned cells → `*.spritesheet.png` + `*.json`
 - **Cassette Futurism themes** — dark "Magnetic Night" / light "Beige Terminal"; follows system preference until you pick one (tri-state toggle)
 - **Live sync** — WebSocket broadcasts for job progress and frame/material changes
 - **Adjustable layout** — drag the split dividers to resize the frame list and timeline (persisted)

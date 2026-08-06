@@ -11,19 +11,22 @@ function getWorker(): Worker | null {
   try {
     // 同源绝对路径：服务端按需 Bun.build 下发（Bun HTML 打包不处理 new Worker(new URL(...))）
     const w = new Worker("/imageops/imageOps.worker.js", { type: "module" });
+    const markBroken = () => {
+      // 脚本/运行/消息解码错误：拒掉全部待处理请求，后续走主线程降级
+      workerBroken = true;
+      worker = null;
+      w.terminate();
+      for (const p of pending.values()) p.reject(new Error("图像 worker 不可用"));
+      pending.clear();
+    };
     w.onmessage = (e: MessageEvent<ImageOpResponse>) => {
       const p = pending.get(e.data.id);
       if (!p) return;
       pending.delete(e.data.id);
       p.resolve(e.data);
     };
-    w.onerror = () => {
-      // 脚本 404 / 运行错误：拒掉全部待处理请求，后续走主线程降级
-      workerBroken = true;
-      worker = null;
-      for (const p of pending.values()) p.reject(new Error("图像 worker 不可用"));
-      pending.clear();
-    };
+    w.onerror = markBroken;
+    w.onmessageerror = markBroken;
     worker = w;
     return w;
   } catch {
@@ -46,28 +49,34 @@ function runInWorker(req: Omit<ImageOpRequest, "id">): Promise<ImageOpResponse> 
 
 async function mainBounds(blob: Blob): Promise<CropRect | null> {
   const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext("2d")!;
-  ctx.drawImage(bitmap, 0, 0);
-  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-  bitmap.close();
-  return computeOpaqueBounds(imageData.data, imageData.width, imageData.height);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return computeOpaqueBounds(imageData.data, imageData.width, imageData.height);
+  } finally {
+    bitmap.close();
+  }
 }
 
 async function mainCrop(blob: Blob, rect: CropRect): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = rect.w;
-  canvas.height = rect.h;
-  const ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(bitmap, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
-  bitmap.close();
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))), "image/png")
-  );
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = rect.w;
+    canvas.height = rect.h;
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bitmap, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    return await new Promise((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))), "image/png")
+    );
+  } finally {
+    bitmap.close();
+  }
 }
 
 /** 透明像素包围盒；全透明返回 null。worker 失败自动降级主线程 */

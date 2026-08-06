@@ -4,7 +4,7 @@ import type { ServerConfig } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
 import { enhancerConfigured, getGenProviders, getPromptEnhancers, providerConfigured } from "./provider";
-import { isModelCached, runDoctor, testApiProvider } from "./doctor";
+import { isModelCached, listApiProviderModels, runDoctor, testApiProvider } from "./doctor";
 import { enhancePrompt } from "./enhance";
 import { projectsApi } from "./api/projects";
 import { framesApi } from "./api/frames";
@@ -72,7 +72,7 @@ export const app = new Elysia()
   )
   // 体检：逐项检查存储 / ffmpeg / 抠图引擎与模型 / 生成 provider（API 方式含联通测试）
   .get("/api/doctor", () => runDoctor())
-  // API provider 联通测试（用表单当前值，不要求已保存）：api 实发 GET /models；dashscope 仅校验字段
+  // API provider 联通测试（用表单当前值，不要求已保存）：api/dashscope/gemini 实发模型列表端点；minimax 仅校验字段
   .post(
     "/api/provider/test",
     ({ body }) => testApiProvider(body),
@@ -82,6 +82,18 @@ export const app = new Elysia()
         apiBaseUrl: t.String(),
         apiKey: t.String(),
         apiModel: t.Optional(t.String()),
+      }),
+    }
+  )
+  // API provider 模型列表（设置页「获取模型」，用表单当前值拉取，不要求已保存）
+  .post(
+    "/api/provider/models",
+    ({ body }) => listApiProviderModels(body),
+    {
+      body: t.Object({
+        type: t.Union([t.Literal("api"), t.Literal("dashscope"), t.Literal("gemini"), t.Literal("minimax")]),
+        apiBaseUrl: t.String(),
+        apiKey: t.String(),
       }),
     }
   )

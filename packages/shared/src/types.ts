@@ -145,7 +145,7 @@ export interface DoctorResponse {
 
 /** POST /api/provider/test 请求（用表单当前值测试，不要求已保存） */
 export interface ProviderTestRequest {
-  /** api/gemini 实发探测；dashscope/minimax 无轻量探测端点，仅校验字段 */
+  /** api/gemini/dashscope 实发探测（dashscope 走 compatible-mode/v1/models）；minimax 无轻量探测端点，仅校验字段 */
   type?: "api" | "dashscope" | "gemini" | "minimax";
   apiBaseUrl: string;
   apiKey: string;
@@ -160,8 +160,23 @@ export interface ProviderTestResponse {
   /** true=模型在 /models 列表中；false=不在；undefined=响应非标准模型列表 */
   modelsFound?: boolean;
   error?: string;
-  /** 附加说明（如 dashscope 未实发请求） */
+  /** 附加说明（如 minimax 未实发请求） */
   note?: string;
+}
+
+/** POST /api/provider/models 请求（用表单当前值拉模型列表，不要求已保存） */
+export interface ProviderModelsRequest {
+  type: "api" | "dashscope" | "gemini" | "minimax";
+  apiBaseUrl: string;
+  apiKey: string;
+}
+
+/** POST /api/provider/models 响应：模型 id 列表（失败带 error） */
+export interface ProviderModelsResponse {
+  ok: boolean;
+  models?: string[];
+  status?: number;
+  error?: string;
 }
 
 /** WS 广播消息类型 */

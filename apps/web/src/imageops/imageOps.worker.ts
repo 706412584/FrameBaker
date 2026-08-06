@@ -22,19 +22,20 @@ async function cropFromBitmap(bitmap: ImageBitmap, rect: { x: number; y: number;
 
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
   const { id, op, blob, rect } = e.data;
+  let bitmap: ImageBitmap | null = null;
   try {
-    const bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(blob);
     if (op === "bounds") {
       const bounds = boundsFromBitmap(bitmap);
-      bitmap.close();
       postMessage({ id, ok: true, rect: bounds });
     } else {
       if (!rect) throw new Error("crop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);
-      bitmap.close();
       postMessage({ id, ok: true, blob: out });
     }
   } catch (err) {
     postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    bitmap?.close();
   }
 };

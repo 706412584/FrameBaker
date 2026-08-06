@@ -7,7 +7,7 @@
                         │                浏览器（React 19）             │
                         │  TopNav(项目/素材库/设置)                      │
                         │  ProjectList   Editor ─ FrameEditor(PixiJS)  │
-                        │  Timeline(DnD) PreviewPlayer   ImportModal   │
+                        │  Timeline(DnD) PlaybackBar    ImportModal   │
                         │  MaterialsPage MaterialModal(对比滑杆/剪裁)   │
                         │  CropModal ─ imageops/（Web Worker 图像处理） │
                         │        │ fetch /api        │ WebSocket /ws   │
@@ -63,7 +63,7 @@
 
 - **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/` 与 `/project/:id`；编辑器页前端读 `location.pathname` 恢复项目上下文（无路由库）。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
-- **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复。所有状态变化经 `ws.ts` 广播。
+- **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复。所有状态变化经 `ws.ts` 广播。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。
 - **拆帧编号**：ffmpeg 先拆到 `staging/extract_<uuid>/frame_%04d.png`，再按 raw 目录现存最大编号续编搬入 `raw/frame_XXXX.png`，多次导入互不覆盖；`duplicate` 生成的 `dup_<uuid>.png` 不匹配该扫描规则，不会被误收。
 - **注入安全**：外部命令（生成 CLI / 抠图 CLI）不走模板字符串：设置页配的是结构化字段（命令 + 参数名映射），服务端组装 argv 数组（Bun.spawn，不经 shell）；遗留 env 模板（FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，同样不经 shell，prompt 含空格也安全。
@@ -96,6 +96,9 @@
 ```
 拖拽 Pixi 精灵 → pointerup → PATCH /api/frames/:id {offset_x, offset_y}
   → SQLite 更新 → 广播 frame_updated → 各客户端同步
+工具栏步进调整 scale / rotation / opacity → 同一 PATCH 持久化
+替换图片 → CropModal 剪裁并编码 PNG → POST /api/frames/:id/replace
+  → 写入 processed 槽位并清理旧 processed 文件
 时间轴 HTML5 DnD → 前端乐观重排 → POST /api/projects/:id/reorder {frameIds}
   → 事务重写 idx → 广播 frames_reordered
 ```
@@ -104,8 +107,9 @@
 
 ```
 按 idx 拉取全部 /api/frames/:id/image → createImageBitmap
-  → canvas 网格（列数 ceil(√n)，单元格取最大宽高，imageSmoothing 关闭）
-  → 下载 <name>.spritesheet.png + .json（frames: [{x,y,w,h,duration}]）
+  → 按 Pixi 相同的中心原点语义计算 offset / scale / rotation 后的全局包围盒
+  → canvas 统一单元格网格（列数 ceil(√n)，变换与 opacity 烘焙，imageSmoothing 关闭）
+  → 下载 <name>.spritesheet.png + .json（统一帧矩形，并记录 originX/originY）
 ```
 
 ### 素材库（素材 → 抠图 → 导入项目）
@@ -126,8 +130,8 @@ CLI 生成 → POST /api/materials/generate → generate_frames(target=materials
 剪裁 → CropModal（前端 worker 剪裁出 PNG blob）→ POST /api/materials/:id/replace-image
   → 覆盖当前显示图对应槽位（processed ?? raw），广播 material_updated
 导入 → POST /api/materials/:id/import 或 /batch-import
-  → 优先取 processed（否则 raw）复制为项目帧（raw/mat_<frameId>.png，
-    mat_ 前缀避开拆帧扫描规则），idx 追加到项目末尾，source 沿用素材 source
+  → raw / processed 分槽复制为项目帧（raw/mat_<frameId>.png，mat_ 前缀避开拆帧扫描规则），
+    保留原图与抠图结果，idx 追加到项目末尾，source 沿用素材 source
   → 广播 frames_changed，开着的项目编辑器经 WS 自动刷新
 ```
 
@@ -166,12 +170,12 @@ storage/
 - `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、导入项目（选项目+复制帧数）、删除（二次确认）
 - `MaterialImportModal` / `ProjectPickerModal`：素材上传与生成入口 / 项目选择弹窗；上传 Tab 选文件后询问「是否需要剪裁」（`useCropQueue` 逐张队列或单张重裁，仅静态图）；生成 Tab 用 `ProviderModelPicker` 选 provider + 模型
 - `ProviderModelPicker`：生成弹窗共用的 provider + 模型选择（`GET /api/config` 的 `gen.providers` 驱动；api=模型下拉/输入，cli=`{model}` 占位符值），`resolveProviderSelection` 在提交时解析缺省值
-- `CropModal` + `imageops/` + `hooks/useCropQueue`：像素图剪裁工具——整数像素框选（拖动/八向缩放/数字输入）、滚轮缩放、像素网格（zoom≥8）、自动框选非透明区域；重活走 Web Worker，失败降级主线程；两个导入弹窗与素材详情共用
+- `CropModal` + `imageops/` + `hooks/useCropQueue`：像素图剪裁工具——整数像素框选（拖动/八向缩放/数字输入）、滚轮缩放、像素网格（zoom≥8）、自动框选非透明区域；重活走 Web Worker，失败降级主线程；两个导入弹窗、素材详情与项目帧替换共用，统一产出 PNG
 - `Editor`：状态中枢（frames/activeId/selectedIds/图片版本号 v），WS 订阅刷新；帧多选与批量操作（BatchBar）
 - `FrameList`：竖排帧列表，左边框色 = shared `SOURCE_COLORS[source]`（浅色主题 color-mix 加深）
-- `FrameEditor`：PixiJS `Application`（async init + cancelled 竞态处理）；viewport 居中缩放；主精灵拖拽改 offset；洋葱皮（prev 红 0.3 / next 蓝 0.2）；网格 Graphics；画布背景与网格色随主题（CSS 变量）；工具栏（替换/时长±/关键帧）
+- `FrameEditor`：PixiJS `Application`（async init + cancelled 竞态处理）；viewport 居中缩放；主精灵拖拽改 offset；洋葱皮（prev 红 0.3 / next 蓝 0.2）；网格 Graphics；画布背景与网格色随主题（CSS 变量）；工具栏可调 scale（10% 步进）/rotation（15° 步进）/opacity（10% 步进），并支持剪裁替换/时长±/关键帧
 - `Timeline`：HTML5 DnD 换序、关键帧星标、时长角标
-- `PreviewPlayer`：1–24 fps tick，每帧停留 duration 个 tick
+- `PlaybackBar` + `FrameEditor` 播放模式：1–24 fps tick，每帧停留 duration 个 tick；直接复用 Pixi 变换渲染
 - `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程）；上传 Tab 多文件逐个分发，选文件后同样询问「是否需要剪裁」（与素材导入共用 useCropQueue + CropModal）；提交后轮询 `/api/jobs/:id`（WS 为主）
 - `SplitDivider` + `layout.ts`：编辑器布局分隔条（帧列表宽度 180–480 默认 240、时间轴高度 80–320 默认 140），pointer capture 拖动、双击恢复默认、尺寸存 localStorage `framebaker-layout`；画布区依赖 Pixi `resizeTo`（ResizeObserver）自动跟随重绘
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）

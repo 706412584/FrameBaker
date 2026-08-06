@@ -4,7 +4,7 @@ import type { Frame, FramePatch } from "../api";
 import IconBtn from "./IconBtn";
 
 interface Props {
-  /** edit=编辑模式（控制 Pixi viewport）；preview=预览模式（控制 PreviewPlayer zoom） */
+  /** edit=编辑模式；preview=FrameEditor 播放模式（缩放始终控制 Pixi viewport） */
   mode: "edit" | "preview";
   onion: boolean;
   showGrid: boolean;
@@ -18,7 +18,44 @@ interface Props {
   onPatch: (id: string, patch: FramePatch) => void;
 }
 
+interface TransformStepperProps {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onMinus: () => void;
+  onPlus: () => void;
+  onReset: () => void;
+}
+
 const EDIT_ONLY_HINT = "编辑模式下可用";
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const round = (value: number, digits = 3) => {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+};
+
+function normalizeRotation(value: number) {
+  const turn = Math.PI * 2;
+  return clamp(round((((value + Math.PI) % turn) + turn) % turn - Math.PI, 6), -Math.PI, Math.PI);
+}
+
+/** 紧凑的变换步进器；点击数值可复位该属性 */
+function TransformStepper({ label, value, disabled, onMinus, onPlus, onReset }: TransformStepperProps) {
+  return (
+    <span className="transform-stepper">
+      <span className="transform-name">{label}</span>
+      <IconBtn disabled={disabled} onClick={onMinus} title={`${label}减少`}>
+        <Minus size={12} />
+      </IconBtn>
+      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={`复位${label}`}>
+        {value}
+      </button>
+      <IconBtn disabled={disabled} onClick={onPlus} title={`${label}增加`}>
+        <Plus size={12} />
+      </IconBtn>
+    </span>
+  );
+}
 
 /** 画布工具栏：编辑/预览两种模式恒定渲染，编辑向按钮在预览模式置灰 */
 export default function CanvasToolbar({
@@ -57,7 +94,7 @@ export default function CanvasToolbar({
         <Grid3x3 size={15} />
       </IconBtn>
       <span className="tb-sep" />
-      {/* 缩放控件：两种模式都可用，作用于当前模式的目标（Pixi viewport / 预览播放器） */}
+      {/* 视图缩放：编辑/播放都作用于常驻的 Pixi viewport */}
       <IconBtn onClick={() => onZoomBy(1 / 1.25)} title="缩小">
         <ZoomOut size={15} />
       </IconBtn>
@@ -68,7 +105,32 @@ export default function CanvasToolbar({
         <ZoomIn size={15} />
       </IconBtn>
       <span className="tb-sep" />
-      <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("替换图片")}>
+      <TransformStepper
+        label="缩放"
+        value={`${Math.round((frame?.scale ?? 1) * 100)}%`}
+        disabled={!editMode || !frame}
+        onMinus={() => frame && onPatch(frame.id, { scale: round(clamp(frame.scale - 0.1, 0.1, 8)) })}
+        onPlus={() => frame && onPatch(frame.id, { scale: round(clamp(frame.scale + 0.1, 0.1, 8)) })}
+        onReset={() => frame && onPatch(frame.id, { scale: 1 })}
+      />
+      <TransformStepper
+        label="旋转"
+        value={`${Math.round(((frame?.rotation ?? 0) * 180) / Math.PI)}°`}
+        disabled={!editMode || !frame}
+        onMinus={() => frame && onPatch(frame.id, { rotation: normalizeRotation(frame.rotation - Math.PI / 12) })}
+        onPlus={() => frame && onPatch(frame.id, { rotation: normalizeRotation(frame.rotation + Math.PI / 12) })}
+        onReset={() => frame && onPatch(frame.id, { rotation: 0 })}
+      />
+      <TransformStepper
+        label="透明"
+        value={`${Math.round((frame?.opacity ?? 1) * 100)}%`}
+        disabled={!editMode || !frame}
+        onMinus={() => frame && onPatch(frame.id, { opacity: round(clamp(frame.opacity - 0.1, 0, 1)) })}
+        onPlus={() => frame && onPatch(frame.id, { opacity: round(clamp(frame.opacity + 0.1, 0, 1)) })}
+        onReset={() => frame && onPatch(frame.id, { opacity: 1 })}
+      />
+      <span className="tb-sep" />
+      <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("替换并剪裁图片")}>
         <ImagePlus size={15} />
       </IconBtn>
       <IconBtn
@@ -105,7 +167,7 @@ export default function CanvasToolbar({
       <input
         ref={fileRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept="image/png,image/jpeg,image/webp"
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0];

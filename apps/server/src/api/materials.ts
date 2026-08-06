@@ -17,10 +17,15 @@ function extOf(filename: string): string {
   return filename.includes(".") ? filename.split(".").pop()!.toLowerCase() : "";
 }
 
-/** 把素材（优先 processed）复制为项目帧追加到末尾，返回新帧 id */
+function isPng(bytes: Uint8Array): boolean {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
+}
+
+/** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
-  const src = m.processed_path ?? m.raw_path;
-  if (!src || !existsSync(src)) throw new Error(`素材文件缺失: ${m.id}`);
+  const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
+  if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
   const frameId = uid();
   const rawDir = join(STORAGE_ROOT, "projects", projectId, "raw");
   const procDir = join(STORAGE_ROOT, "projects", projectId, "processed");
@@ -28,7 +33,7 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   mkdirSync(procDir, { recursive: true });
   // mat_ 前缀：不会被拆帧扫描的 frame_\d+ 规则命中
   const rawPath = join(rawDir, `mat_${frameId}.png`);
-  copyFileSync(src, rawPath);
+  copyFileSync(rawSrc, rawPath);
   let procPath: string | null = null;
   if (m.processed_path && existsSync(m.processed_path)) {
     procPath = join(procDir, `${frameId}.png`);
@@ -191,6 +196,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     async ({ params, body, status }) => {
       const m = getMaterial(params.id);
       if (!m) return status(404, "素材不存在");
+      const bytes = Buffer.from(await body.file.arrayBuffer());
+      if (!isPng(bytes)) return status(400, "替换图片必须是 PNG（请通过剪裁工具提交）");
       let target: string;
       if (body.slot === "raw") {
         if (!m.raw_path) return status(400, "素材缺少 raw 文件");
@@ -199,7 +206,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         target = m.processed_path ?? join(STORAGE_ROOT, "materials", params.id, "processed.png");
       }
       mkdirSync(dirname(target), { recursive: true });
-      await Bun.write(target, Buffer.from(await body.file.arrayBuffer()));
+      await Bun.write(target, bytes);
       if (body.slot === "processed" && (m.status !== "matted" || m.processed_path !== target)) {
         db.query("UPDATE materials SET status = 'matted', processed_path = ? WHERE id = ?").run(target, params.id);
       }

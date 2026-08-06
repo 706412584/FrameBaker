@@ -3,9 +3,11 @@ import { dirname, join } from "node:path";
 import { db, getFrame, getMaterial, nextFrameIdx, STORAGE_ROOT, uid } from "../db";
 import { providerConfigured, resolveGenProvider } from "../provider";
 import { broadcast } from "../ws";
-import { createJob, type JobTarget } from "../queue";
 import { generateViaApi } from "./generateApi";
 import { runCmd } from "./run";
+
+/** 任务产出目标：项目帧 or 素材库 */
+type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
 
 export interface ExtractPayload {
   stagingFile: string;
@@ -29,6 +31,8 @@ export interface GeneratePayload {
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
   model?: string;
 }
+
+type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
 
 /**
  * 解析引用图并做 provider 一致性前置校验（API 层调用，error 非空时返回 400）：
@@ -83,20 +87,25 @@ function nextFrameNumber(rawDir: string): number {
   return start;
 }
 
-function afterImportFrames(projectId: string, frameIds: string[], autoMatting: boolean) {
+function afterImportFrames(
+  projectId: string,
+  frameIds: string[],
+  autoMatting: boolean,
+  enqueueMatting: EnqueueMatting
+) {
   broadcast("frames_changed", { projectId });
   if (autoMatting) {
     for (const frameId of frameIds) {
-      createJob(projectId, "matting", { matting: { target: "frame", id: frameId } });
+      enqueueMatting(projectId, "frame", frameId);
     }
   }
 }
 
-function afterImportMaterials(materialIds: string[], autoMatting: boolean) {
+function afterImportMaterials(materialIds: string[], autoMatting: boolean, enqueueMatting: EnqueueMatting) {
   broadcast("materials_changed", {});
   if (autoMatting) {
     for (const id of materialIds) {
-      createJob("", "matting", { matting: { target: "material", id } });
+      enqueueMatting("", "material", id);
     }
   }
 }
@@ -153,7 +162,7 @@ function saveMaterials(stageDir: string, files: string[], p: ExtractPayload): st
 }
 
 /** 拆帧任务：image 直接落盘；gif/mp4 走 ffmpeg；按 target 落到项目帧或素材库 */
-export async function extractFrames(p: ExtractPayload, progress: (s: string) => void) {
+export async function extractFrames(p: ExtractPayload, progress: (s: string) => void, enqueueMatting: EnqueueMatting) {
   const { stageDir, files } = await extractToStaging(p, progress);
   progress(`入库 ${files.length} 项`);
 
@@ -179,11 +188,11 @@ export async function extractFrames(p: ExtractPayload, progress: (s: string) => 
       frameIds.push(id);
     });
     cleanupStaging(stageDir, p.stagingFile);
-    afterImportFrames(p.target.projectId, frameIds, p.autoMatting);
+    afterImportFrames(p.target.projectId, frameIds, p.autoMatting, enqueueMatting);
   } else {
     const ids = saveMaterials(stageDir, files, p);
     cleanupStaging(stageDir, p.stagingFile);
-    afterImportMaterials(ids, p.autoMatting);
+    afterImportMaterials(ids, p.autoMatting, enqueueMatting);
   }
 }
 
@@ -192,7 +201,7 @@ export async function extractFrames(p: ExtractPayload, progress: (s: string) => 
  * - cli：结构化字段组装 argv（命令 + 参数名映射；遗留模板走占位符替换）
  * - api 系（OpenAI 兼容 / dashscope / gemini / minimax）：HTTP 调用，模型取 payload.model（缺省列表第一项）
  */
-export async function generateFrames(p: GeneratePayload, progress: (s: string) => void) {
+export async function generateFrames(p: GeneratePayload, progress: (s: string) => void, enqueueMatting: EnqueueMatting) {
   const provider = resolveGenProvider(p.providerId);
   if (!provider) {
     throw new Error("未配置生成方式：请到「设置」页添加生成 provider（CLI 或各厂商 API，可配多个共存）");
@@ -270,7 +279,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       );
       frameIds.push(id);
     }
-    afterImportFrames(projectId, frameIds, p.autoMatting);
+    afterImportFrames(projectId, frameIds, p.autoMatting, enqueueMatting);
   } else {
     const ids: string[] = [];
     const base = p.prompt.trim().slice(0, 24) || "生成素材";
@@ -293,6 +302,6 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       );
       ids.push(id);
     }
-    afterImportMaterials(ids, p.autoMatting);
+    afterImportMaterials(ids, p.autoMatting, enqueueMatting);
   }
 }

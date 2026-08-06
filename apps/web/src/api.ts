@@ -19,6 +19,8 @@ import type {
   ProjectsResponse,
   ProviderTestRequest,
   ProviderTestResponse,
+  ProviderModelsRequest,
+  ProviderModelsResponse,
   ServerConfig,
   WSMessage,
 } from "@framebaker/shared";
@@ -61,9 +63,9 @@ export const api = {
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
   patchFrame: (id: string, patch: FramePatch) =>
     req<FrameResponse>(`/api/frames/${id}`, { method: "PATCH", ...json(patch) }),
-  replaceFrame: (id: string, file: File) => {
+  replaceFrame: (id: string, file: Blob) => {
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("file", file, "replacement.png");
     return req<FrameResponse>(`/api/frames/${id}/replace`, { method: "POST", body: fd });
   },
   deleteFrame: (id: string) => req<OkResponse>(`/api/frames/${id}`, { method: "DELETE" }),
@@ -80,6 +82,8 @@ export const api = {
   getDoctor: () => req<DoctorResponse>("/api/doctor"),
   testProvider: (body: ProviderTestRequest) =>
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
+  listProviderModels: (body: ProviderModelsRequest) =>
+    req<ProviderModelsResponse>("/api/provider/models", { method: "POST", ...json(body) }),
   enhancePrompt: (enhancerId: string | undefined, prompt: string) =>
     req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt }) }),
 

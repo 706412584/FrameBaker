@@ -6,16 +6,21 @@ import { broadcast } from "../ws";
 
 const patchSchema = t.Partial(
   t.Object({
-    offset_x: t.Number(),
-    offset_y: t.Number(),
-    scale: t.Number(),
-    rotation: t.Number(),
-    opacity: t.Number(),
+    offset_x: t.Number({ minimum: -100_000, maximum: 100_000 }),
+    offset_y: t.Number({ minimum: -100_000, maximum: 100_000 }),
+    scale: t.Number({ minimum: 0.1, maximum: 8 }),
+    rotation: t.Number({ minimum: -Math.PI, maximum: Math.PI }),
+    opacity: t.Number({ minimum: 0, maximum: 1 }),
     duration: t.Integer({ minimum: 1, maximum: 600 }),
     is_keyframe: t.Integer({ minimum: 0, maximum: 1 }),
     tags: t.Array(t.String()),
   })
 );
+
+function isPng(bytes: Uint8Array): boolean {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  return bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
+}
 
 /** 帧图片流式返回，processed 缺失时回退 raw */
 const frameImageHandler = ({
@@ -69,10 +74,20 @@ export const framesApi = new Elysia({ prefix: "/api" })
     async ({ params, body, status }) => {
       const frame = getFrame(params.id);
       if (!frame) return status(404, "帧不存在");
+      const bytes = Buffer.from(await body.file.arrayBuffer());
+      if (!isPng(bytes)) return status(400, "替换图片必须是 PNG（请通过编辑器剪裁后提交）");
       const out = join(STORAGE_ROOT, "projects", frame.project_id, "processed", `${frame.id}_replaced.png`);
       mkdirSync(dirname(out), { recursive: true });
-      await Bun.write(out, Buffer.from(await body.file.arrayBuffer()));
+      await Bun.write(out, bytes);
       db.query("UPDATE frames SET processed_path = ?, source = 'upload', status = 'ready' WHERE id = ?").run(out, frame.id);
+      if (
+        frame.processed_path &&
+        frame.processed_path !== out &&
+        frame.processed_path !== frame.raw_path &&
+        existsSync(frame.processed_path)
+      ) {
+        unlinkSync(frame.processed_path);
+      }
       broadcast("frame_updated", { id: frame.id, projectId: frame.project_id });
       return { frame: serializeFrame(getFrame(frame.id)!) };
     },

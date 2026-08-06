@@ -4,9 +4,6 @@ import { broadcast } from "./ws";
 import { extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
 import { matte } from "./jobs/matting";
 
-/** 任务产出目标：项目帧 or 素材库 */
-export type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
-
 export interface JobPayload {
   extract?: ExtractPayload;
   generate?: GeneratePayload;
@@ -32,6 +29,10 @@ export function createJob(projectId: string, type: JobType, payload: JobPayload)
   broadcast("job_queued", { id, projectId, type });
   pump();
   return id;
+}
+
+function enqueueMatting(projectId: string, target: "frame" | "material", id: string) {
+  createJob(projectId, "matting", { matting: { target, id } });
 }
 
 function pump() {
@@ -70,9 +71,9 @@ async function runJob(id: string) {
   broadcast("job_running", { id, projectId: job.project_id });
   try {
     if (job.type === "extract_frames" && payload.extract) {
-      await extractFrames(payload.extract, report);
+      await extractFrames(payload.extract, report, enqueueMatting);
     } else if (job.type === "generate_frames" && payload.generate) {
-      await generateFrames(payload.generate, report);
+      await generateFrames(payload.generate, report, enqueueMatting);
     } else if (job.type === "matting" && payload.matting) {
       const warn = await matte(payload.matting.target, payload.matting.id);
       if (warn) report(warn); // 引擎缺失等警告写进 job.progress

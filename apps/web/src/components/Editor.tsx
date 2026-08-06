@@ -11,6 +11,7 @@ import ImportModal from "./ImportModal";
 import PlaybackBar from "./PlaybackBar";
 import BatchBar from "./BatchBar";
 import CanvasToolbar from "./CanvasToolbar";
+import CropModal from "./CropModal";
 import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
 import ThemeToggle from "./ThemeToggle";
@@ -36,6 +37,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [frames, setFrames] = useState<Frame[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: File } | null>(null);
   // 播放预览：就在 Pixi 画布内播放（不换容器）。showPreview=播放模式，paused=暂停
   const [showPreview, setShowPreview] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -79,6 +81,9 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   );
   // 图片缓存破坏版本号：任何图片内容变化后 +1
   const [v, setV] = useState(0);
+  // 同一帧的 PATCH 串行提交：UI 先乐观更新，避免快速连续步进丢操作或响应乱序
+  const patchChains = useRef(new Map<string, Promise<void>>());
+  const patchRevisions = useRef(new Map<string, number>());
 
   const loadFrames = useCallback(async () => {
     try {
@@ -110,14 +115,31 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     return unsub;
   }, [loadFrames, projectId]);
 
-  const patchFrame = useCallback(async (id: string, patch: FramePatch) => {
-    try {
-      const { frame } = await api.patchFrame(id, patch);
-      setFrames((fs) => fs.map((f) => (f.id === id ? frame : f)));
-    } catch (e) {
-      console.error(e);
-    }
-  }, []);
+  const patchFrame = useCallback(
+    (id: string, patch: FramePatch) => {
+      const revision = (patchRevisions.current.get(id) ?? 0) + 1;
+      patchRevisions.current.set(id, revision);
+      setFrames((fs) => fs.map((frame) => (frame.id === id ? { ...frame, ...patch } : frame)));
+
+      const previous = patchChains.current.get(id) ?? Promise.resolve();
+      const request = previous
+        .then(() => api.patchFrame(id, patch))
+        .then(({ frame }) => {
+          if (patchRevisions.current.get(id) === revision) {
+            setFrames((fs) => fs.map((current) => (current.id === id ? frame : current)));
+          }
+        })
+        .catch((e) => {
+          notify(`帧属性更新失败: ${(e as Error).message}`);
+          if (patchRevisions.current.get(id) === revision) void loadFrames();
+        })
+        .finally(() => {
+          if (patchChains.current.get(id) === request) patchChains.current.delete(id);
+        });
+      patchChains.current.set(id, request);
+    },
+    [loadFrames]
+  );
 
   const onDuplicate = useCallback(
     async (id: string) => {
@@ -135,17 +157,23 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     [loadFrames]
   );
 
-  const onReplace = useCallback(
-    async (id: string, file: File) => {
+  const onReplace = useCallback((id: string, file: File) => {
+    setReplaceCrop({ frameId: id, image: file });
+  }, []);
+
+  const confirmReplace = useCallback(
+    async (blob: Blob) => {
+      if (!replaceCrop) return;
       try {
-        await api.replaceFrame(id, file);
+        await api.replaceFrame(replaceCrop.frameId, blob);
+        setReplaceCrop(null);
         setV((x) => x + 1);
         await loadFrames();
       } catch (e) {
         notify(`替换失败: ${(e as Error).message}`);
       }
     },
-    [loadFrames]
+    [loadFrames, replaceCrop]
   );
 
   // 时间轴拖拽换序：前端乐观更新 + 调 reorder
@@ -449,6 +477,18 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               loadFrames();
               setV((x) => x + 1);
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {replaceCrop && (
+          <CropModal
+            image={replaceCrop.image}
+            title="替换并剪裁帧图片"
+            subtitle="保存为 PNG"
+            onConfirm={confirmReplace}
+            onClose={() => setReplaceCrop(null)}
           />
         )}
       </AnimatePresence>
