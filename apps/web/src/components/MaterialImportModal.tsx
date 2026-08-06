@@ -25,6 +25,8 @@ interface UploadItem {
 
 interface Props {
   initialTab: "upload" | "cli";
+  /** 当前选中的素材文件夹（null = 未分组 / 全部） */
+  folderId?: string | null;
   onClose: () => void;
   onDone: () => void;
 }
@@ -45,7 +47,7 @@ function stateIcon(s: FileState): string {
 }
 
 /** 素材导入弹窗：上传（可多选，单图/GIF/MP4 混合）或 AI 生成，目标为 /api/materials/* */
-export default function MaterialImportModal({ initialTab, onClose, onDone }: Props) {
+export default function MaterialImportModal({ initialTab, folderId = null, onClose, onDone }: Props) {
   const t = useT();
   const [tab, setTab] = useState<"upload" | "cli">(initialTab);
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -129,6 +131,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
         fd.append("file", items[i].file);
         fd.append("fps", String(fps));
         fd.append("autoMatting", String(autoMatting));
+        if (folderId) fd.append("folderId", folderId);
         const r = await api.uploadMaterial(fd);
         if ("jobId" in r) {
           jobEntries.push({ jobId: r.jobId, index: i });
@@ -156,16 +159,20 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
-      const sel = resolveProviderSelection(providers, providerId, model);
+      const sel = resolveProviderSelection(providers, providerId, model, {
+        videoOnly: mediaKind === "video",
+        preferI2v: mediaKind === "video" && !!reference,
+      });
       await api.generateMaterial({
         prompt: prompt.trim(),
         count,
         autoMatting,
         ...sel,
+        folderId,
         ...(mediaKind === "video" ? { mediaKind: "video" as const, fps: videoFps } : {}),
         ...(mediaKind === "image" && size ? { size } : {}),
-        ...(mediaKind === "image" && reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(mediaKind === "image" && reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
+        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
       notify(t("已加入任务队列，可在右侧任务面板查看进度"), "info");
       onDone();
@@ -328,13 +335,17 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
                 <input type="range" min={1} max={24} value={videoFps} onChange={(e) => setVideoFps(Number(e.target.value))} />
               </div>
             )}
-            {mediaKind === "image" && <ReferencePicker value={reference} onChange={setReference} showFrames={false} />}
+            <ReferencePicker value={reference} onChange={setReference} showFrames={false} />
+            {mediaKind === "video" && (
+              <div className="hint">{t("引用图：百炼 HappyHorse i2v/r2v 作首帧/参考；t2v 与 MiniMax 文生视频可忽略")}</div>
+            )}
             <ProviderModelPicker
               providerId={providerId}
               model={model}
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
+              preferI2v={mediaKind === "video" && !!reference}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />

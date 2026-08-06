@@ -25,9 +25,9 @@ CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中�
 
 - **CLI provider**：本地命令，**结构化字段免模板**——填命令（PATH 名或绝对路径）、prompt 参数名（如 `--prompt`，留空则 prompt 作位置参数）、输出参数名（如 `-o`）；可选模型参数名（生成弹窗选了模型才下发）、引用图参数名（留空表示该 CLI 不支持引用图）、额外固定参数（原样追加）。服务端按此组装 argv 直接执行，不经 shell。
 - **API provider（OpenAI 兼容）**：OpenAI 官方（gpt-image 系列）、火山方舟豆包 Seedream（`https://ark.cn-beijing.volces.com/api/v3`）、各类兼容网关。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。测试连接实发 `GET {baseUrl}/models`。
-- **百炼 provider（DashScope 原生）**：阿里云百炼的 qwen-image 系列（文生图 / 图像编辑）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com`，模型如 `qwen-image-2.0-pro` / `qwen-image-edit-max`，尺寸为星号格式（如 `2048*2048`）。引用图以 base64 随请求上送，原生支持。
+- **百炼 provider（DashScope 原生）**：万相 `wan2.7-image` / `wan2.7-image-pro`（文生图/编辑）与 HappyHorse 视频（`happyhorse-1.1-t2v` / `i2v` / `r2v`）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域；图片尺寸可用 `2K`/`1K`/`4K` 或 `宽*高`。视频走异步 `video-synthesis`（i2v 需首帧引用图）。也可继续用 qwen-image 系列。
 - **banana provider（Gemini 图像）**：nano-banana（`gemini-2.5-flash-image`、`gemini-3-pro-image-preview` 等）。Base URL 填 `https://generativelanguage.googleapis.com`，尺寸填宽高比（如 `16:9`）。引用图原生支持（inlineData base64）。测试连接实发 `GET /v1beta/models`。
-- **MiniMax provider**：`image-01`。Base URL 填 `https://api.minimaxi.com`，尺寸填宽高比。引用图走 `subject_reference`（主体特征保持，限一张，适合角色一致性）。
+- **MiniMax provider**：图片 `image-01` + 视频 `MiniMax-Hailuo-2.3` / `MiniMax-H3`（预设一次带出）。Base URL 填 `https://api.minimaxi.com`，尺寸图/H3 填宽高比，Hailuo 也可填 `768P`/`1080P`。引用图走 `subject_reference`（主体特征保持，限一张）。**视频**：生成弹窗切到「视频」并选视频模型——多数套餐用 Hailuo（v1），H3 走 v2；异步任务约数分钟后按 fps 抽帧入库。
 
 测试连接用表单当前值探测，不用先保存；百炼 / MiniMax 没有轻量探测端点，只做字段校验（生成失败会以任务错误形式暴露）。
 
@@ -86,7 +86,7 @@ CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中�
 
 不是所有图都需要加工，所以加工都是按需触发：
 
-- **详情弹窗**（点卡片）：原图/抠图后**对比滑杆**验收效果；执行抠图 / 还原原图 / **剪裁**（作用于当前显示图，已抠图则裁抠图后）/ **网格切分**（多宫格精灵图按行×列切成独立素材）/ **多动作生成**（以当前素材为引用图，勾选动作预设逐动作生成帧序列素材，按「素材名_动作」命名）/ 导入项目（可选复制 1–16 份）/ 删除
+- **详情弹窗**（点卡片）：原图/抠图后**对比滑杆**验收效果；执行抠图 / 还原原图 / **剪裁**（作用于当前显示图，已抠图则裁抠图后）/ **网格切分**（多宫格精灵图按行×列切成独立素材）/ **多动作生成**（图片：引用图 + 有序连续帧 → 拼图表再切分；视频：点选动作注入提示词 → 文生视频按 fps 抽帧，无需拼图）/ 导入项目（可选复制 1–16 份）/ 删除
 - **批量操作**（Cmd/Ctrl+点击多选、Shift+点击范围选）：批量抠图（入队处理）、批量导入项目、批量删除
 
 卡片右下状态点：绿=已抠图，灰=原图。

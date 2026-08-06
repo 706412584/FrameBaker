@@ -10,6 +10,10 @@ import type {
   JobCreatedResponse,
   JobResponse,
   JobsResponse,
+  Folder,
+  FolderKind,
+  FoldersResponse,
+  FolderResponse,
   Material,
   MaterialCreatedResponse,
   MaterialResponse,
@@ -26,7 +30,7 @@ import type {
   WSMessage,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, WSMessage } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -60,14 +64,21 @@ interface GenerateBody {
   mediaKind?: "image" | "video";
   /** 视频抽帧帧率（mediaKind=video 生效） */
   fps?: number;
+  /** 落入的素材文件夹（null/缺省 = 未分组） */
+  folderId?: string | null;
 }
 
 export const api = {
   listProjects: () => req<ProjectsResponse>("/api/projects").then((r) => r.projects),
-  createProject: (name: string) =>
-    req<{ id: string; name: string }>("/api/projects", { method: "POST", ...json({ name }) }),
+  createProject: (name: string, folderId?: string | null) =>
+    req<{ id: string; name: string }>("/api/projects", {
+      method: "POST",
+      ...json({ name, folderId: folderId ?? null }),
+    }),
   getProject: (id: string) => req<ProjectResponse>(`/api/projects/${id}`).then((r) => r.project),
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),
+  patchProject: (id: string, body: { name?: string; folderId?: string | null }) =>
+    req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
 
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
   patchFrame: (id: string, patch: FramePatch) =>
@@ -88,6 +99,7 @@ export const api = {
     req<JobCreatedResponse>("/api/import/generate", { method: "POST", ...json(body) }),
   getJob: (id: string) => req<JobResponse>(`/api/jobs/${id}`).then((r) => r.job),
   listJobs: () => req<JobsResponse>("/api/jobs").then((r) => r.jobs),
+  cancelJob: (id: string) => req<OkResponse>(`/api/jobs/${id}/cancel`, { method: "POST" }),
   getConfig: () => req<ServerConfig>("/api/config"),
   getDoctor: () => req<DoctorResponse>("/api/doctor"),
   testProvider: (body: ProviderTestRequest) =>
@@ -111,7 +123,10 @@ export const api = {
   matteMaterial: (id: string) => req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST" }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
   batchMatteMaterials: (ids: string[]) =>
-    req<OkResponse & { count: number }>("/api/materials/batch-matting", { method: "POST", ...json({ ids }) }),
+    req<OkResponse & { count: number; skipped: number }>("/api/materials/batch-matting", {
+      method: "POST",
+      ...json({ ids }),
+    }),
   replaceMaterialImage: (id: string, file: Blob, slot: "raw" | "processed") => {
     const fd = new FormData();
     fd.append("file", file, "crop.png");
@@ -127,6 +142,20 @@ export const api = {
     req<OkResponse & { deleted: number }>("/api/materials/batch-delete", { method: "POST", ...json({ ids }) }),
   batchImportMaterials: (ids: string[], projectId: string) =>
     req<OkResponse & { count: number }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId }) }),
+
+  // ---- 文件夹（素材 / 项目多级目录） ----
+  listFolders: (kind: FolderKind) =>
+    req<FoldersResponse>(`/api/folders?kind=${kind}`).then((r) => r.folders),
+  createFolder: (kind: FolderKind, name: string, parentId?: string | null) =>
+    req<FolderResponse>("/api/folders", { method: "POST", ...json({ kind, name, parentId: parentId ?? null }) }),
+  patchFolder: (id: string, body: { name?: string; parentId?: string | null }) =>
+    req<OkResponse>(`/api/folders/${id}`, { method: "PATCH", ...json(body) }),
+  deleteFolder: (id: string) => req<OkResponse>(`/api/folders/${id}`, { method: "DELETE" }),
+  moveItems: (kind: FolderKind, ids: string[], folderId: string | null) =>
+    req<OkResponse & { moved: number }>("/api/folders/move-items", {
+      method: "POST",
+      ...json({ kind, ids, folderId }),
+    }),
 };
 
 /** 帧图片 URL（.png 后缀：Pixi Assets 按扩展名命中 texture parser；v 变化可破缓存） */

@@ -4,7 +4,7 @@ import type { MattingEngine } from "@framebaker/shared";
 import { db, getFrame, getMaterial, REPO_ROOT, STORAGE_ROOT } from "../db";
 import { getMattingSettings } from "../provider";
 import { broadcast } from "../ws";
-import { runCmd } from "./run";
+import { JobCancelledError, runCmd } from "./run";
 
 // ===== 抠图引擎探测（每次调用重新解析，设置页改动即时生效；解析顺序见下）=====
 
@@ -45,7 +45,7 @@ export function getMattingInfo(): MattingInfo {
  * d. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
  */
-async function runMatting(input: string, output: string): Promise<string | null> {
+async function runMatting(input: string, output: string, signal?: AbortSignal): Promise<string | null> {
   const { cliBin, cliInputArg, cliOutputArg, cliModelArg, envTemplate, model } = getMattingSettings();
 
   if (cliBin.trim()) {
@@ -55,7 +55,7 @@ async function runMatting(input: string, output: string): Promise<string | null>
     if (cliOutputArg.trim()) argv.push(cliOutputArg.trim());
     argv.push(output);
     if (cliModelArg.trim()) argv.push(cliModelArg.trim(), model);
-    await runCmd(argv);
+    await runCmd(argv, undefined, signal);
     return null;
   }
 
@@ -65,7 +65,7 @@ async function runMatting(input: string, output: string): Promise<string | null>
       .map((tok) =>
         tok.replaceAll("{input}", input).replaceAll("{output}", output).replaceAll("{model}", model)
       );
-    await runCmd(argv);
+    await runCmd(argv, undefined, signal);
     return null;
   }
 
@@ -73,7 +73,7 @@ async function runMatting(input: string, output: string): Promise<string | null>
   if (rembgBin) {
     const u2netHome = join(STORAGE_ROOT, "models");
     mkdirSync(u2netHome, { recursive: true });
-    await runCmd([rembgBin, "i", "-m", model, input, output], { U2NET_HOME: u2netHome });
+    await runCmd([rembgBin, "i", "-m", model, input, output], { U2NET_HOME: u2netHome }, signal);
     return null;
   }
 
@@ -82,14 +82,14 @@ async function runMatting(input: string, output: string): Promise<string | null>
 }
 
 /** 抠图：项目帧。返回警告文案（null = 真抠图） */
-export async function matteFrame(frameId: string): Promise<string | null> {
+export async function matteFrame(frameId: string, signal?: AbortSignal): Promise<string | null> {
   const frame = getFrame(frameId);
   if (!frame) throw new Error(`帧不存在: ${frameId}`);
   if (!frame.raw_path) throw new Error(`帧缺少 raw 文件: ${frameId}`);
 
   const outPath = join(STORAGE_ROOT, "projects", frame.project_id, "processed", `${frameId}.png`);
   mkdirSync(dirname(outPath), { recursive: true });
-  const warning = await runMatting(frame.raw_path, outPath);
+  const warning = await runMatting(frame.raw_path, outPath, signal);
 
   db.query("UPDATE frames SET status = 'ready', processed_path = ? WHERE id = ?").run(outPath, frameId);
   broadcast("frame_updated", { id: frameId, projectId: frame.project_id });
@@ -97,14 +97,14 @@ export async function matteFrame(frameId: string): Promise<string | null> {
 }
 
 /** 抠图：素材。返回警告文案（null = 真抠图） */
-export async function matteMaterial(materialId: string): Promise<string | null> {
+export async function matteMaterial(materialId: string, signal?: AbortSignal): Promise<string | null> {
   const m = getMaterial(materialId);
   if (!m) throw new Error(`素材不存在: ${materialId}`);
   if (!m.raw_path) throw new Error(`素材缺少 raw 文件: ${materialId}`);
 
   const outPath = join(STORAGE_ROOT, "materials", materialId, "processed.png");
   mkdirSync(dirname(outPath), { recursive: true });
-  const warning = await runMatting(m.raw_path, outPath);
+  const warning = await runMatting(m.raw_path, outPath, signal);
 
   db.query("UPDATE materials SET status = 'matted', processed_path = ? WHERE id = ?").run(outPath, materialId);
   broadcast("material_updated", { id: materialId });
@@ -112,6 +112,7 @@ export async function matteMaterial(materialId: string): Promise<string | null> 
 }
 
 /** 队列入口：按目标分发 */
-export async function matte(target: "frame" | "material", id: string): Promise<string | null> {
-  return target === "frame" ? matteFrame(id) : matteMaterial(id);
+export async function matte(target: "frame" | "material", id: string, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) throw new JobCancelledError();
+  return target === "frame" ? matteFrame(id, signal) : matteMaterial(id, signal);
 }

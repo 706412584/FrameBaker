@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { CheckCircle2, Clock, ListTodo, X, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ListTodo, Square, X, XCircle } from "lucide-react";
 import { api, wsClient, type Job } from "../api";
 import { useT } from "../i18n";
+import { askConfirm, notify } from "../notice";
 
 const TYPE_LABEL: Record<Job["type"], string> = {
   extract_frames: "拆帧",
@@ -10,18 +11,20 @@ const TYPE_LABEL: Record<Job["type"], string> = {
   matting: "抠图",
 };
 
-const DONE_TTL = 6000; // 完成任务停留 6s 后自动移除
+const DONE_TTL = 6000; // 完成/取消任务停留 6s 后自动移除
 const MAX_ITEMS = 20;
 
 const isActive = (j: Job) => j.status === "queued" || j.status === "running";
+const isTransient = (j: Job) => j.status === "done" || j.status === "cancelled";
 
 /**
  * 右侧常驻任务队列面板：初始接管进行中的任务，之后靠 WS job_* 事件驱动（3s 轮询兜底断连恢复期）。
- * 完成的短暂停留后消失；失败的常驻，可手动关闭。无任务时不渲染。
+ * 完成/取消短暂停留后消失；失败常驻可手动关闭。排队/运行中可取消。
  */
 export default function JobPanel() {
   const t = useT();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const timers = useRef(new Map<string, number>());
 
   const dismiss = (id: string) => {
@@ -40,7 +43,7 @@ export default function JobPanel() {
         : [job, ...prev];
       return next.slice(0, MAX_ITEMS);
     });
-    if (job.status === "done" && !timers.current.has(job.id)) {
+    if (isTransient(job) && !timers.current.has(job.id)) {
       timers.current.set(
         job.id,
         window.setTimeout(() => {
@@ -55,10 +58,27 @@ export default function JobPanel() {
     api
       .getJob(id)
       .then(upsert)
-      .catch(() => dismiss(id)); // 任务查不到（如已清理）直接从面板移除
+      .catch(() => dismiss(id));
+
+  const cancel = async (id: string) => {
+    if (cancelling.has(id)) return;
+    if (!(await askConfirm(t("确定取消该任务？正在运行的命令会被中止。")))) return;
+    setCancelling((prev) => new Set(prev).add(id));
+    try {
+      await api.cancelJob(id);
+      await fetchOne(id);
+    } catch (e) {
+      notify(t("取消失败: {msg}", { msg: (e as Error).message }));
+    } finally {
+      setCancelling((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
-    // 初始：只接管正在进行中的任务（历史完成/失败记录不进面板）
     api
       .listJobs()
       .then((list) => setJobs(list.filter(isActive).slice(0, MAX_ITEMS)))
@@ -75,7 +95,6 @@ export default function JobPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 活动任务 3s 轮询兜底（WS 事件丢失时收敛状态）
   const activeKey = jobs
     .filter(isActive)
     .map((j) => j.id)
@@ -115,6 +134,8 @@ export default function JobPanel() {
                 <CheckCircle2 size={13} className="ok" />
               ) : j.status === "error" ? (
                 <XCircle size={13} className="err" />
+              ) : j.status === "cancelled" ? (
+                <Square size={13} className="wait" />
               ) : (
                 <Clock size={13} className="wait" />
               )}
@@ -124,15 +145,30 @@ export default function JobPanel() {
                   ? t("完成")
                   : j.status === "error"
                     ? t("失败")
-                    : (j.progress ?? (j.status === "queued" ? t("排队中") : t("处理中")))}
+                    : j.status === "cancelled"
+                      ? t("已取消")
+                      : (j.progress ?? (j.status === "queued" ? t("排队中") : t("处理中")))}
               </span>
-              {(j.status === "done" || j.status === "error") && (
+              {isActive(j) && (
+                <button
+                  type="button"
+                  className="dismiss"
+                  title={t("取消任务")}
+                  disabled={cancelling.has(j.id)}
+                  onClick={() => void cancel(j.id)}
+                >
+                  <Square size={11} />
+                </button>
+              )}
+              {(j.status === "done" || j.status === "error" || j.status === "cancelled") && (
                 <button type="button" className="dismiss" title={t("移除")} onClick={() => dismiss(j.id)}>
                   <X size={12} />
                 </button>
               )}
             </div>
-            <div className={`px-progress ${j.status === "done" ? "done" : ""} ${j.status === "error" ? "error" : ""}`}>
+            <div
+              className={`px-progress ${j.status === "done" ? "done" : ""} ${j.status === "error" ? "error" : ""} ${j.status === "cancelled" ? "error" : ""}`}
+            >
               <div className="bar" />
             </div>
             {j.status === "error" && j.error && <div className="job-error-text">{j.error}</div>}

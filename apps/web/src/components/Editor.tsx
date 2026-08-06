@@ -17,6 +17,7 @@ import CropModal from "./CropModal";
 import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
 import ThemeToggle from "./ThemeToggle";
+import NoticeHistory from "./NoticeHistory";
 import { exportSpritesheet } from "../export";
 import { useT } from "../i18n";
 import {
@@ -422,7 +423,13 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     ? []
     : ctxBatch
       ? [
-          { label: t("复制 {n} 帧", { n: selectedIds.size }), icon: <Copy size={13} />, onClick: batchDuplicate },
+          {
+            label: t("复制 {n} 帧", { n: selectedIds.size }),
+            icon: <Copy size={13} />,
+            onClick: async () => {
+              if (await askConfirm(t("复制选中的 {n} 帧（各 ×1）？", { n: selectedIds.size }))) await batchDuplicate();
+            },
+          },
           { label: t("裁透明边"), icon: <Scan size={13} />, onClick: batchTrim },
           {
             label: t("删除 {n} 帧", { n: selectedIds.size }),
@@ -453,7 +460,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
             },
             { label: t("剪裁图片…"), icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
             { label: t("复制"), icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
-            { label: t("删除"), icon: <Trash2 size={13} />, danger: true, onClick: () => onDelete(ctxFrame.id) },
+            {
+              label: t("删除"),
+              icon: <Trash2 size={13} />,
+              danger: true,
+              onClick: async () => {
+                if (await askConfirm(t("确认删除该帧？"))) await onDelete(ctxFrame.id);
+              },
+            },
           ]
         : [];
 
@@ -486,6 +500,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         >
           <Download size={14} /> {t("导出精灵表")}
         </motion.button>
+        <NoticeHistory />
         <ThemeToggle />
       </header>
 

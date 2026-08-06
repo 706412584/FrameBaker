@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
-import { createJob } from "../queue";
+import { createJob, createMattingJob } from "../queue";
 import { checkVideoSupport, resolveReferencePath } from "../jobs/extract";
 import { broadcast } from "../ws";
 
@@ -102,6 +102,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
             autoMatting,
             target: { kind: "materials" },
             originName: baseName(origName),
+            folderId: body.folderId || null,
           },
         });
         return { jobId };
@@ -113,13 +114,11 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       mkdirSync(dir, { recursive: true });
       const rawPath = join(dir, "raw.png");
       await Bun.write(rawPath, Buffer.from(await body.file.arrayBuffer()));
-      db.query("INSERT INTO materials (id, name, raw_path, status, source, created_at) VALUES (?, ?, ?, 'raw', 'image', ?)").run(
-        id,
-        baseName(origName) || "素材",
-        rawPath,
-        Date.now()
-      );
-      if (autoMatting) createJob("", "matting", { matting: { target: "material", id } });
+      const folderId = body.folderId || null;
+      db.query(
+        "INSERT INTO materials (id, name, raw_path, status, source, folder_id, created_at) VALUES (?, ?, ?, 'raw', 'image', ?, ?)"
+      ).run(id, baseName(origName) || "素材", rawPath, folderId, Date.now());
+      if (autoMatting) createMattingJob("", "material", id);
       broadcast("materials_changed", {});
       return { materialId: id };
     },
@@ -128,6 +127,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         file: t.File(),
         autoMatting: t.Optional(t.String()),
         fps: t.Optional(t.String()),
+        folderId: t.Optional(t.String()),
       }),
     }
   )
@@ -153,6 +153,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           size: body.size,
           mediaKind: body.mediaKind,
           fps: body.fps,
+          folderId: body.folderId ?? null,
         },
       });
       return { jobId };
@@ -170,6 +171,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         size: t.Optional(t.String()),
         mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
         fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
+        folderId: t.Optional(t.Union([t.String(), t.Null()])),
       }),
     }
   )
@@ -178,21 +180,31 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     const m = getMaterial(params.id);
     if (!m) return status(404, "素材不存在");
     if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少 raw 文件");
-    const jobId = createJob("", "matting", { matting: { target: "material", id: params.id } });
-    return { jobId };
+    const r = createMattingJob("", "material", params.id);
+    if (r.duplicate) return status(409, "该素材已有进行中的抠图任务");
+    return { jobId: r.jobId };
   })
-  // 批量抠图：选中的素材逐个入队（不是所有图都需要加工，按需触发）
+  // 批量抠图：仅对未抠图（raw）入队；已抠图 / 已有进行中任务跳过（详情页单条仍可重新抠，但会拦重复）
   .post(
     "/materials/batch-matting",
     ({ body }) => {
       let count = 0;
+      let skipped = 0;
       for (const id of body.ids) {
         const m = getMaterial(id);
         if (!m || !m.raw_path || !existsSync(m.raw_path)) continue;
-        createJob("", "matting", { matting: { target: "material", id } });
+        if (m.status === "matted") {
+          skipped++;
+          continue;
+        }
+        const r = createMattingJob("", "material", id);
+        if (r.duplicate) {
+          skipped++;
+          continue;
+        }
         count++;
       }
-      return { ok: true, count };
+      return { ok: true, count, skipped };
     },
     { body: t.Object({ ids: t.Array(t.String()) }) }
   )

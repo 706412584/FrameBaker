@@ -5,7 +5,7 @@ import { db, getFrame, getMaterial, nextFrameIdx, STORAGE_ROOT, uid } from "../d
 import { providerConfigured, resolveGenProvider } from "../provider";
 import { broadcast } from "../ws";
 import { generateViaApi, generateVideoViaApi } from "./generateApi";
-import { runCmd } from "./run";
+import { JobCancelledError, runCmd } from "./run";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -18,6 +18,8 @@ export interface ExtractPayload {
   target: JobTarget;
   /** 原始文件名（去扩展名），仅 materials 目标用于素材命名 */
   originName?: string;
+  /** 素材入库目标文件夹（NULL = 根目录） */
+  folderId?: string | null;
 }
 
 export interface GeneratePayload {
@@ -39,6 +41,8 @@ export interface GeneratePayload {
   mediaKind?: "image" | "video";
   /** 视频抽帧帧率（mediaKind=video 生效，默认 8） */
   fps?: number;
+  /** 素材入库目标文件夹（NULL = 根目录） */
+  folderId?: string | null;
 }
 
 /** 按文件头魔数判断产物是否为视频（mp4/mov=ftyp、webm=EBML、avi=RIFF....AVI） */
@@ -148,7 +152,12 @@ function afterImportMaterials(materialIds: string[], autoMatting: boolean, enque
 }
 
 /** 拆帧到独立暂存目录（两种目标共用），返回排序后的文件名列表 */
-async function extractToStaging(p: ExtractPayload, progress: (s: string) => void): Promise<{ stageDir: string; files: string[] }> {
+async function extractToStaging(
+  p: ExtractPayload,
+  progress: (s: string) => void,
+  signal?: AbortSignal
+): Promise<{ stageDir: string; files: string[] }> {
+  if (signal?.aborted) throw new JobCancelledError();
   // 先拆到独立暂存目录，再按目标统一处理
   const stageDir = join(STORAGE_ROOT, "staging", `extract_${uid()}`);
   mkdirSync(stageDir, { recursive: true });
@@ -158,9 +167,13 @@ async function extractToStaging(p: ExtractPayload, progress: (s: string) => void
   if (p.mediaType === "image") {
     copyFileSync(p.stagingFile, `${stageDir}/frame_0000.png`);
   } else if (p.mediaType === "gif") {
-    await runCmd(["ffmpeg", "-y", "-i", p.stagingFile, "-start_number", "0", outPattern]);
+    await runCmd(["ffmpeg", "-y", "-i", p.stagingFile, "-start_number", "0", outPattern], undefined, signal);
   } else {
-    await runCmd(["ffmpeg", "-y", "-i", p.stagingFile, "-vf", `fps=${p.fps}`, "-start_number", "0", outPattern]);
+    await runCmd(
+      ["ffmpeg", "-y", "-i", p.stagingFile, "-vf", `fps=${p.fps}`, "-start_number", "0", outPattern],
+      undefined,
+      signal
+    );
   }
 
   const files = readdirSync(stageDir)
@@ -186,21 +199,24 @@ function saveMaterials(stageDir: string, files: string[], p: ExtractPayload): st
     const rawPath = join(dir, "raw.png");
     renameSync(`${stageDir}/${file}`, rawPath);
     const name = files.length > 1 ? `${base} #${i + 1}` : base;
-    db.query("INSERT INTO materials (id, name, raw_path, status, source, created_at) VALUES (?, ?, ?, 'raw', ?, ?)").run(
-      id,
-      name,
-      rawPath,
-      p.mediaType,
-      Date.now()
-    );
+    db.query(
+      "INSERT INTO materials (id, name, raw_path, status, source, folder_id, created_at) VALUES (?, ?, ?, 'raw', ?, ?, ?)"
+    ).run(id, name, rawPath, p.mediaType, p.folderId ?? null, Date.now());
     ids.push(id);
   });
   return ids;
 }
 
 /** 拆帧任务：image 直接落盘；gif/mp4 走 ffmpeg；按 target 落到项目帧或素材库 */
-export async function extractFrames(p: ExtractPayload, progress: (s: string) => void, enqueueMatting: EnqueueMatting) {
-  const { stageDir, files } = await extractToStaging(p, progress);
+export async function extractFrames(
+  p: ExtractPayload,
+  progress: (s: string) => void,
+  enqueueMatting: EnqueueMatting,
+  signal?: AbortSignal
+) {
+  if (signal?.aborted) throw new JobCancelledError();
+  const { stageDir, files } = await extractToStaging(p, progress, signal);
+  if (signal?.aborted) throw new JobCancelledError();
   progress(`入库 ${files.length} 项`);
 
   if (p.target.kind === "project") {
@@ -238,9 +254,15 @@ export async function extractFrames(p: ExtractPayload, progress: (s: string) => 
  * - cli：结构化字段组装 argv（命令 + 参数名映射；遗留模板走占位符替换）
  * - api 系（OpenAI 兼容 / dashscope / gemini / minimax）：HTTP 调用，模型取 payload.model（缺省列表第一项）
  * mediaKind=video：生成一段视频（CLI 输出 mp4 / API 异步任务）后按 fps 逐帧切割入库（count 忽略）；
- * 图片模式下 CLI 产物若实为视频（魔数检测）同样自动转拆帧
+ * 图片模式下 CLI 产物若实为视频（魔数检测）同样自动转拆帧；视频模式 referencePath 供百炼 i2v/r2v 使用
  */
-export async function generateFrames(p: GeneratePayload, progress: (s: string) => void, enqueueMatting: EnqueueMatting) {
+export async function generateFrames(
+  p: GeneratePayload,
+  progress: (s: string) => void,
+  enqueueMatting: EnqueueMatting,
+  signal?: AbortSignal
+) {
+  if (signal?.aborted) throw new JobCancelledError();
   const provider = resolveGenProvider(p.providerId);
   if (!provider) {
     throw new Error("未配置生成方式：请到「设置」页添加生成 provider（CLI 或各厂商 API，可配多个共存）");
@@ -297,10 +319,10 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
   /** 生成单个产物到 outPath（图片模式逐张调；视频模式仅调一次，API 走异步任务轮询） */
   const produce = (outPath: string, index: number) =>
     provider.type === "cli"
-      ? runCmd(buildArgv(outPath, index))
+      ? runCmd(buildArgv(outPath, index), undefined, signal)
       : isVideoReq
-        ? generateVideoViaApi(provider, p.prompt, apiModel, outPath, progress)
-        : generateViaApi(provider, p.prompt, apiModel, index, outPath, p.referencePath, p.size);
+        ? generateVideoViaApi(provider, p.prompt, apiModel, outPath, progress, signal, p.referencePath)
+        : generateViaApi(provider, p.prompt, apiModel, index, outPath, p.referencePath, p.size, signal);
 
   const metadataOf = (index: number) =>
     JSON.stringify({ prompt: p.prompt, index, provider: provider.name, model: p.model ?? (apiModel || undefined), size: p.size || undefined });
@@ -320,8 +342,8 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
         const rawPath = `${rawDir}/frame_${String(start + i).padStart(4, "0")}.png`;
         renameSync(`${stageDir}/${file}`, rawPath);
         db.query(
-          "INSERT INTO frames (id, project_id, idx, raw_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'cli', ?)"
-        ).run(id, projectId, baseIdx + i, rawPath, p.autoMatting ? "matting" : "ready", metadataOf(i));
+          "INSERT INTO frames (id, project_id, idx, raw_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(id, projectId, baseIdx + i, rawPath, p.autoMatting ? "matting" : "ready", provider.type, metadataOf(i));
         ids.push(id);
       });
       return ids;
@@ -334,8 +356,16 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       const rawPath = join(dir, "raw.png");
       renameSync(`${stageDir}/${file}`, rawPath);
       db.query(
-        "INSERT INTO materials (id, name, raw_path, status, source, metadata, created_at) VALUES (?, ?, ?, 'raw', 'cli', ?, ?)"
-      ).run(id, files.length > 1 ? `${matBase} #${i + 1}` : matBase, rawPath, metadataOf(i), Date.now());
+        "INSERT INTO materials (id, name, raw_path, status, source, folder_id, metadata, created_at) VALUES (?, ?, ?, 'raw', ?, ?, ?, ?)"
+      ).run(
+        id,
+        files.length > 1 ? `${matBase} #${i + 1}` : matBase,
+        rawPath,
+        provider.type,
+        p.folderId ?? null,
+        metadataOf(i),
+        Date.now()
+      );
       ids.push(id);
     });
     return ids;
@@ -349,9 +379,11 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
 
   /** 视频产物：ffmpeg 抽帧 → 入库 → 清理（cleanupStaging 会删 videoPath 所在目录，调用前确保是独立目录） */
   const ingestVideo = async (videoPath: string) => {
+    if (signal?.aborted) throw new JobCancelledError();
     const { stageDir, files } = await extractToStaging(
-      { stagingFile: videoPath, mediaType: "mp4", fps, autoMatting: p.autoMatting, target: p.target },
-      progress
+      { stagingFile: videoPath, mediaType: "mp4", fps, autoMatting: p.autoMatting, target: p.target, folderId: p.folderId },
+      progress,
+      signal
     );
     progress(`入库 ${files.length} 项`);
     const ids = ingestStageFiles(stageDir, files);
@@ -361,6 +393,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
 
   // 视频模式：只生成一段视频，产出到独立 staging 目录（CLI 的 {output} 给 .mp4 路径）
   if (isVideoReq) {
+    if (signal?.aborted) throw new JobCancelledError();
     const dir = join(STORAGE_ROOT, "staging", `genvid_${uid()}`);
     mkdirSync(dir, { recursive: true });
     const videoPath = join(dir, "output.mp4");
@@ -388,6 +421,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
     const baseIdx = nextFrameIdx(projectId);
     const frameIds: string[] = [];
     for (let i = 0; i < p.count; i++) {
+      if (signal?.aborted) throw new JobCancelledError();
       progress(`生成第 ${i + 1}/${p.count} 帧`);
       const rawPath = `${rawDir}/frame_${String(start + i).padStart(4, "0")}.png`;
       await produce(rawPath, i);
@@ -403,13 +437,14 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       }
       const id = uid();
       db.query(
-        "INSERT INTO frames (id, project_id, idx, raw_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'cli', ?)"
+        "INSERT INTO frames (id, project_id, idx, raw_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(
         id,
         projectId,
         baseIdx + i,
         rawPath,
         p.autoMatting ? "matting" : "ready",
+        provider.type,
         metadataOf(i)
       );
       frameIds.push(id);
@@ -418,6 +453,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
   } else {
     const ids: string[] = [];
     for (let i = 0; i < p.count; i++) {
+      if (signal?.aborted) throw new JobCancelledError();
       progress(`生成第 ${i + 1}/${p.count} 个素材`);
       const id = uid();
       const dir = join(STORAGE_ROOT, "materials", id);
@@ -436,11 +472,13 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
         return;
       }
       db.query(
-        "INSERT INTO materials (id, name, raw_path, status, source, metadata, created_at) VALUES (?, ?, ?, 'raw', 'cli', ?, ?)"
+        "INSERT INTO materials (id, name, raw_path, status, source, folder_id, metadata, created_at) VALUES (?, ?, ?, 'raw', ?, ?, ?, ?)"
       ).run(
         id,
         p.count > 1 ? `${matBase} #${i + 1}` : matBase,
         rawPath,
+        provider.type,
+        p.folderId ?? null,
         metadataOf(i),
         Date.now()
       );

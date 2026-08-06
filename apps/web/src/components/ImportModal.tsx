@@ -7,6 +7,7 @@ import { useServerConfig } from "../config";
 import { useT } from "../i18n";
 import { isVideoFile, useCropQueue } from "../hooks/useCropQueue";
 import { notify } from "../notice";
+import { SOURCE_LABEL_KEYS } from "../sourceLabel";
 import { themedSourceColor, useTheme } from "../theme";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
@@ -217,7 +218,10 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
-      const sel = resolveProviderSelection(providers, providerId, model);
+      const sel = resolveProviderSelection(providers, providerId, model, {
+        videoOnly: mediaKind === "video",
+        preferI2v: mediaKind === "video" && !!reference,
+      });
       await api.generate({
         projectId,
         prompt: prompt.trim(),
@@ -226,8 +230,8 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
         ...sel,
         ...(mediaKind === "video" ? { mediaKind: "video" as const, fps: videoFps } : {}),
         ...(mediaKind === "image" && size ? { size } : {}),
-        ...(mediaKind === "image" && reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(mediaKind === "image" && reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
+        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
       notify(t("已加入任务队列，可在右侧任务面板查看进度"), "info");
       onDone();
@@ -318,7 +322,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
                           className="mat-src"
                           style={{ background: themedSourceColor(SOURCE_COLORS[m.source] ?? "#888", theme) }}
                         >
-                          {m.source}
+                          {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}
                         </span>
                         <span className={`mat-check ${picked ? "on" : ""}`}>{picked && <Check size={12} />}</span>
                       </div>
@@ -471,8 +475,9 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
                 <input type="range" min={1} max={24} value={videoFps} onChange={(e) => setVideoFps(Number(e.target.value))} />
               </div>
             )}
-            {mediaKind === "image" && (
-              <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            {mediaKind === "video" && (
+              <div className="hint">{t("引用图：百炼 HappyHorse i2v/r2v 作首帧/参考；t2v 与 MiniMax 文生视频可忽略")}</div>
             )}
             <ProviderModelPicker
               providerId={providerId}
@@ -480,6 +485,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
+              preferI2v={mediaKind === "video" && !!reference}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />

@@ -140,7 +140,7 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 - **CLI provider**：结构化字段组装 argv（`cliBin` + 参数名映射：`cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，留空=位置参数或不下发），不经 shell；env `FRAMEBAKER_GEN_CLI` 与旧数据走遗留模板占位符路径（`{prompt}` `{output}` `{index}` `{reference}` `{model}`）。
 - **API provider（OpenAI 兼容，含 OpenAI 官方 / 火山方舟豆包 Seedream / 各类网关）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`（multipart：image + prompt + model + size?，需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
-- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（qwen-image 系列官方接口，不在兼容模式内）；无引用图 content 仅 `[{text}]`，有引用图前置 `{image: dataURI}`（base64）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 为星号格式（如 `2048*2048`）原样透传；baseUrl 可填工作区子域（`{WorkspaceId}.cn-beijing.maas.aliyuncs.com`），尾部的 `/api/v1` 会自动归一。
+- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（wan2.7-image / qwen-image 等，不在兼容模式内）；无引用图 content 仅 `[{text}]`，有引用图前置 `{image: dataURI}`（base64）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 可为 `2K`/`1K`/`4K` 或星号格式（如 `2048*2048`）原样透传；baseUrl 可填工作区子域（`{WorkspaceId}.cn-beijing.maas.aliyuncs.com`），尾部的 `/api/v1` 会自动归一。
 - **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；parts 为 `[{text}, {inlineData: base64 引用图}?]`；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）；响应取 `candidates[0].content.parts[*].inlineData.data`（base64）。
 - **MiniMax provider**：`POST {apiBaseUrl}/v1/image_generation`（Bearer）；引用图走 `subject_reference`（主体特征保持，限一张，base64 dataURI）；`apiSize` 映射 `aspect_ratio`（如 `16:9`）；`response_format=base64`，响应取 `data.image_base64[0]`，`base_resp.status_code` 非 0 视为失败。
 
@@ -149,8 +149,8 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 **视频模式**：`mediaKind: "video"`（缺省 `image`）+ `fps`（1–60，缺省 8）——生成一段视频后按 fps 逐帧切割入库（`count` 忽略）。仅支持 CLI / 百炼 / MiniMax provider（其余类型前置 400；支持情况见 `GET /api/config` 的 `gen.providers[].video`）：
 
 - **CLI provider**：`{output}` 给 `.mp4` 后缀路径，产出经魔数检测为视频（ftyp/EBML/RIFF-AVI）则走 ffmpeg 抽帧。**图片模式下 CLI 产物若实为视频同样自动转拆帧**（此时 `count` 忽略）。
-- **MiniMax provider（v2 协议，MiniMax-H3 等）**：`POST {apiBaseUrl}/v2/video_generation`（`{ model, content:[{type:"text",text}], ratio? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v2/query/video_generation/{task_id}`（5s 间隔，10 分钟超时；`task.status`：succeeded/failed/cancelled），成功取 `task.content.url` 下载。
-- **DashScope provider（万相 wan2.x/wanx2.1 旧版异步协议）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`；`{ model, input:{prompt}, parameters:{size?, watermark:false} }`）→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。
+- **MiniMax provider**：按模型分协议——`MiniMax-Hailuo-*` / `T2V-*` 走 v1：`POST {apiBaseUrl}/v1/video_generation`（`{ model, prompt, duration? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v1/query/video_generation?task_id=`（`status`：Success/Fail 等）取 `file_id`，再 `GET {apiBaseUrl}/v1/files/retrieve?file_id=` 取 `download_url`。`MiniMax-H3` 等走 v2：`POST {apiBaseUrl}/v2/video_generation`（`{ model, content:[{type:"text",text}], duration, ratio? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v2/query/video_generation/{task_id}`（`task.status`：succeeded/failed/cancelled），成功取 `task.content.url` 下载。默认 `duration=6`；文生视频缺省 `ratio=16:9`。
+- **DashScope provider（万相 / HappyHorse）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`）。文生视频 `happyhorse-1.1-t2v`：`input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`；图生视频 `*-i2v`：`input.media[{type:first_frame,url}]`（引用图 base64）；参考生视频 `*-r2v`：`media[{type:reference_image}]`。→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。旧 wanx 仍可把 `apiSize` 当 `size` 透传。
 
 视频为异步任务（约 1–5 分钟），进度写 `job.progress` 并经 WS 推送；拆出帧按 target 入库（项目帧 / 素材），`autoMatting` 照常生效。视频模式不支持引用图（前端不展示，服务端忽略）。
 
@@ -158,7 +158,7 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 ## 素材库 /api/materials
 
-素材先在素材库生成/上传、抠图、对比，确认后再导入项目成为帧。素材的 `source` 语义与帧一致（`cli`/`upload`/`gif`/`mp4`/`image`），`status` 为 `raw`（原图）/ `matted`（已抠图）。
+素材先在素材库生成/上传、抠图、对比，确认后再导入项目成为帧。素材的 `source` 语义与帧一致（`cli`/`api`/`dashscope`/`gemini`/`minimax`/`upload`/`gif`/`mp4`/`image`/`duplicate`；AI 生成按实际 provider 类型写入，不再一律 `cli`），`status` 为 `raw`（原图）/ `matted`（已抠图）。素材与项目均可挂 `folder_id`（见 `/api/folders`）。
 
 ### GET /api/materials
 
@@ -195,11 +195,11 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/:id/matting
 
-入队抠图任务（`matting` job，队列并发 2），响应 `{ "jobId": "…" }`；素材不存在 404，缺 raw 文件 400。引擎解析顺序见 `GET /api/config`——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制（passthrough 警告写入 `job.progress`）。完成后 `status` 置 `matted` 并广播 `material_updated`；rembg 模型首次使用需下载（可达数百 MB），进度经 WS `job_*` 事件推送。
+入队抠图任务（`matting` job，队列并发 2），响应 `{ "jobId": "…" }`；素材不存在 404，缺 raw 文件 400。**同一素材已有 queued/running 抠图任务时 409**（禁止重复入队）。引擎解析顺序见 `GET /api/config`——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制（passthrough 警告写入 `job.progress`）。完成后 `status` 置 `matted` 并广播 `material_updated`；rembg 模型首次使用需下载（可达数百 MB），进度经 WS `job_*` 事件推送。
 
 ### POST /api/materials/batch-matting
 
-`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2 }`。选中素材的二次加工：逐个校验存在且有 raw 文件后入队抠图任务（`matting` job，队列并发 2），跳过无效 id。
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2, "skipped": 1 }`。仅对 `status=raw` 的素材入队抠图；已抠图或**已有进行中抠图任务**计入 `skipped`（详情页单条仍可重新抠，但进行中会 409）。
 
 ### POST /api/materials/:id/replace-image
 
@@ -245,7 +245,35 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 }
 ```
 
-`status`：`queued` / `running` / `done` / `error`。任务负载在内存中，服务重启时会把遗留的 `queued` / `running` 任务标记为 `error`（「服务重启，任务中断」）。
+`status`：`queued` / `running` / `done` / `error` / `cancelled`。任务负载在内存中，服务重启时会把遗留的 `queued` / `running` 任务标记为 `error`（「服务重启，任务中断」）。
+
+### POST /api/jobs/:id/cancel
+
+取消排队中或运行中的任务 → `{ "ok": true }`。`queued` 直接出队标 `cancelled`；`running` 触发 AbortSignal（杀掉 `runCmd` 子进程 / 打断 API 轮询）。已结束状态返回 409。广播 `job_cancelled`。
+
+## 文件夹 /api/folders
+
+素材库与项目列表共用多级文件夹（`kind`: `material` | `project`）。资源通过 `folder_id` 归属；删除文件夹时内容上移到父级（不删资源）。
+
+### GET /api/folders?kind=material|project
+
+→ `{ "folders": [ { id, kind, parent_id, name, sort, created_at }, … ] }`（扁平列表，前端组树）。
+
+### POST /api/folders
+
+`{ "kind": "material", "name": "角色", "parentId": null }` → `{ "folder": {…} }`，广播 `folders_changed`。
+
+### PATCH /api/folders/:id
+
+`{ "name"?, "parentId"? }`（禁止移到自身或子孙下）。
+
+### DELETE /api/folders/:id
+
+子树内资源上移到父级后删除整棵文件夹子树。
+
+### POST /api/folders/move-items
+
+`{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }`（`folderId: null` = 未分组）。
 
 ## WebSocket /ws
 
@@ -257,13 +285,14 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 | type | 时机 |
 | --- | --- |
-| `job_queued` / `job_running` / `job_progress` / `job_done` / `job_error` | 任务生命周期 |
+| `job_queued` / `job_running` / `job_progress` / `job_done` / `job_error` / `job_cancelled` | 任务生命周期 |
 | `frame_updated` | PATCH / 替换 / 帧抠图完成 |
 | `frames_changed` | 导入完成 / 复制 / 删除 / 素材导入项目 |
 | `frames_reordered` | 换序 |
 | `project_deleted` | 删除项目 |
 | `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
-| `materials_changed` | 素材上传 / 生成 / 批量删除 |
+| `materials_changed` | 素材上传 / 生成 / 批量删除 / 移动文件夹 |
+| `folders_changed` | 文件夹增删改 / 移动 |
 | `settings_changed` | 设置写入（layout / theme / lang / genProvider / matting） |
 
 前端建议：收到 `frame_updated` / `frames_reordered` / `frames_changed` / `job_done` 后重拉帧列表，收到 `material_updated` / `materials_changed` 后重拉素材列表；断线 3s 重连。

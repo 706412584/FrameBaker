@@ -3,17 +3,31 @@
 export const FRAME_STATUSES = ["pending", "extracting", "matting", "ready", "error"] as const;
 export type FrameStatus = (typeof FRAME_STATUSES)[number];
 
-export const FRAME_SOURCES = ["cli", "upload", "gif", "mp4", "image", "duplicate"] as const;
+export const FRAME_SOURCES = [
+  "cli",
+  "api",
+  "dashscope",
+  "gemini",
+  "minimax",
+  "upload",
+  "gif",
+  "mp4",
+  "image",
+  "duplicate",
+] as const;
 export type FrameSource = (typeof FRAME_SOURCES)[number];
 
 export const JOB_TYPES = ["extract_frames", "generate_frames", "matting"] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
-export const JOB_STATUSES = ["queued", "running", "done", "error"] as const;
+export const JOB_STATUSES = ["queued", "running", "done", "error", "cancelled"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export const MATERIAL_STATUSES = ["raw", "matted"] as const;
 export type MaterialStatus = (typeof MATERIAL_STATUSES)[number];
+
+export const FOLDER_KINDS = ["material", "project"] as const;
+export type FolderKind = (typeof FOLDER_KINDS)[number];
 
 /** 抠图引擎（服务端启动时探测一次，解析顺序 a→d） */
 export const MATTING_ENGINES = ["custom-cli", "rembg-bundled", "rembg-path", "none"] as const;
@@ -89,6 +103,9 @@ export const GEN_SIZE_PRESETS: Record<Exclude<GenProviderType, "cli">, Array<{ v
   ],
   dashscope: [
     { value: "", label: "默认（provider 配置）" },
+    { value: "2K", label: "2K（万相推荐）" },
+    { value: "1K", label: "1K" },
+    { value: "4K", label: "4K（wan2.7-image-pro）" },
     { value: "1328*1328", label: "1328×1328（方）" },
     { value: "1664*928", label: "1664×928（横）" },
     { value: "928*1664", label: "928×1664（竖）" },
@@ -132,6 +149,28 @@ export const PROVIDER_VIDEO_SUPPORT: Record<GenProviderType, boolean> = {
   gemini: false,
   minimax: true,
 };
+
+/** MiniMax image-* / 百炼 wan*-image、qwen-image：明显是文生图，视频模式下应避开 */
+export function isLikelyImageOnlyModel(model: string): boolean {
+  const m = model.trim();
+  if (/^image[-_]?\d/i.test(m)) return true;
+  // wan2.7-image / wan2.7-image-pro / qwen-image-*（排除 *-i2v/-t2v/-r2v）
+  if (/(^|[-_])image(-|$)/i.test(m) || /qwen-image/i.test(m)) return true;
+  return false;
+}
+
+/** 视频模式下从模型列表挑首选（跳过图模；优先 t2v，有引用图时优先 i2v） */
+export function pickPreferredVideoModel(models: string[], opts?: { preferI2v?: boolean }): string {
+  const nonImage = models.filter((m) => !isLikelyImageOnlyModel(m));
+  if (opts?.preferI2v) {
+    const i2v = nonImage.find((m) => /i2v/i.test(m));
+    if (i2v) return i2v;
+  }
+  const t2v = nonImage.find((m) => /t2v/i.test(m));
+  if (t2v) return t2v;
+  const preferred = nonImage.find((m) => /hailuo|happyhorse|minimax-h\d|r2v|video/i.test(m));
+  return preferred ?? nonImage[0] ?? models[0] ?? "";
+}
 
 /** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量）；CLI 为结构化字段（免模板） */
 export interface MattingSettings {
@@ -180,21 +219,106 @@ export const ENHANCE_STYLES = [
 export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
 
 /**
- * 多动作生成的动作预设（素材详情「多动作生成」用；前后端唯一事实源）。
- * label 用于素材命名（<素材名>_<label> #i）与界面展示；prompt 为生成用的英文动作描述片段，
- * 完整 prompt 由前端组装（动作 prompt + 用户附加描述），以选中素材为引用图保持角色一致
+ * 多动作 / 连续帧生成预设（素材详情「多动作生成」用）。
+ * - 图片：按顺序追加帧（可重复）→ 一次生成连续动作拼图表 → 网格切分
+ * - 视频：点选动作注入提示词 → 文生视频 → 按 fps 抽帧入库（无需拼图/切分）
+ * prompt 为英文动作基调；完整文案由 buildActionSheetPrompt / buildActionVideoPrompt 组装。
  */
 export const ACTION_PRESETS = [
-  { id: "idle", label: "待机", prompt: "idle breathing animation pose, standing still" },
-  { id: "walk", label: "走路", prompt: "walking animation pose, walk cycle" },
-  { id: "run", label: "奔跑", prompt: "running animation pose, run cycle, dynamic" },
-  { id: "jump", label: "跳跃", prompt: "jumping animation pose, mid-air" },
-  { id: "attack", label: "攻击", prompt: "attacking animation pose, weapon swing" },
-  { id: "cast", label: "施法", prompt: "casting spell animation pose, magic glow" },
-  { id: "hurt", label: "受击", prompt: "hurt animation pose, taking damage, recoil" },
-  { id: "death", label: "死亡", prompt: "death animation pose, falling down defeated" },
+  { id: "idle", label: "待机", prompt: "idle breathing" },
+  { id: "walk", label: "走路", prompt: "walk cycle" },
+  { id: "run", label: "奔跑", prompt: "run cycle" },
+  { id: "jump", label: "跳跃", prompt: "jump arc" },
+  { id: "attack", label: "攻击", prompt: "attack swing" },
+  { id: "cast", label: "施法", prompt: "spell cast" },
+  { id: "hurt", label: "受击", prompt: "hit recoil" },
+  { id: "death", label: "死亡", prompt: "collapse / defeat" },
 ] as const;
 export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
+
+/** 拼图表最多格数（与网格切分上限对齐） */
+export const ACTION_SHEET_MAX_FRAMES = 8;
+
+/** 视频模式最多注入的动作段数（一段短片内的动作序列） */
+export const ACTION_VIDEO_MAX_ACTIONS = 4;
+
+/** 按帧数推荐拼图行列（尽量铺满、少空白格） */
+export function suggestActionSheetGrid(frameCount: number): { cols: number; rows: number } {
+  const n = Math.max(1, Math.min(ACTION_SHEET_MAX_FRAMES, Math.floor(frameCount) || 1));
+  if (n <= 1) return { cols: 1, rows: 1 };
+  if (n === 2) return { cols: 2, rows: 1 };
+  if (n === 3) return { cols: 3, rows: 1 };
+  if (n === 4) return { cols: 4, rows: 1 }; // 连续帧优先单行，读序更直观
+  if (n <= 6) return { cols: 3, rows: 2 };
+  return { cols: 4, rows: 2 };
+}
+
+/**
+ * 组装「连续动作拼图表」prompt：短文案优先（MiniMax 等厂商限 ~1500 字符）。
+ * 引用图锁角色 + 行列 + 有序帧；强调帧间连续。角色描述/附加描述会被截断。
+ */
+export function buildActionSheetPrompt(opts: {
+  /** 有序帧序列（可含重复动作 id） */
+  frames: Array<{ id: string; label: string; prompt: string }>;
+  cols: number;
+  rows: number;
+  characterPrompt?: string | null;
+  extra?: string | null;
+}): string {
+  const cols = Math.max(1, Math.min(8, Math.floor(opts.cols) || 1));
+  const rows = Math.max(1, Math.min(8, Math.floor(opts.rows) || 1));
+  const frames = opts.frames.slice(0, cols * rows);
+  const n = frames.length;
+  const sameAction = n > 0 && frames.every((f) => f.id === frames[0]!.id);
+  const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
+
+  const a0 = frames[0];
+  const head = sameAction && a0
+    ? `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous ${a0.label} (${a0.prompt}) cycle, L→R then T→B. Identical look each panel; smooth motion; last loops to first. Plain/transparent bg, no text.`
+    : `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous sequence, L→R then T→B. Identical look; smooth panel-to-panel motion. Plain/transparent bg, no text.`;
+
+  const parts = [head];
+  const character = opts.characterPrompt?.trim();
+  if (character) parts.push(`Char: ${clip(character, 160)}`);
+  if (n > 0) {
+    parts.push(`Frames: ${frames.map((f, i) => `${i + 1}:${f.label}/${f.prompt}`).join("; ")}`);
+  }
+  const empty = cols * rows - n;
+  if (empty > 0) parts.push(`Blank last ${empty} panel(s).`);
+  const extra = opts.extra?.trim();
+  if (extra) parts.push(clip(extra, 100));
+  // 再保险：整体压到 1400，给 MiniMax 1500 限留余量
+  return clip(parts.join(" "), 1400);
+}
+
+/**
+ * 组装「动作视频」prompt：直接注入所选动作，生成一段连续短片（再按 fps 抽帧）。
+ * 不做拼图格点；单动作强调循环，多动作按顺序衔接。
+ */
+export function buildActionVideoPrompt(opts: {
+  actions: Array<{ id: string; label: string; prompt: string }>;
+  characterPrompt?: string | null;
+  extra?: string | null;
+}): string {
+  const actions = opts.actions.slice(0, ACTION_VIDEO_MAX_ACTIONS);
+  const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
+  if (actions.length === 0) return clip("Pixel art game character idle loop. Plain bg, no text.", 1400);
+
+  const a0 = actions[0]!;
+  const same = actions.every((a) => a.id === a0.id);
+  const motion = same
+    ? `continuous ${a0.label} (${a0.prompt}) loop`
+    : `motion sequence: ${actions.map((a) => `${a.label} (${a.prompt})`).join(", then ")}`;
+
+  const parts = [
+    `Pixel art game character performing ${motion}. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
+  ];
+  const character = opts.characterPrompt?.trim();
+  if (character) parts.push(`Char: ${clip(character, 200)}`);
+  const extra = opts.extra?.trim();
+  if (extra) parts.push(clip(extra, 120));
+  return clip(parts.join(" "), 1400);
+}
 
 /** POST /api/enhance-prompt 请求/响应 */
 export interface EnhancePromptRequest {
@@ -268,9 +392,11 @@ export const WS_EVENTS = [
   "job_progress",
   "job_done",
   "job_error",
+  "job_cancelled",
   "project_deleted",
   "material_updated",
   "materials_changed",
+  "folders_changed",
   "settings_changed",
 ] as const;
 export type WSEventType = (typeof WS_EVENTS)[number];
@@ -287,11 +413,15 @@ export interface WSMessage<T = unknown> {
 /** 帧来源对应的主题色（帧列表左边框等；浅色主题下组件内可用 color-mix 加深） */
 export const SOURCE_COLORS: Record<FrameSource, string> = {
   cli: "#8be9fd",
-  upload: "#50fa7b",
-  gif: "#ffb86c",
-  mp4: "#ff79c6",
-  image: "#f1fa8c",
-  duplicate: "#bd93f9",
+  api: "#50fa7b",
+  dashscope: "#ffb86c",
+  gemini: "#f1fa8c",
+  minimax: "#ff79c6",
+  upload: "#6272a4",
+  gif: "#bd93f9",
+  mp4: "#ff5555",
+  image: "#a4ffff",
+  duplicate: "#caa9fa",
 };
 
 // ===== 实体（API 输出形态：tags/metadata 已解析为 JSON）=====
@@ -299,9 +429,19 @@ export const SOURCE_COLORS: Record<FrameSource, string> = {
 export interface Project {
   id: string;
   name: string;
+  folder_id: string | null;
   created_at: number;
   frame_count?: number;
   first_frame_id?: string | null;
+}
+
+export interface Folder {
+  id: string;
+  kind: FolderKind;
+  parent_id: string | null;
+  name: string;
+  sort: number;
+  created_at: number;
 }
 
 export interface Frame {
@@ -350,6 +490,7 @@ export interface Material {
   processed_path: string | null;
   status: MaterialStatus;
   source: FrameSource;
+  folder_id: string | null;
   metadata: Record<string, unknown>;
   created_at: number;
 }
@@ -407,4 +548,10 @@ export interface MaterialResponse {
 }
 export interface MaterialCreatedResponse {
   materialId: string;
+}
+export interface FoldersResponse {
+  folders: Folder[];
+}
+export interface FolderResponse {
+  folder: Folder;
 }

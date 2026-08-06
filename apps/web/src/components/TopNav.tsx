@@ -1,6 +1,7 @@
 import { Clapperboard, Package, Settings } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import LangToggle from "./LangToggle";
+import NoticeHistory from "./NoticeHistory";
 import { useT } from "../i18n";
 
 interface Props {
@@ -32,6 +33,7 @@ export default function TopNav({ current, onNav }: Props) {
         <Settings size={14} /> {t("设置")}
       </button>
       <div className="spacer" />
+      <NoticeHistory />
       <LangToggle />
       <ThemeToggle />
     </nav>

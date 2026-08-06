@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Crop, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Crop, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
-import { notify } from "../notice";
+import { askConfirm, notify } from "../notice";
+import { SOURCE_LABEL_KEYS } from "../sourceLabel";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
 import CropModal from "./CropModal";
@@ -23,7 +24,6 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const t = useT();
   const [pos, setPos] = useState(55);
   const [busy, setBusy] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
@@ -31,7 +31,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   // 网格切分：多宫格精灵图逐格切成独立素材
   const [showSplit, setShowSplit] = useState(false);
-  // 多动作生成：以当前素材为引用图逐动作生成帧序列
+  // 多动作生成：以当前素材为引用图，一次生成多动作拼图表再网格切分
   const [showActions, setShowActions] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cfg = useServerConfig();
@@ -89,13 +89,15 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       onToast(t("剪裁完成"));
     });
 
-  const doDelete = () =>
-    run(async () => {
+  const doDelete = async () => {
+    if (!(await askConfirm(t("确认删除该素材？此操作不可恢复。")))) return;
+    await run(async () => {
       await api.batchDeleteMaterials([m.id]);
       onChanged();
       onToast(t("已删除素材"));
       onClose();
     });
+  };
 
   const openImport = () => {
     if (!showImport && projects === null) {
@@ -161,7 +163,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
         </div>
 
         <div className="mat-meta">
-          <span>{t("来源")} {m.source}</span>
+          <span>{t("来源")} {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}</span>
           <span>{m.status === "matted" ? t("已抠图") : t("原图")}</span>
           <span>{new Date(m.created_at).toLocaleString(getLocale())}</span>
           <span className={`engine-status ${engineAvailable ? "ok" : "bad"}`}>
@@ -208,7 +210,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             whileTap={{ scale: 0.95 }}
             className="px-btn"
             disabled={busy}
-            title={t("以当前素材为引用图，按动作预设（待机/走路/奔跑…）逐动作生成帧序列素材")}
+            title={t("以当前素材为引用图，追加连续帧（可重复同一动作），一次生成拼图表再网格切分")}
             onClick={() => setShowActions(true)}
           >
             <PersonStanding size={14} /> {t("多动作生成")}
@@ -217,21 +219,9 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             <Send size={14} /> {t("导入到项目")}
           </motion.button>
           <div style={{ flex: 1 }} />
-          {confirmingDelete ? (
-            <span className="batch-confirm">
-              {t("确认删除？")}
-              <IconBtn className="danger" title={t("确认删除")} disabled={busy} onClick={doDelete}>
-                <Check size={14} />
-              </IconBtn>
-              <IconBtn title={t("放弃")} disabled={busy} onClick={() => setConfirmingDelete(false)}>
-                <X size={14} />
-              </IconBtn>
-            </span>
-          ) : (
-            <IconBtn className="danger" title={t("删除素材")} disabled={busy} onClick={() => setConfirmingDelete(true)}>
-              <Trash2 size={15} />
-            </IconBtn>
-          )}
+          <IconBtn className="danger" title={t("删除素材")} disabled={busy} onClick={() => void doDelete()}>
+            <Trash2 size={15} />
+          </IconBtn>
         </div>
 
         {showImport && (
@@ -286,7 +276,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           )}
         </AnimatePresence>
 
-        {/* 多动作生成：以当前素材为引用图 → 每动作 N 帧素材 */}
+        {/* 多动作生成：引用图 → 一张动作拼图表 → 网格切分 */}
         <AnimatePresence>
           {showActions && (
             <ActionGenModal material={m} v={v} onClose={() => setShowActions(false)} onToast={onToast} />

@@ -18,6 +18,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  folder_id TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -58,9 +59,20 @@ CREATE TABLE IF NOT EXISTS materials (
   processed_path TEXT,
   status TEXT NOT NULL DEFAULT 'raw',
   source TEXT NOT NULL DEFAULT 'upload',
+  folder_id TEXT,
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS folders (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  parent_id TEXT,
+  name TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_folders_kind_parent ON folders(kind, parent_id);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -68,6 +80,16 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL
 );
 `);
+
+// 存量库补列（CREATE IF NOT EXISTS 不会改已有表）
+function ensureColumn(table: string, column: string, decl: string) {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+ensureColumn("projects", "folder_id", "TEXT");
+ensureColumn("materials", "folder_id", "TEXT");
 
 export const uid = () => crypto.randomUUID();
 

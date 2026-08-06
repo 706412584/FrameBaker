@@ -19,15 +19,27 @@ export const projectsApi = new Elysia({ prefix: "/api" })
   })
   .post(
     "/projects",
-    ({ body }) => {
+    ({ body, status }) => {
       const id = uid();
       const name = body.name.trim() || "未命名项目";
-      db.query("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)").run(id, name, Date.now());
+      const folderId = body.folderId ?? null;
+      if (folderId) {
+        const f = db.query("SELECT id, kind FROM folders WHERE id = ?").get(folderId) as
+          | { id: string; kind: string }
+          | null;
+        if (!f || f.kind !== "project") return status(400, "文件夹不存在");
+      }
+      db.query("INSERT INTO projects (id, name, folder_id, created_at) VALUES (?, ?, ?, ?)").run(
+        id,
+        name,
+        folderId,
+        Date.now()
+      );
       mkdirSync(join(STORAGE_ROOT, "projects", id, "raw"), { recursive: true });
       mkdirSync(join(STORAGE_ROOT, "projects", id, "processed"), { recursive: true });
-      return { id, name };
+      return { id, name, folder_id: folderId };
     },
-    { body: t.Object({ name: t.String() }) }
+    { body: t.Object({ name: t.String(), folderId: t.Optional(t.Union([t.String(), t.Null()])) }) }
   )
   .get("/projects/:id", ({ params, status }) => {
     const row = db
@@ -44,10 +56,27 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     ({ params, body, status }) => {
       const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
       if (!row) return status(404, "项目不存在");
-      db.query("UPDATE projects SET name = ? WHERE id = ?").run(body.name.trim() || "未命名项目", params.id);
+      if (body.name !== undefined) {
+        db.query("UPDATE projects SET name = ? WHERE id = ?").run(body.name.trim() || "未命名项目", params.id);
+      }
+      if (body.folderId !== undefined) {
+        const folderId = body.folderId;
+        if (folderId) {
+          const f = db.query("SELECT id, kind FROM folders WHERE id = ?").get(folderId) as
+            | { id: string; kind: string }
+            | null;
+          if (!f || f.kind !== "project") return status(400, "文件夹不存在");
+        }
+        db.query("UPDATE projects SET folder_id = ? WHERE id = ?").run(folderId, params.id);
+      }
       return { ok: true };
     },
-    { body: t.Object({ name: t.String() }) }
+    {
+      body: t.Object({
+        name: t.Optional(t.String()),
+        folderId: t.Optional(t.Union([t.String(), t.Null()])),
+      }),
+    }
   )
   .delete("/projects/:id", ({ params, status }) => {
     const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);

@@ -1,4 +1,4 @@
-import { frameImageUrl, type Frame } from "./api";
+import { frameImageUrl, materialImageUrl, type Frame } from "./api";
 
 function download(blob: Blob, filename: string) {
   const a = document.createElement("a");
@@ -6,6 +6,52 @@ function download(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** 文件名安全化：去掉路径非法字符 */
+function safeFilename(name: string): string {
+  return name.replace(/[/\\?%*:|"<>]/g, "_").trim() || "material";
+}
+
+/** 导出单个素材图片：raw=原图，processed=抠图后 */
+export async function downloadMaterialImage(
+  id: string,
+  name: string,
+  slot: "raw" | "processed",
+  v?: number
+): Promise<void> {
+  const res = await fetch(materialImageUrl(id, v, slot));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const suffix = slot === "processed" ? "_matted" : "_raw";
+  // 带短 id 防重名互相覆盖
+  download(blob, `${safeFilename(name)}_${id.slice(0, 6)}${suffix}.png`);
+}
+
+/** 批量导出：逐张下载（浏览器多文件限制，间隔触发）；返回成功/跳过/失败计数 */
+export async function downloadMaterialImages(
+  items: Array<{ id: string; name: string; processed?: boolean }>,
+  slot: "raw" | "processed",
+  v?: number
+): Promise<{ ok: number; skipped: number; failed: number }> {
+  let ok = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const it of items) {
+    if (slot === "processed" && !it.processed) {
+      skipped++;
+      continue;
+    }
+    try {
+      await downloadMaterialImage(it.id, it.name, slot, v);
+      ok++;
+      // 给浏览器一点时间接受多次 download，避免被合并拦截
+      await new Promise((r) => setTimeout(r, 120));
+    } catch {
+      failed++;
+    }
+  }
+  return { ok, skipped, failed };
 }
 
 /**

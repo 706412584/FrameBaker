@@ -110,12 +110,12 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
     label: "百炼",
     draft: {
       ...CLI_EMPTY,
-      name: "百炼（qwen-image）",
+      name: "百炼（万相）",
       type: "dashscope",
       apiBaseUrl: "https://dashscope.aliyuncs.com",
       apiKey: "",
-      modelsText: "qwen-image-2.0-pro, qwen-image-edit-max",
-      apiSize: "2048*2048",
+      modelsText: "wan2.7-image, wan2.7-image-pro, happyhorse-1.1-t2v, happyhorse-1.1-i2v, happyhorse-1.1-r2v",
+      apiSize: "2K",
     },
   },
   {
@@ -138,7 +138,7 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "minimax",
       apiBaseUrl: "https://api.minimaxi.com",
       apiKey: "",
-      modelsText: "image-01",
+      modelsText: "image-01, MiniMax-Hailuo-2.3, MiniMax-H3",
       apiSize: "1:1",
     },
   },
@@ -199,9 +199,9 @@ const API_TYPE_META: Record<Exclude<GenProviderType, "cli">, { baseUrlPh: string
   },
   dashscope: {
     baseUrlPh: "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）",
-    modelsPh: "qwen-image-2.0-pro, qwen-image-edit-max",
-    sizePh: "2048*2048",
-    hint: "百炼原生 POST {Base URL}/api/v1/services/aigc/multimodal-generation/generation（qwen-image 系列不在 OpenAI 兼容模式内）；引用图 base64 随 messages 上送；尺寸为星号格式；测试连接 / 获取模型走 GET compatible-mode/v1/models",
+    modelsPh: "wan2.7-image, wan2.7-image-pro, happyhorse-1.1-t2v, happyhorse-1.1-i2v",
+    sizePh: "2K 或 2048*2048",
+    hint: "百炼原生：图片 wan2.7-image / qwen-image 走 multimodal-generation（尺寸 1K/2K/4K 或 宽*高）；视频 HappyHorse / 万相 t2v·i2v·r2v 走 video-synthesis 异步（参数 resolution/ratio/duration；i2v 需首帧引用图）。测试连接 / 获取模型走 GET compatible-mode/v1/models",
   },
   gemini: {
     baseUrlPh: "https://generativelanguage.googleapis.com",
@@ -211,9 +211,9 @@ const API_TYPE_META: Record<Exclude<GenProviderType, "cli">, { baseUrlPh: string
   },
   minimax: {
     baseUrlPh: "https://api.minimaxi.com",
-    modelsPh: "image-01",
+    modelsPh: "image-01, MiniMax-Hailuo-2.3, MiniMax-H3",
     sizePh: "16:9",
-    hint: "MiniMax：POST {Base URL}/v1/image_generation；引用图走 subject_reference（主体特征保持，限一张）；尺寸填宽高比如 16:9；测试连接仅校验字段（无轻量探测端点）；获取模型为 best-effort 试 /v1/models，拉不到就手填",
+    hint: "MiniMax：图片 image-01 走 /v1/image_generation（引用图 subject_reference）；视频按模型分协议——Hailuo/T2V 走 /v1/video_generation（多数套餐），MiniMax-H3 走 /v2/video_generation；尺寸图/H3 填宽高比（如 16:9），Hailuo 也可填 768P/1080P；测试连接仅校验字段；获取模型为 best-effort，拉不到就手填",
   },
 };
 

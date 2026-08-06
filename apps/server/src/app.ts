@@ -12,6 +12,8 @@ import { framesApi } from "./api/frames";
 import { importApi } from "./api/import";
 import { materialsApi } from "./api/materials";
 import { settingsApi } from "./api/settings";
+import { foldersApi } from "./api/folders";
+import { cancelJob } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
 let imageOpsWorkerCode: string | null = null;
@@ -111,6 +113,17 @@ export const app = new Elysia()
     if (!job) return status(404, "任务不存在");
     return { job };
   })
+  .post("/api/jobs/:id/cancel", ({ params, status }) => {
+    const job = db.query("SELECT id, status FROM jobs WHERE id = ?").get(params.id) as
+      | { id: string; status: string }
+      | null;
+    if (!job) return status(404, "任务不存在");
+    if (job.status !== "queued" && job.status !== "running") {
+      return status(409, `任务状态为 ${job.status}，无法取消`);
+    }
+    if (!cancelJob(params.id)) return status(409, "取消失败");
+    return { ok: true };
+  })
   // 字体等静态文件（位于 apps/web/public/fonts）
   .get("/fonts/:name", ({ params, status }) => {
     const name = params.name;
@@ -138,6 +151,7 @@ export const app = new Elysia()
   .use(framesApi)
   .use(importApi)
   .use(materialsApi)
+  .use(foldersApi)
   .use(settingsApi);
 
 export type App = typeof app;
