@@ -130,8 +130,103 @@ async function generateViaDashscope(
   await downloadImage(imageUrl, outPath);
 }
 
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+  error?: { message?: string };
+}
+
 /**
- * API 生成统一入口（按 provider.type 分发 OpenAI 兼容 / DashScope 原生）。
+ * Gemini 图像生成（banana / nano-banana，gemini-2.5-flash-image 等）：
+ * POST {base}/v1beta/models/{model}:generateContent（x-goog-api-key 头）
+ * parts = [{text}, {inlineData: base64 引用图}?]；generationConfig.responseModalities=["TEXT","IMAGE"]
+ * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应取 candidates[0].content.parts 首个 inlineData.data
+ */
+async function generateViaGemini(
+  cfg: GenProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  referencePath?: string
+): Promise<void> {
+  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
+  const parts: Array<Record<string, unknown>> = [{ text: prompt }];
+  if (referencePath) {
+    parts.push({
+      inlineData: { mimeType: "image/png", data: readFileSync(referencePath).toString("base64") },
+    });
+  }
+  const generationConfig: Record<string, unknown> = { responseModalities: ["TEXT", "IMAGE"] };
+  if (cfg.apiSize.trim()) generationConfig.imageConfig = { aspectRatio: cfg.apiSize.trim() };
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
+      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
+      signal: AbortSignal.timeout(180_000),
+    });
+  } catch (e) {
+    throw new Error(`Gemini 请求失败: ${(e as Error).message}`);
+  }
+  if (!res.ok) throw await readError(res, "generateContent");
+
+  const json = (await res.json()) as GeminiResponse;
+  if (json.error?.message) throw new Error(`Gemini 错误: ${json.error.message}`);
+  const b64 = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
+  if (!b64) throw new Error("Gemini 响应缺少 candidates[0].content.parts[*].inlineData.data");
+  writeFileSync(outPath, Buffer.from(b64, "base64"));
+}
+
+interface MinimaxResponse {
+  data?: { image_base64?: string[] };
+  base_resp?: { status_code?: number; status_msg?: string };
+}
+
+/**
+ * MiniMax 图像生成（image-01）：POST {base}/v1/image_generation（Bearer）
+ * 引用图走 subject_reference（主体特征保持，每次限一张；base64 dataURI 上送）
+ * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；response_format=base64 直接取 data.image_base64[0]
+ */
+async function generateViaMinimax(
+  cfg: GenProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  referencePath?: string
+): Promise<void> {
+  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
+  const body: Record<string, unknown> = { model, prompt, n: 1, response_format: "base64" };
+  if (cfg.apiSize.trim()) body.aspect_ratio = cfg.apiSize.trim();
+  if (referencePath) {
+    const dataUri = `data:image/png;base64,${readFileSync(referencePath).toString("base64")}`;
+    body.subject_reference = [{ type: "character", image_file: dataUri }];
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/v1/image_generation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey.trim()}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(180_000),
+    });
+  } catch (e) {
+    throw new Error(`MiniMax 请求失败: ${(e as Error).message}`);
+  }
+  if (!res.ok) throw await readError(res, "image_generation");
+
+  const json = (await res.json()) as MinimaxResponse;
+  if (json.base_resp?.status_code && json.base_resp.status_code !== 0) {
+    throw new Error(`MiniMax 错误 ${json.base_resp.status_code}: ${json.base_resp.status_msg ?? ""}`);
+  }
+  const b64 = json.data?.image_base64?.[0];
+  if (!b64) throw new Error("MiniMax 响应缺少 data.image_base64");
+  writeFileSync(outPath, Buffer.from(b64, "base64"));
+}
+
+/**
+ * API 生成统一入口（按 provider.type 分发 OpenAI 兼容 / DashScope 原生 / Gemini / MiniMax）。
  * 模型在生成时单独指定（生成弹窗选择/输入），provider 只存连接信息
  */
 export async function generateViaApi(
@@ -143,5 +238,7 @@ export async function generateViaApi(
   referencePath?: string
 ): Promise<void> {
   if (cfg.type === "dashscope") return generateViaDashscope(cfg, prompt, model, outPath, referencePath);
+  if (cfg.type === "gemini") return generateViaGemini(cfg, prompt, model, outPath, referencePath);
+  if (cfg.type === "minimax") return generateViaMinimax(cfg, prompt, model, outPath, referencePath);
   return generateViaOpenAI(cfg, prompt, model, outPath, referencePath);
 }

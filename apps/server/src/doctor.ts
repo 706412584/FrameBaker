@@ -10,6 +10,15 @@ import { STORAGE_ROOT } from "./db";
 import { getMattingInfo } from "./jobs/matting";
 import { getGenProviders, getMattingSettings, providerConfigured } from "./provider";
 
+/** provider 类型展示名（doctor 标签用） */
+export const PROVIDER_TYPE_LABEL: Record<string, string> = {
+  cli: "CLI",
+  api: "API",
+  dashscope: "百炼",
+  gemini: "banana",
+  minimax: "MiniMax",
+};
+
 /** rembg 模型是否已缓存（storage/models 下文件名包含模型名，大小写不敏感；覆盖 birefnet 等非统一命名） */
 export function isModelCached(model: string): boolean {
   try {
@@ -24,17 +33,49 @@ export function isModelCached(model: string): boolean {
 /**
  * API provider 联通测试：
  * - api（OpenAI 兼容）：实发 GET {baseUrl}/models + Bearer，校验状态/认证并核对模型是否在列
- * - dashscope（百炼原生）：官方接口无轻量探测端点，仅校验字段齐备，不实发请求
+ * - gemini（banana）：实发 GET {baseUrl}/v1beta/models（x-goog-api-key），核对模型是否在列
+ * - dashscope / minimax：官方接口无轻量探测端点，仅校验字段齐备，不实发请求
  */
 export async function testApiProvider(req: ProviderTestRequest): Promise<ProviderTestResponse> {
   const base = req.apiBaseUrl.trim().replace(/\/+$/, "");
   if (!base || !req.apiKey.trim()) return { ok: false, error: "Base URL 与 API Key 不能为空" };
-  if (req.type === "dashscope") {
+  if (req.type === "dashscope" || req.type === "minimax") {
     return {
       ok: true,
-      note: "字段齐备（百炼原生接口无轻量探测端点，未实发请求；生成失败会以任务错误形式暴露）",
+      note: "字段齐备（该厂商接口无轻量探测端点，未实发请求；生成失败会以任务错误形式暴露）",
     };
   }
+
+  if (req.type === "gemini") {
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(`${base}/v1beta/models`, {
+        headers: { "x-goog-api-key": req.apiKey.trim() },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (e) {
+      return { ok: false, error: `连接失败: ${(e as Error).message}` };
+    }
+    const latencyMs = Date.now() - started;
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, latencyMs, error: "认证失败：API Key 无效或权限不足" };
+    }
+    if (!res.ok) return { ok: false, status: res.status, latencyMs, error: `接口返回 HTTP ${res.status}` };
+    let modelsFound: boolean | undefined;
+    try {
+      const json = (await res.json()) as { models?: Array<{ name?: string }> };
+      const target = req.apiModel?.trim();
+      if (Array.isArray(json.models) && target) {
+        // Gemini 模型名为 models/gemini-xxx 形式
+        modelsFound = json.models.some((m) => m.name === target || m.name === `models/${target}`);
+      }
+    } catch {
+      /* 非标准列表也视为连通 */
+    }
+    return { ok: true, status: res.status, latencyMs, modelsFound };
+  }
+
   const started = Date.now();
   let res: Response;
   try {
@@ -146,22 +187,22 @@ export async function runDoctor(): Promise<DoctorResponse> {
       checks.push({
         id: `gen-${p.id}`,
         ok: false,
-        label: `生成 provider「${p.name}」（${p.type === "api" ? "API" : "百炼"}）`,
+        label: `生成 provider「${p.name}」（${PROVIDER_TYPE_LABEL[p.type]}）`,
         detail: "Base URL / API Key 未填齐",
       });
-    } else if (p.type === "dashscope") {
+    } else if (p.type === "dashscope" || p.type === "minimax") {
       checks.push({
         id: `gen-${p.id}`,
         ok: true,
-        label: `生成 provider「${p.name}」（百炼）`,
-        detail: "字段齐备（百炼原生接口无轻量探测端点，未实发请求）",
+        label: `生成 provider「${p.name}」（${PROVIDER_TYPE_LABEL[p.type]}）`,
+        detail: "字段齐备（该厂商接口无轻量探测端点，未实发请求）",
       });
     } else {
-      const r = await testApiProvider({ apiBaseUrl: p.apiBaseUrl, apiKey: p.apiKey, apiModel: p.apiModels[0] });
+      const r = await testApiProvider({ type: p.type, apiBaseUrl: p.apiBaseUrl, apiKey: p.apiKey, apiModel: p.apiModels[0] });
       checks.push({
         id: `gen-${p.id}`,
         ok: r.ok,
-        label: `生成 provider「${p.name}」（API）`,
+        label: `生成 provider「${p.name}」（${PROVIDER_TYPE_LABEL[p.type]}）`,
         detail: r.ok
           ? `${p.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${p.apiModels[0]}` : ""}`
           : (r.error ?? "连接失败"),

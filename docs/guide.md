@@ -21,11 +21,15 @@ bun dev          # → http://localhost:3000（PORT 可覆盖）
 
 ### 生成 Provider
 
-CLI 与 API **可配多个共存**，生成时在下拉框里选其中一个：
+CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中一个。设置页有一排**预设按钮**（OpenAI / 百炼 / banana / MiniMax / 火山方舟（豆包）/ 自定义 CLI / 自定义 API），一键带出类型、Base URL、模型列表和尺寸格式，通常只需填 API Key：
 
 - **CLI provider**：本地命令模板。占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`。模板按空白切分为 argv 直接执行（不经 shell，prompt 含空格也安全）。`{model}` 由生成弹窗的模型输入框填入。
-- **API provider（OpenAI 兼容）**：OpenAI 官方、各类兼容网关均可。填 Base URL、API Key、可用模型列表（逗号分隔，生成时下拉选择）、尺寸（可留空）。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。点 **测试连接** 可随时探测：服务端实发 `GET {baseUrl}/models`，返回延迟、认证是否通过、模型是否在列表中——用表单当前值测，不用先保存。
-- **百炼 provider（DashScope 原生）**：阿里云百炼的 qwen-image 系列（文生图 / 图像编辑）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com`，模型如 `qwen-image-2.0-pro` / `qwen-image-edit-max`，尺寸为星号格式（如 `2048*2048`）。引用图以 base64 随请求上送，原生支持。原生接口没有轻量探测端点，测试连接只做字段校验。
+- **API provider（OpenAI 兼容）**：OpenAI 官方（gpt-image 系列）、火山方舟豆包 Seedream（`https://ark.cn-beijing.volces.com/api/v3`）、各类兼容网关。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。测试连接实发 `GET {baseUrl}/models`。
+- **百炼 provider（DashScope 原生）**：阿里云百炼的 qwen-image 系列（文生图 / 图像编辑）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com`，模型如 `qwen-image-2.0-pro` / `qwen-image-edit-max`，尺寸为星号格式（如 `2048*2048`）。引用图以 base64 随请求上送，原生支持。
+- **banana provider（Gemini 图像）**：nano-banana（`gemini-2.5-flash-image`、`gemini-3-pro-image-preview` 等）。Base URL 填 `https://generativelanguage.googleapis.com`，尺寸填宽高比（如 `16:9`）。引用图原生支持（inlineData base64）。测试连接实发 `GET /v1beta/models`。
+- **MiniMax provider**：`image-01`。Base URL 填 `https://api.minimaxi.com`，尺寸填宽高比。引用图走 `subject_reference`（主体特征保持，限一张，适合角色一致性）。
+
+测试连接用表单当前值探测，不用先保存；百炼 / MiniMax 没有轻量探测端点，只做字段校验（生成失败会以任务错误形式暴露）。
 
 列表为空时，环境变量 `FRAMEBAKER_GEN_CLI` 会兜底成一个「环境变量 CLI」provider。**设置页配置优先于所有环境变量**，改动即时生效（不用重启）。
 
@@ -64,7 +68,7 @@ CLI 与 API **可配多个共存**，生成时在下拉框里选其中一个：
 
 - API provider：模型从其模型列表下拉选（列表为空则手填）
 - CLI provider：模型输入框填 `{model}` 占位符的值（模板没有 `{model}` 时可留空）
-- 引用图支持：CLI 模板需含 `{reference}`；API 走 `images/edits`（需 gpt-image 系列等支持编辑的模型）；百炼原生直接支持
+- 引用图支持：CLI 模板需含 `{reference}`；API 走 `images/edits`（需 gpt-image 系列等支持编辑的模型）；百炼 / banana / MiniMax 原生直接支持（MiniMax 为主体特征保持）
 
 「抠图去背」开关默认勾选，生成/上传完成后自动入队抠图。
 

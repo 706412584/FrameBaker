@@ -20,7 +20,13 @@ export function resolveProviderSelection(
   return { providerId: p.id, model: m || undefined };
 }
 
-const TYPE_LABEL: Record<GenProviderInfo["type"], string> = { cli: "CLI", api: "API", dashscope: "百炼" };
+const TYPE_LABEL: Record<GenProviderInfo["type"], string> = {
+  cli: "CLI",
+  api: "API",
+  dashscope: "百炼",
+  gemini: "banana",
+  minimax: "MiniMax",
+};
 
 /** 生成弹窗共用：provider 选择（设置页可配多个，CLI/API 共存）+ 生成时单独选模型 */
 export default function ProviderModelPicker({ providerId, model, onProviderChange, onModelChange }: Props) {

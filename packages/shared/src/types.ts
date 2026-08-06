@@ -30,8 +30,8 @@ export const REMBG_MODELS = [
   "birefnet-portrait",
 ] as const;
 
-/** 生成 provider 类型：CLI 模板 / OpenAI 兼容 API / 百炼 DashScope 原生 */
-export const GEN_PROVIDER_TYPES = ["cli", "api", "dashscope"] as const;
+/** 生成 provider 类型：CLI 模板 / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax */
+export const GEN_PROVIDER_TYPES = ["cli", "api", "dashscope", "gemini", "minimax"] as const;
 export type GenProviderType = (typeof GEN_PROVIDER_TYPES)[number];
 
 /**
@@ -102,8 +102,8 @@ export interface DoctorResponse {
 
 /** POST /api/provider/test 请求（用表单当前值测试，不要求已保存） */
 export interface ProviderTestRequest {
-  /** api=OpenAI 兼容（实发 GET /models）；dashscope=百炼原生（无轻量探测端点，仅校验字段） */
-  type?: "api" | "dashscope";
+  /** api/gemini 实发探测；dashscope/minimax 无轻量探测端点，仅校验字段 */
+  type?: "api" | "dashscope" | "gemini" | "minimax";
   apiBaseUrl: string;
   apiKey: string;
   apiModel?: string;

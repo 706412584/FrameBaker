@@ -47,18 +47,114 @@ function fromDraft(d: ProviderDraft): GenProvider {
   };
 }
 
-function newDraft(type: GenProviderType): ProviderDraft {
-  return {
-    id: crypto.randomUUID(),
-    name: type === "cli" ? "未命名 CLI" : type === "api" ? "未命名 API" : "未命名百炼",
-    type,
-    cliTemplate: "",
-    apiBaseUrl: "",
-    apiKey: "",
-    modelsText: "",
-    apiSize: "",
-  };
-}
+/** 常用厂商预设：一键带出类型 / Base URL / 模型 / 尺寸格式，只需填 key 改名 */
+const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
+  {
+    label: "OpenAI",
+    draft: {
+      name: "OpenAI",
+      type: "api",
+      cliTemplate: "",
+      apiBaseUrl: "https://api.openai.com/v1",
+      apiKey: "",
+      modelsText: "gpt-image-1",
+      apiSize: "1024x1024",
+    },
+  },
+  {
+    label: "百炼",
+    draft: {
+      name: "百炼（qwen-image）",
+      type: "dashscope",
+      cliTemplate: "",
+      apiBaseUrl: "https://dashscope.aliyuncs.com",
+      apiKey: "",
+      modelsText: "qwen-image-2.0-pro, qwen-image-edit-max",
+      apiSize: "2048*2048",
+    },
+  },
+  {
+    label: "banana",
+    draft: {
+      name: "banana（Gemini）",
+      type: "gemini",
+      cliTemplate: "",
+      apiBaseUrl: "https://generativelanguage.googleapis.com",
+      apiKey: "",
+      modelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
+      apiSize: "1:1",
+    },
+  },
+  {
+    label: "MiniMax",
+    draft: {
+      name: "MiniMax",
+      type: "minimax",
+      cliTemplate: "",
+      apiBaseUrl: "https://api.minimaxi.com",
+      apiKey: "",
+      modelsText: "image-01",
+      apiSize: "1:1",
+    },
+  },
+  {
+    label: "火山方舟（豆包）",
+    draft: {
+      name: "火山方舟（豆包 Seedream）",
+      type: "api",
+      cliTemplate: "",
+      apiBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      apiKey: "",
+      modelsText: "doubao-seedream-4-0-250828",
+      apiSize: "",
+    },
+  },
+  {
+    label: "自定义 CLI",
+    draft: { name: "未命名 CLI", type: "cli", cliTemplate: "", apiBaseUrl: "", apiKey: "", modelsText: "", apiSize: "" },
+  },
+  {
+    label: "自定义 API",
+    draft: { name: "未命名 API", type: "api", cliTemplate: "", apiBaseUrl: "", apiKey: "", modelsText: "", apiSize: "" },
+  },
+];
+
+/** 卡片类型徽标文案 */
+const TYPE_LABEL: Record<GenProviderType, string> = {
+  cli: "CLI",
+  api: "API",
+  dashscope: "百炼",
+  gemini: "banana",
+  minimax: "MiniMax",
+};
+
+/** 各 API 系类型的表单 placeholder 与接口说明 */
+const API_TYPE_META: Record<Exclude<GenProviderType, "cli">, { baseUrlPh: string; modelsPh: string; sizePh: string; hint: string }> = {
+  api: {
+    baseUrlPh: "https://api.openai.com/v1（或火山方舟 /api/v3 等兼容端点）",
+    modelsPh: "gpt-image-1, doubao-seedream-4-0-250828",
+    sizePh: "1024x1024",
+    hint: "文生图 POST {Base URL}/images/generations；选引用图改走 /images/edits（需 gpt-image 系列等支持编辑的模型，dall-e-3 不支持）；测试连接走 GET /models",
+  },
+  dashscope: {
+    baseUrlPh: "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）",
+    modelsPh: "qwen-image-2.0-pro, qwen-image-edit-max",
+    sizePh: "2048*2048",
+    hint: "百炼原生 POST {Base URL}/api/v1/services/aigc/multimodal-generation/generation（qwen-image 系列不在 OpenAI 兼容模式内）；引用图 base64 随 messages 上送；尺寸为星号格式；无轻量探测端点，测试连接仅校验字段",
+  },
+  gemini: {
+    baseUrlPh: "https://generativelanguage.googleapis.com",
+    modelsPh: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
+    sizePh: "1:1",
+    hint: "banana（Gemini 图像）：POST {Base URL}/v1beta/models/{模型}:generateContent（x-goog-api-key 头）；引用图以 inlineData base64 上送；尺寸填宽高比如 16:9；测试连接走 GET /v1beta/models",
+  },
+  minimax: {
+    baseUrlPh: "https://api.minimaxi.com",
+    modelsPh: "image-01",
+    sizePh: "16:9",
+    hint: "MiniMax：POST {Base URL}/v1/image_generation；引用图走 subject_reference（主体特征保持，限一张）；尺寸填宽高比如 16:9；无轻量探测端点，测试连接仅校验字段",
+  },
+};
 
 function engineText(cfg: ReturnType<typeof useServerConfig>): string {
   if (!cfg) return "引擎检测中…";
@@ -115,7 +211,8 @@ export default function SettingsPage() {
   const patchDraft = (id: string, patch: Partial<ProviderDraft>) =>
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
 
-  const addProvider = (type: GenProviderType) => setDrafts((prev) => [...prev, newDraft(type)]);
+  const addPreset = (preset: (typeof PRESETS)[number]) =>
+    setDrafts((prev) => [...prev, { ...preset.draft, id: crypto.randomUUID() }]);
 
   /** 任意卡片保存/删除都整表写入 genProviders */
   const persist = async (list: ProviderDraft[]): Promise<boolean> => {
@@ -193,22 +290,21 @@ export default function SettingsPage() {
       <section className="settings-sec">
         <h3>
           <Settings2 size={14} /> 生成 Provider
-          <span className="settings-head-actions">
-            <button type="button" className="px-btn mini" onClick={() => addProvider("cli")}>
-              <Plus size={12} /> CLI
-            </button>
-            <button type="button" className="px-btn mini" onClick={() => addProvider("api")}>
-              <Plus size={12} /> API
-            </button>
-            <button type="button" className="px-btn mini" onClick={() => addProvider("dashscope")}>
-              <Plus size={12} /> 百炼
-            </button>
-          </span>
         </h3>
+
+        <div className="preset-row">
+          <span>快速添加：</span>
+          {PRESETS.map((p) => (
+            <button key={p.label} type="button" className="px-btn mini" onClick={() => addPreset(p)}>
+              <Plus size={12} /> {p.label}
+            </button>
+          ))}
+        </div>
 
         {drafts.length === 0 && (
           <div className="hint">
-            还没有 provider。添加 CLI / OpenAI 兼容 API / 百炼原生 provider；也可用环境变量 <code>FRAMEBAKER_GEN_CLI</code> 兜底（列表为空时生效）。
+            还没有 provider。点上方预设快速添加（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax / 火山方舟）；也可用环境变量{" "}
+            <code>FRAMEBAKER_GEN_CLI</code> 兜底（列表为空时生效）。
           </div>
         )}
 
@@ -217,9 +313,7 @@ export default function SettingsPage() {
           return (
             <div key={d.id} className="provider-card">
               <div className="provider-head">
-                <span className={`provider-type ${d.type}`}>
-                  {d.type === "cli" ? "CLI" : d.type === "api" ? "API" : "百炼"}
-                </span>
+                <span className={`provider-type ${d.type}`}>{TYPE_LABEL[d.type]}</span>
                 <input
                   className="px-input provider-name"
                   value={d.name}
@@ -261,11 +355,7 @@ export default function SettingsPage() {
                     <div className="form-inline">
                       <input
                         className="px-input"
-                        placeholder={
-                          d.type === "api"
-                            ? "https://api.openai.com/v1（或百炼兼容模式等端点）"
-                            : "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）"
-                        }
+                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].baseUrlPh}
                         value={d.apiBaseUrl}
                         onChange={(e) => patchDraft(d.id, { apiBaseUrl: e.target.value })}
                       />
@@ -284,15 +374,13 @@ export default function SettingsPage() {
                     <div className="form-inline">
                       <input
                         className="px-input"
-                        placeholder={
-                          d.type === "api" ? "gpt-image-1, dall-e-3" : "qwen-image-2.0-pro, qwen-image-edit-max"
-                        }
+                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
                         value={d.modelsText}
                         onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
                       />
                       <input
                         className="px-input num"
-                        placeholder={d.type === "api" ? "1024x1024" : "2048*2048"}
+                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh}
                         value={d.apiSize}
                         onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
                       />
@@ -323,21 +411,7 @@ export default function SettingsPage() {
                       </span>
                     )}
                   </div>
-                  <div className="hint">
-                    {d.type === "api" ? (
-                      <>
-                        文生图调 <code>POST {"{Base URL}"}/images/generations</code>；选引用图时调{" "}
-                        <code>/images/edits</code>（需模型支持，如 gpt-image 系列；dall-e-3 不支持）；测试连接走{" "}
-                        <code>GET /models</code>
-                      </>
-                    ) : (
-                      <>
-                        百炼原生接口 <code>POST {"{Base URL}"}/api/v1/services/aigc/multimodal-generation/generation</code>
-                        （qwen-image 系列；引用图以 base64 随 messages 上送）；尺寸为星号格式如 <code>2048*2048</code>
-                        ；原生接口无轻量探测端点，测试连接仅校验字段
-                      </>
-                    )}
-                  </div>
+                  <div className="hint">{API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].hint}</div>
                 </>
               )}
             </div>

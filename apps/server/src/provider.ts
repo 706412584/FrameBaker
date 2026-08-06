@@ -1,4 +1,5 @@
-import type { GenProvider, MattingSettings } from "@framebaker/shared";
+import type { GenProvider, GenProviderType, MattingSettings } from "@framebaker/shared";
+import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
 import { db } from "./db";
 
 // 生成 / 抠图的运行配置：设置页（settings 表）优先，环境变量兜底
@@ -25,7 +26,7 @@ function normalizeProvider(raw: unknown): GenProvider | null {
   return {
     id: p.id,
     name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.id,
-    type: p.type === "api" ? "api" : p.type === "dashscope" ? "dashscope" : "cli",
+    type: GEN_PROVIDER_TYPES.includes(p.type as GenProviderType) ? (p.type as GenProviderType) : "cli",
     cliTemplate: typeof p.cliTemplate === "string" ? p.cliTemplate : "",
     apiBaseUrl: typeof p.apiBaseUrl === "string" ? p.apiBaseUrl : "",
     apiKey: typeof p.apiKey === "string" ? p.apiKey : "",

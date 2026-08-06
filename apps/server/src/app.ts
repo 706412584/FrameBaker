@@ -57,7 +57,7 @@ export const app = new Elysia()
     ({ body }) => testApiProvider(body),
     {
       body: t.Object({
-        type: t.Optional(t.Union([t.Literal("api"), t.Literal("dashscope")])),
+        type: t.Optional(t.Union([t.Literal("api"), t.Literal("dashscope"), t.Literal("gemini"), t.Literal("minimax")])),
         apiBaseUrl: t.String(),
         apiKey: t.String(),
         apiModel: t.Optional(t.String()),

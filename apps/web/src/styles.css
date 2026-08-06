@@ -1657,6 +1657,22 @@ body.resizing-row * {
 .provider-type.dashscope {
   background: var(--pink);
 }
+.provider-type.gemini {
+  background: var(--yellow);
+}
+.provider-type.minimax {
+  background: var(--green);
+}
+
+/* 预设快速添加行 */
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 .provider-test {
   display: flex;
   align-items: center;
