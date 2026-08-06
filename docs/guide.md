@@ -24,7 +24,8 @@ bun dev          # → http://localhost:3000（PORT 可覆盖）
 CLI 与 API **可配多个共存**，生成时在下拉框里选其中一个：
 
 - **CLI provider**：本地命令模板。占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`。模板按空白切分为 argv 直接执行（不经 shell，prompt 含空格也安全）。`{model}` 由生成弹窗的模型输入框填入。
-- **API provider**：OpenAI 兼容接口（OpenAI 官方、阿里云百炼兼容模式、各类网关均可）。填 Base URL、API Key、可用模型列表（逗号分隔，生成时下拉选择）、尺寸（可留空）。点 **测试连接** 可随时探测：服务端实发 `GET {baseUrl}/models`，返回延迟、认证是否通过、模型是否在列表中——用表单当前值测，不用先保存。
+- **API provider（OpenAI 兼容）**：OpenAI 官方、各类兼容网关均可。填 Base URL、API Key、可用模型列表（逗号分隔，生成时下拉选择）、尺寸（可留空）。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。点 **测试连接** 可随时探测：服务端实发 `GET {baseUrl}/models`，返回延迟、认证是否通过、模型是否在列表中——用表单当前值测，不用先保存。
+- **百炼 provider（DashScope 原生）**：阿里云百炼的 qwen-image 系列（文生图 / 图像编辑）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com`，模型如 `qwen-image-2.0-pro` / `qwen-image-edit-max`，尺寸为星号格式（如 `2048*2048`）。引用图以 base64 随请求上送，原生支持。原生接口没有轻量探测端点，测试连接只做字段校验。
 
 列表为空时，环境变量 `FRAMEBAKER_GEN_CLI` 会兜底成一个「环境变量 CLI」provider。**设置页配置优先于所有环境变量**，改动即时生效（不用重启）。
 
@@ -63,7 +64,7 @@ CLI 与 API **可配多个共存**，生成时在下拉框里选其中一个：
 
 - API provider：模型从其模型列表下拉选（列表为空则手填）
 - CLI provider：模型输入框填 `{model}` 占位符的值（模板没有 `{model}` 时可留空）
-- 注意：**API 方式暂不支持引用图**（OpenAI images/generations 接口无此能力），选了会直接报错提示
+- 引用图支持：CLI 模板需含 `{reference}`；API 走 `images/edits`（需 gpt-image 系列等支持编辑的模型）；百炼原生直接支持
 
 「抠图去背」开关默认勾选，生成/上传完成后自动入队抠图。
 
@@ -94,7 +95,7 @@ CLI 与 API **可配多个共存**，生成时在下拉框里选其中一个：
 - **第一次抠图很慢？** 正常，rembg 在下载模型（约百 MB）到 `storage/models`，之后秒级。设置页可看缓存状态。
 - **抠图没生效？** 看设置页体检：没装引擎时会退化为「原样复制」并给出安装提示（`./scripts/setup_matting.sh`）。
 - **生成任务失败？** 任务卡片上的错误信息会直接说明（provider 未配置/未选模型/API 返回错误等）；设置页「测试连接」可先排障。
-- **GIF 拆帧**会忽略帧延迟，统一按 1 tick；**API 生成**暂不支持引用图；任务队列在内存中，重启服务会丢未完成任务；应用无鉴权，仅适合本地使用。
+- **GIF 拆帧**会忽略帧延迟，统一按 1 tick；任务队列在内存中，重启服务会丢未完成任务；应用无鉴权，仅适合本地使用。
 
 ## 提示与约定
 

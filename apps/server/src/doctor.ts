@@ -22,12 +22,19 @@ export function isModelCached(model: string): boolean {
 }
 
 /**
- * API provider 联通测试：GET {baseUrl}/models（OpenAI 兼容端点普遍支持），
- * 校验 HTTP 状态与认证；响应是标准模型列表时顺带核对目标模型是否在列
+ * API provider 联通测试：
+ * - api（OpenAI 兼容）：实发 GET {baseUrl}/models + Bearer，校验状态/认证并核对模型是否在列
+ * - dashscope（百炼原生）：官方接口无轻量探测端点，仅校验字段齐备，不实发请求
  */
 export async function testApiProvider(req: ProviderTestRequest): Promise<ProviderTestResponse> {
   const base = req.apiBaseUrl.trim().replace(/\/+$/, "");
   if (!base || !req.apiKey.trim()) return { ok: false, error: "Base URL 与 API Key 不能为空" };
+  if (req.type === "dashscope") {
+    return {
+      ok: true,
+      note: "字段齐备（百炼原生接口无轻量探测端点，未实发请求；生成失败会以任务错误形式暴露）",
+    };
+  }
   const started = Date.now();
   let res: Response;
   try {
@@ -139,8 +146,15 @@ export async function runDoctor(): Promise<DoctorResponse> {
       checks.push({
         id: `gen-${p.id}`,
         ok: false,
-        label: `生成 provider「${p.name}」（API）`,
+        label: `生成 provider「${p.name}」（${p.type === "api" ? "API" : "百炼"}）`,
         detail: "Base URL / API Key 未填齐",
+      });
+    } else if (p.type === "dashscope") {
+      checks.push({
+        id: `gen-${p.id}`,
+        ok: true,
+        label: `生成 provider「${p.name}」（百炼）`,
+        detail: "字段齐备（百炼原生接口无轻量探测端点，未实发请求）",
       });
     } else {
       const r = await testApiProvider({ apiBaseUrl: p.apiBaseUrl, apiKey: p.apiKey, apiModel: p.apiModels[0] });

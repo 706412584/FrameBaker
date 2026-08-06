@@ -33,7 +33,7 @@ export interface GeneratePayload {
 /**
  * 解析引用图并做 provider 一致性前置校验（API 层调用，error 非空时返回 400）：
  * - referenceMaterialId / referenceFrameId 二选一，服务端查文件路径（优先 processed 否则 raw），查不到报错
- * - provider=api：OpenAI images/generations 无引用图能力，选了引用图 → 报错
+ * - provider=api/dashscope：原生支持引用图（OpenAI images/edits / DashScope multimodal-generation），无需校验
  * - provider=cli：选了引用图但模板缺 {reference} → 报错；模板有 {reference} 但没选引用图 → 报错
  */
 export function resolveReferencePath(opts: {
@@ -60,9 +60,7 @@ export function resolveReferencePath(opts: {
     if (!p || !existsSync(p)) return { error: `帧文件缺失: ${fid}` };
   }
 
-  if (provider.type === "api") {
-    if (p) return { error: "API 生成暂不支持引用图，请取消引用图或改用 CLI provider" };
-  } else {
+  if (provider.type === "cli") {
     const tpl = provider.cliTemplate.trim();
     const hasRef = tpl.includes("{reference}");
     if (p && !hasRef) return { error: `已选择引用图，但 provider「${provider.name}」的模板缺少 {reference} 占位符` };
@@ -201,7 +199,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
 
   // API 模型：生成时单独指定优先，缺省取 provider 模型列表第一项
   const apiModel = p.model?.trim() || provider.apiModels[0] || "";
-  if (provider.type === "api" && !apiModel) {
+  if (provider.type !== "cli" && !apiModel) {
     throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   }
 
@@ -219,9 +217,11 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
           .replaceAll("{model}", p.model ?? "")
       );
 
-  /** 生成单张图到 outPath（按 provider 分发） */
+  /** 生成单张图到 outPath（按 provider 分发；API 系透传引用图） */
   const produce = (outPath: string, index: number) =>
-    provider.type === "api" ? generateViaApi(provider, p.prompt, apiModel, index, outPath) : runCmd(buildArgv(outPath, index));
+    provider.type === "cli"
+      ? runCmd(buildArgv(outPath, index))
+      : generateViaApi(provider, p.prompt, apiModel, index, outPath, p.referencePath);
 
   if (p.target.kind === "project") {
     const projectId = p.target.projectId;

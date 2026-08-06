@@ -8,7 +8,7 @@ interface Props {
   onModelChange: (m: string) => void;
 }
 
-/** 提交生成时解析 providerId/model：缺省取第一个已配置 provider；api 模型缺省取列表第一项 */
+/** 提交生成时解析 providerId/model：缺省取第一个已配置 provider；api 系模型缺省取列表第一项 */
 export function resolveProviderSelection(
   providers: GenProviderInfo[],
   providerId: string,
@@ -16,9 +16,11 @@ export function resolveProviderSelection(
 ): { providerId?: string; model?: string } {
   const p = providers.find((x) => x.id === providerId) ?? providers.find((x) => x.configured) ?? providers[0];
   if (!p) return {};
-  const m = model.trim() || (p.type === "api" ? (p.models[0] ?? "") : "");
+  const m = model.trim() || (p.type !== "cli" ? (p.models[0] ?? "") : "");
   return { providerId: p.id, model: m || undefined };
 }
+
+const TYPE_LABEL: Record<GenProviderInfo["type"], string> = { cli: "CLI", api: "API", dashscope: "百炼" };
 
 /** 生成弹窗共用：provider 选择（设置页可配多个，CLI/API 共存）+ 生成时单独选模型 */
 export default function ProviderModelPicker({ providerId, model, onProviderChange, onModelChange }: Props) {
@@ -31,7 +33,7 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
   const provider =
     providers.find((p) => p.id === providerId) ?? providers.find((p) => p.configured) ?? providers[0];
   if (!provider) return null;
-  const effectiveModel = provider.type === "api" ? model || provider.models[0] || "" : model;
+  const effectiveModel = provider.type !== "cli" ? model || provider.models[0] || "" : model;
 
   return (
     <div className="form-row">
@@ -47,12 +49,12 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
         >
           {providers.map((p) => (
             <option key={p.id} value={p.id} disabled={!p.configured}>
-              {p.name}（{p.type === "cli" ? "CLI" : "API"}
+              {p.name}（{TYPE_LABEL[p.type]}
               {p.configured ? "" : "·未配齐"}）
             </option>
           ))}
         </select>
-        {provider.type === "api" ? (
+        {provider.type !== "cli" ? (
           provider.models.length > 0 ? (
             <select className="px-input" value={effectiveModel} onChange={(e) => onModelChange(e.target.value)}>
               {provider.models.map((m) => (

@@ -136,14 +136,15 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 { "jobId": "…" }
 ```
 
-provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个 CLI/API 共存；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。
+provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个 CLI / OpenAI 兼容 API / 百炼 DashScope 原生共存；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。
 
 - **CLI provider**：命令模板逐项执行，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（`{model}` 由请求的 `model` 字段填入）。
-- **API provider**：OpenAI 兼容接口 `POST {apiBaseUrl}/images/generations`（Bearer key，`{ model, prompt, size?, n: 1 }`，响应取 `data[0].b64_json` 或 `data[0].url` 下载）；模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。
+- **API provider（OpenAI 兼容）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`（multipart：image + prompt + model + size?，需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
+- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（qwen-image 系列官方接口，不在兼容模式内）；无引用图 content 仅 `[{text}]`，有引用图前置 `{image: dataURI}`（base64）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 为星号格式（如 `2048*2048`）原样透传；baseUrl 可填工作区子域（`{WorkspaceId}.cn-beijing.maas.aliyuncs.com`），尾部的 `/api/v1` 会自动归一。
 
-provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
+模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
 
-引用图（可选）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）替换 `{reference}` 占位符。前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / **API provider 下选了引用图**（images/generations 无引用图能力）/ CLI 下选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
+引用图（可选）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）。API / 百炼 provider 原生支持引用图；CLI 前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
 
 ## 素材库 /api/materials
 
@@ -288,7 +289,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 `theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。写入后广播 `settings_changed` `{ key }`。
 
-`genProviders`：生成 provider 列表（CLI / API 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"`）/ `cliTemplate`（占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空）。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
+`genProviders`：生成 provider 列表（CLI / OpenAI 兼容 API / 百炼 DashScope 原生可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"` | `"dashscope"`）/ `cliTemplate`（占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空；api 为 `1024x1024` 形式，dashscope 为 `2048*2048` 星号形式）。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
 
 `matting`：`cliTemplate`（占位符 `{input}` `{output}`，可选 `{model}`）留空回退 `FRAMEBAKER_MATTING_CLI` / 自动探测；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
 
@@ -314,7 +315,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 ```
 
   `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备）。
-- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在，API 做联通测试）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
-- `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "apiBaseUrl", "apiKey", "apiModel?" }` → `GET {baseUrl}/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）。
+- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在，OpenAI 兼容 API 实发 `GET /models` 联通测试，百炼原生仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
+- `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }` → api 实发 `GET {baseUrl}/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；dashscope 无轻量探测端点，仅校验字段并在 `note` 说明。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
 - `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）

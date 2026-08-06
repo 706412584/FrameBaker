@@ -25,7 +25,7 @@ function normalizeProvider(raw: unknown): GenProvider | null {
   return {
     id: p.id,
     name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.id,
-    type: p.type === "api" ? "api" : "cli",
+    type: p.type === "api" ? "api" : p.type === "dashscope" ? "dashscope" : "cli",
     cliTemplate: typeof p.cliTemplate === "string" ? p.cliTemplate : "",
     apiBaseUrl: typeof p.apiBaseUrl === "string" ? p.apiBaseUrl : "",
     apiKey: typeof p.apiKey === "string" ? p.apiKey : "",

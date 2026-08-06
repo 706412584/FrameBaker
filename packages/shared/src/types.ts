@@ -30,13 +30,13 @@ export const REMBG_MODELS = [
   "birefnet-portrait",
 ] as const;
 
-/** 生成 provider 类型：CLI 模板 / OpenAI 兼容 API */
-export const GEN_PROVIDER_TYPES = ["cli", "api"] as const;
+/** 生成 provider 类型：CLI 模板 / OpenAI 兼容 API / 百炼 DashScope 原生 */
+export const GEN_PROVIDER_TYPES = ["cli", "api", "dashscope"] as const;
 export type GenProviderType = (typeof GEN_PROVIDER_TYPES)[number];
 
 /**
  * 一个生成 provider（存 settings 表 key=genProviders 的数组元素）。
- * CLI 与 API 可配置多个共存；生成时按 id 选择，模型在生成时单独指定
+ * CLI / OpenAI 兼容 / DashScope 原生可配置多个共存；生成时按 id 选择，模型在生成时单独指定
  */
 export interface GenProvider {
   id: string;
@@ -44,12 +44,12 @@ export interface GenProvider {
   type: GenProviderType;
   /** type=cli：命令模板，占位符 {prompt} {output} {index} {reference} {model} */
   cliTemplate: string;
-  /** type=api：OpenAI 兼容接口，POST {apiBaseUrl}/images/generations */
+  /** type=api：OpenAI 兼容 baseUrl；type=dashscope：DashScope 原生 baseUrl（可含工作区子域） */
   apiBaseUrl: string;
   apiKey: string;
-  /** type=api：可用模型列表（生成弹窗下拉选项） */
+  /** type=api/dashscope：可用模型列表（生成弹窗下拉选项） */
   apiModels: string[];
-  /** 如 1024x1024，留空则不传 size */
+  /** 尺寸：api 如 1024x1024，dashscope 如 2048*2048（星号格式）；留空则不传 */
   apiSize: string;
 }
 
@@ -102,6 +102,8 @@ export interface DoctorResponse {
 
 /** POST /api/provider/test 请求（用表单当前值测试，不要求已保存） */
 export interface ProviderTestRequest {
+  /** api=OpenAI 兼容（实发 GET /models）；dashscope=百炼原生（无轻量探测端点，仅校验字段） */
+  type?: "api" | "dashscope";
   apiBaseUrl: string;
   apiKey: string;
   apiModel?: string;
@@ -115,6 +117,8 @@ export interface ProviderTestResponse {
   /** true=模型在 /models 列表中；false=不在；undefined=响应非标准模型列表 */
   modelsFound?: boolean;
   error?: string;
+  /** 附加说明（如 dashscope 未实发请求） */
+  note?: string;
 }
 
 /** WS 广播消息类型 */

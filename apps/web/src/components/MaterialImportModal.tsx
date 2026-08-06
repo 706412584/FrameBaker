@@ -340,7 +340,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
               <code>FRAMEBAKER_GEN_CLI</code> 兜底）。
               <br />
               CLI 模板占位符：{"{prompt}"} {"{output}"} {"{index}"} {"{reference}"} {"{model}"}
-              （选了引用图时模板必须含 {"{reference}"}；API provider 暂不支持引用图）
+              （CLI 选了引用图时模板必须含 {"{reference}"}；API / 百炼 provider 原生支持引用图）
             </div>
             <div className="modal-actions">
               <motion.button

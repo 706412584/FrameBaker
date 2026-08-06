@@ -51,12 +51,13 @@ export const app = new Elysia()
   })
   // 体检：逐项检查存储 / ffmpeg / 抠图引擎与模型 / 生成 provider（API 方式含联通测试）
   .get("/api/doctor", () => runDoctor())
-  // API provider 联通测试（用表单当前值，不要求已保存）：GET {baseUrl}/models + Bearer
+  // API provider 联通测试（用表单当前值，不要求已保存）：api 实发 GET /models；dashscope 仅校验字段
   .post(
     "/api/provider/test",
     ({ body }) => testApiProvider(body),
     {
       body: t.Object({
+        type: t.Optional(t.Union([t.Literal("api"), t.Literal("dashscope")])),
         apiBaseUrl: t.String(),
         apiKey: t.String(),
         apiModel: t.Optional(t.String()),

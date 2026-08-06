@@ -1654,6 +1654,9 @@ body.resizing-row * {
 .provider-type.api {
   background: var(--cyan);
 }
+.provider-type.dashscope {
+  background: var(--pink);
+}
 .provider-test {
   display: flex;
   align-items: center;

@@ -50,7 +50,7 @@ function fromDraft(d: ProviderDraft): GenProvider {
 function newDraft(type: GenProviderType): ProviderDraft {
   return {
     id: crypto.randomUUID(),
-    name: type === "cli" ? "未命名 CLI" : "未命名 API",
+    name: type === "cli" ? "未命名 CLI" : type === "api" ? "未命名 API" : "未命名百炼",
     type,
     cliTemplate: "",
     apiBaseUrl: "",
@@ -155,6 +155,7 @@ export default function SettingsPage() {
     setTests((prev) => ({ ...prev, [d.id]: { testing: true, result: null } }));
     try {
       const result = await api.testProvider({
+        type: d.type === "cli" ? undefined : d.type,
         apiBaseUrl: d.apiBaseUrl,
         apiKey: d.apiKey,
         apiModel: d.modelsText.split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean)[0],
@@ -199,12 +200,15 @@ export default function SettingsPage() {
             <button type="button" className="px-btn mini" onClick={() => addProvider("api")}>
               <Plus size={12} /> API
             </button>
+            <button type="button" className="px-btn mini" onClick={() => addProvider("dashscope")}>
+              <Plus size={12} /> 百炼
+            </button>
           </span>
         </h3>
 
         {drafts.length === 0 && (
           <div className="hint">
-            还没有 provider。添加一个 CLI 或 API provider；也可用环境变量 <code>FRAMEBAKER_GEN_CLI</code> 兜底（列表为空时生效）。
+            还没有 provider。添加 CLI / OpenAI 兼容 API / 百炼原生 provider；也可用环境变量 <code>FRAMEBAKER_GEN_CLI</code> 兜底（列表为空时生效）。
           </div>
         )}
 
@@ -213,7 +217,9 @@ export default function SettingsPage() {
           return (
             <div key={d.id} className="provider-card">
               <div className="provider-head">
-                <span className={`provider-type ${d.type}`}>{d.type === "cli" ? "CLI" : "API"}</span>
+                <span className={`provider-type ${d.type}`}>
+                  {d.type === "cli" ? "CLI" : d.type === "api" ? "API" : "百炼"}
+                </span>
                 <input
                   className="px-input provider-name"
                   value={d.name}
@@ -255,7 +261,11 @@ export default function SettingsPage() {
                     <div className="form-inline">
                       <input
                         className="px-input"
-                        placeholder="https://api.openai.com/v1（或百炼等兼容端点）"
+                        placeholder={
+                          d.type === "api"
+                            ? "https://api.openai.com/v1（或百炼兼容模式等端点）"
+                            : "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）"
+                        }
                         value={d.apiBaseUrl}
                         onChange={(e) => patchDraft(d.id, { apiBaseUrl: e.target.value })}
                       />
@@ -274,13 +284,15 @@ export default function SettingsPage() {
                     <div className="form-inline">
                       <input
                         className="px-input"
-                        placeholder="gpt-image-1, wanx2.1-t2i-turbo"
+                        placeholder={
+                          d.type === "api" ? "gpt-image-1, dall-e-3" : "qwen-image-2.0-pro, qwen-image-edit-max"
+                        }
                         value={d.modelsText}
                         onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
                       />
                       <input
                         className="px-input num"
-                        placeholder="1024x1024"
+                        placeholder={d.type === "api" ? "1024x1024" : "2048*2048"}
                         value={d.apiSize}
                         onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
                       />
@@ -299,7 +311,8 @@ export default function SettingsPage() {
                       <span className={`engine-status ${t.result.ok ? "ok" : "bad"}`}>
                         <span className="dot" />
                         {t.result.ok
-                          ? `连通（${t.result.latencyMs}ms）${
+                          ? t.result.note ??
+                            `连通（${t.result.latencyMs}ms）${
                               t.result.modelsFound === true
                                 ? "，模型在列表中"
                                 : t.result.modelsFound === false
@@ -311,8 +324,19 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <div className="hint">
-                    调用 <code>POST {"{Base URL}"}/images/generations</code>；测试连接走 <code>GET /models</code>
-                    ；API 方式暂不支持引用图
+                    {d.type === "api" ? (
+                      <>
+                        文生图调 <code>POST {"{Base URL}"}/images/generations</code>；选引用图时调{" "}
+                        <code>/images/edits</code>（需模型支持，如 gpt-image 系列；dall-e-3 不支持）；测试连接走{" "}
+                        <code>GET /models</code>
+                      </>
+                    ) : (
+                      <>
+                        百炼原生接口 <code>POST {"{Base URL}"}/api/v1/services/aigc/multimodal-generation/generation</code>
+                        （qwen-image 系列；引用图以 base64 随 messages 上送）；尺寸为星号格式如 <code>2048*2048</code>
+                        ；原生接口无轻量探测端点，测试连接仅校验字段
+                      </>
+                    )}
                   </div>
                 </>
               )}
