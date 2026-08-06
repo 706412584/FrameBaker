@@ -751,6 +751,26 @@ input[type="range"] {
   flex: 1;
 }
 
+/* 参数字段：每个输入框自带小标签，比整行一个 label 更明显 */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.field > span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.form-inline:has(.field) {
+  align-items: flex-end;
+}
+.field .px-input,
+.field .px-input.num {
+  width: 100%;
+}
+
 .hint {
   font-size: 12px;
   color: var(--text-muted);

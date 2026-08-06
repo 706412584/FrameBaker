@@ -45,4 +45,4 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 - `FRAMEBAKER_GEN_CLI`：CLI 生成模板，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（引用图由前端传 referenceMaterialId/referenceFrameId，服务端按 id 解析路径，模板与引用图不一致在创建 job 时 400）。**兜底项**：设置页可配多个生成 provider（CLI 模板 / OpenAI 兼容 API，存 settings 表 `genProviders`，生成时按 id 选择、模型单独指定）；仅当 provider 列表为空时本 env 合成为 id=`env` 的 CLI provider
 - `FRAMEBAKER_MATTING_CLI`：自定义抠图模板，占位符 `{input}` `{output}`（可选 `{model}`）；**兜底项**，设置页结构化字段（matting.cliBin + 参数名）优先
 - `FRAMEBAKER_MATTING_MODEL`：rembg 模型名（默认 `u2net`）；**兜底项**，设置页 matting.model 优先；模型缓存在 `storage/models`（U2NET_HOME）
-- 抠图引擎：未配 CLI 时用 `scripts/setup_matting.sh` 安装的 `.venv-matting/bin/rembg`（已 gitignore），再次之 PATH rembg，最后 passthrough 复制；探测结果见 `GET /api/config`（每次请求实时解析）
+- 抠图引擎：未配 CLI 时用 `scripts/setup_matting.sh`（Windows 用 `scripts/setup_matting.ps1`）安装的 `.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`；已 gitignore），再次之 PATH rembg，最后 passthrough 复制；探测结果见 `GET /api/config`（每次请求实时解析）

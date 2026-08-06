@@ -7,7 +7,7 @@ import type {
   ProviderTestResponse,
 } from "@framebaker/shared";
 import { STORAGE_ROOT } from "./db";
-import { getMattingInfo } from "./jobs/matting";
+import { bundledRembg, getMattingInfo } from "./jobs/matting";
 import { enhancerConfigured, getGenProviders, getMattingSettings, getPromptEnhancers, providerConfigured } from "./provider";
 
 /** provider 类型展示名（doctor 标签用） */
@@ -125,7 +125,13 @@ export async function runDoctor(): Promise<DoctorResponse> {
     id: "ffmpeg",
     ok: !!ffmpeg,
     label: "ffmpeg（GIF/MP4 拆帧）",
-    detail: ffmpeg ?? "未找到：brew install ffmpeg",
+    detail:
+      ffmpeg ??
+      (process.platform === "win32"
+        ? "未找到：winget install ffmpeg（或 https://ffmpeg.org/download.html）"
+        : process.platform === "darwin"
+          ? "未找到：brew install ffmpeg"
+          : "未找到：用系统包管理器安装 ffmpeg（如 apt install ffmpeg）"),
   });
 
   // 抠图引擎
@@ -147,7 +153,7 @@ export async function runDoctor(): Promise<DoctorResponse> {
       label: "抠图引擎",
       detail:
         matting.engine === "rembg-bundled"
-          ? "内置 .venv-matting/bin/rembg"
+          ? `内置 ${bundledRembg() ?? ".venv-matting"}`
           : matting.engine === "rembg-path"
             ? `PATH 中的 rembg（${Bun.which("rembg")}）`
             : (matting.hint ?? "未安装"),

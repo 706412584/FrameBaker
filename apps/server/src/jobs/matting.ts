@@ -15,13 +15,24 @@ export interface MattingInfo {
   hint: string | null;
 }
 
-const BUNDLED_REMBG = join(REPO_ROOT, ".venv-matting", "bin", "rembg");
-const NO_ENGINE_HINT = "未安装抠图引擎，已原样复制：请先执行 scripts/setup_matting.sh";
+/** 内置 rembg 候选路径：POSIX 为 bin/rembg，Windows venv 布局为 Scripts/rembg.exe */
+const BUNDLED_REMBG_CANDIDATES = [
+  join(REPO_ROOT, ".venv-matting", "bin", "rembg"),
+  join(REPO_ROOT, ".venv-matting", "Scripts", "rembg.exe"),
+];
+/** 找到的第一个内置 rembg（每次调用重新探测，装上引擎不用重启） */
+export function bundledRembg(): string | null {
+  return BUNDLED_REMBG_CANDIDATES.find((p) => existsSync(p)) ?? null;
+}
+
+const IS_WIN = process.platform === "win32";
+const SETUP_SCRIPT = IS_WIN ? "scripts/setup_matting.ps1" : "scripts/setup_matting.sh";
+const NO_ENGINE_HINT = `未安装抠图引擎，已原样复制：请先执行 ${SETUP_SCRIPT}`;
 
 export function getMattingInfo(): MattingInfo {
   const { cliBin, envTemplate, model } = getMattingSettings();
   if (cliBin.trim() || envTemplate) return { engine: "custom-cli", model, hint: null };
-  if (existsSync(BUNDLED_REMBG)) return { engine: "rembg-bundled", model, hint: null };
+  if (bundledRembg()) return { engine: "rembg-bundled", model, hint: null };
   if (Bun.which("rembg")) return { engine: "rembg-path", model, hint: null };
   return { engine: "none", model, hint: NO_ENGINE_HINT };
 }
@@ -29,7 +40,7 @@ export function getMattingInfo(): MattingInfo {
 /**
  * 抠图执行，解析顺序：
  * a. 设置页结构化 CLI（命令 + 参数名映射，免模板）或 env FRAMEBAKER_MATTING_CLI 遗留模板（占位符 {input} {output}，可选 {model}）
- * b. <repo>/.venv-matting/bin/rembg（scripts/setup_matting.sh 安装）
+ * b. <repo>/.venv-matting 内置 rembg（scripts/setup_matting.sh / .ps1 安装，POSIX 为 bin/rembg，Windows 为 Scripts/rembg.exe）
  * c. PATH 中的 rembg
  * d. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
@@ -58,7 +69,7 @@ async function runMatting(input: string, output: string): Promise<string | null>
     return null;
   }
 
-  const rembgBin = existsSync(BUNDLED_REMBG) ? BUNDLED_REMBG : Bun.which("rembg");
+  const rembgBin = bundledRembg() ?? Bun.which("rembg");
   if (rembgBin) {
     const u2netHome = join(STORAGE_ROOT, "models");
     mkdirSync(u2netHome, { recursive: true });

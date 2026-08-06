@@ -3,3 +3,4 @@ storage/
 .venv-matting/
 *.log
 .DS_Store
+.aider*

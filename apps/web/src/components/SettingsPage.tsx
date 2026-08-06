@@ -466,49 +466,65 @@ export default function SettingsPage() {
               {d.type === "cli" ? (
                 <>
                   <div className="form-row">
-                    <label>命令（PATH 名或绝对路径）/ prompt 参数名 / 输出参数名</label>
                     <div className="form-inline">
-                      <input
-                        className="px-input"
-                        placeholder="mygen 或 /abs/path/mygen"
-                        value={d.cliBin}
-                        onChange={(e) => patchDraft(d.id, { cliBin: e.target.value })}
-                      />
-                      <input
-                        className="px-input"
-                        placeholder="--prompt（留空=位置参数）"
-                        value={d.cliPromptArg}
-                        onChange={(e) => patchDraft(d.id, { cliPromptArg: e.target.value })}
-                      />
-                      <input
-                        className="px-input"
-                        placeholder="-o 或 --output"
-                        value={d.cliOutputArg}
-                        onChange={(e) => patchDraft(d.id, { cliOutputArg: e.target.value })}
-                      />
+                      <label className="field">
+                        <span>命令（PATH 名或绝对路径）</span>
+                        <input
+                          className="px-input"
+                          placeholder="mygen 或 /abs/path/mygen"
+                          value={d.cliBin}
+                          onChange={(e) => patchDraft(d.id, { cliBin: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>prompt 参数名</span>
+                        <input
+                          className="px-input"
+                          placeholder="--prompt（留空=位置参数）"
+                          value={d.cliPromptArg}
+                          onChange={(e) => patchDraft(d.id, { cliPromptArg: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>输出参数名</span>
+                        <input
+                          className="px-input"
+                          placeholder="-o 或 --output"
+                          value={d.cliOutputArg}
+                          onChange={(e) => patchDraft(d.id, { cliOutputArg: e.target.value })}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="form-row">
-                    <label>模型参数名 / 引用图参数名 / 额外固定参数（都可留空）</label>
                     <div className="form-inline">
-                      <input
-                        className="px-input"
-                        placeholder="--model（留空不下发模型）"
-                        value={d.cliModelArg}
-                        onChange={(e) => patchDraft(d.id, { cliModelArg: e.target.value })}
-                      />
-                      <input
-                        className="px-input"
-                        placeholder="--ref（留空=不支持引用图）"
-                        value={d.cliReferenceArg}
-                        onChange={(e) => patchDraft(d.id, { cliReferenceArg: e.target.value })}
-                      />
-                      <input
-                        className="px-input"
-                        placeholder="--steps 20（原样追加）"
-                        value={d.cliExtraArgs}
-                        onChange={(e) => patchDraft(d.id, { cliExtraArgs: e.target.value })}
-                      />
+                      <label className="field">
+                        <span>模型参数名（可留空）</span>
+                        <input
+                          className="px-input"
+                          placeholder="--model（留空不下发模型）"
+                          value={d.cliModelArg}
+                          onChange={(e) => patchDraft(d.id, { cliModelArg: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>引用图参数名（可留空）</span>
+                        <input
+                          className="px-input"
+                          placeholder="--ref（留空=不支持引用图）"
+                          value={d.cliReferenceArg}
+                          onChange={(e) => patchDraft(d.id, { cliReferenceArg: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>额外固定参数（可留空）</span>
+                        <input
+                          className="px-input"
+                          placeholder="--steps 20（原样追加）"
+                          value={d.cliExtraArgs}
+                          onChange={(e) => patchDraft(d.id, { cliExtraArgs: e.target.value })}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="hint">
@@ -519,39 +535,49 @@ export default function SettingsPage() {
               ) : (
                 <>
                   <div className="form-row">
-                    <label>Base URL / API Key</label>
                     <div className="form-inline">
-                      <input
-                        className="px-input"
-                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].baseUrlPh}
-                        value={d.apiBaseUrl}
-                        onChange={(e) => patchDraft(d.id, { apiBaseUrl: e.target.value })}
-                      />
-                      <input
-                        className="px-input"
-                        type="password"
-                        autoComplete="off"
-                        placeholder="sk-…"
-                        value={d.apiKey}
-                        onChange={(e) => patchDraft(d.id, { apiKey: e.target.value })}
-                      />
+                      <label className="field">
+                        <span>Base URL</span>
+                        <input
+                          className="px-input"
+                          placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].baseUrlPh}
+                          value={d.apiBaseUrl}
+                          onChange={(e) => patchDraft(d.id, { apiBaseUrl: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>API Key</span>
+                        <input
+                          className="px-input"
+                          type="password"
+                          autoComplete="off"
+                          placeholder="sk-…"
+                          value={d.apiKey}
+                          onChange={(e) => patchDraft(d.id, { apiKey: e.target.value })}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="form-row">
-                    <label>可用模型（逗号分隔，生成时下拉选择）/ 尺寸（可留空）</label>
                     <div className="form-inline">
-                      <input
-                        className="px-input"
-                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
-                        value={d.modelsText}
-                        onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
-                      />
-                      <input
-                        className="px-input num"
-                        placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh}
-                        value={d.apiSize}
-                        onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
-                      />
+                      <label className="field">
+                        <span>可用模型（逗号分隔，生成时下拉选择）</span>
+                        <input
+                          className="px-input"
+                          placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
+                          value={d.modelsText}
+                          onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>尺寸（可留空）</span>
+                        <input
+                          className="px-input num"
+                          placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh}
+                          value={d.apiSize}
+                          onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="provider-test">
@@ -599,30 +625,42 @@ export default function SettingsPage() {
         <div className="form-row">
           <label>自定义抠图命令（留空走自动探测：.venv-matting → PATH rembg → 原样复制）</label>
           <div className="form-inline">
-            <input
-              className="px-input"
-              placeholder="命令，如 mymatte 或 /abs/path/mymatte"
-              value={mat.cliBin}
-              onChange={(e) => setMat((s) => ({ ...s, cliBin: e.target.value }))}
-            />
-            <input
-              className="px-input"
-              placeholder="输入图参数名（留空=位置参数）"
-              value={mat.cliInputArg}
-              onChange={(e) => setMat((s) => ({ ...s, cliInputArg: e.target.value }))}
-            />
-            <input
-              className="px-input"
-              placeholder="输出图参数名（如 -o）"
-              value={mat.cliOutputArg}
-              onChange={(e) => setMat((s) => ({ ...s, cliOutputArg: e.target.value }))}
-            />
-            <input
-              className="px-input num"
-              placeholder="模型参数名"
-              value={mat.cliModelArg}
-              onChange={(e) => setMat((s) => ({ ...s, cliModelArg: e.target.value }))}
-            />
+            <label className="field">
+              <span>命令</span>
+              <input
+                className="px-input"
+                placeholder="mymatte 或 /abs/path/mymatte"
+                value={mat.cliBin}
+                onChange={(e) => setMat((s) => ({ ...s, cliBin: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>输入图参数名</span>
+              <input
+                className="px-input"
+                placeholder="留空=位置参数"
+                value={mat.cliInputArg}
+                onChange={(e) => setMat((s) => ({ ...s, cliInputArg: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>输出图参数名</span>
+              <input
+                className="px-input"
+                placeholder="如 -o"
+                value={mat.cliOutputArg}
+                onChange={(e) => setMat((s) => ({ ...s, cliOutputArg: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span>模型参数名</span>
+              <input
+                className="px-input num"
+                placeholder="如 -m"
+                value={mat.cliModelArg}
+                onChange={(e) => setMat((s) => ({ ...s, cliModelArg: e.target.value }))}
+              />
+            </label>
           </div>
         </div>
         <div className="form-row">
@@ -684,28 +722,36 @@ export default function SettingsPage() {
                 </button>
               </div>
               <div className="form-row">
-                <label>Base URL / API Key / 模型</label>
                 <div className="form-inline">
-                  <input
-                    className="px-input"
-                    placeholder="https://api.openai.com/v1（或百炼兼容模式 …/compatible-mode/v1）"
-                    value={e.apiBaseUrl}
-                    onChange={(e2) => patchEnhancer(e.id, { apiBaseUrl: e2.target.value })}
-                  />
-                  <input
-                    className="px-input"
-                    type="password"
-                    autoComplete="off"
-                    placeholder="sk-…"
-                    value={e.apiKey}
-                    onChange={(e2) => patchEnhancer(e.id, { apiKey: e2.target.value })}
-                  />
-                  <input
-                    className="px-input"
-                    placeholder="gpt-4o-mini / qwen-plus"
-                    value={e.apiModel}
-                    onChange={(e2) => patchEnhancer(e.id, { apiModel: e2.target.value })}
-                  />
+                  <label className="field">
+                    <span>Base URL</span>
+                    <input
+                      className="px-input"
+                      placeholder="https://api.openai.com/v1（或百炼兼容模式 …/compatible-mode/v1）"
+                      value={e.apiBaseUrl}
+                      onChange={(e2) => patchEnhancer(e.id, { apiBaseUrl: e2.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>API Key</span>
+                    <input
+                      className="px-input"
+                      type="password"
+                      autoComplete="off"
+                      placeholder="sk-…"
+                      value={e.apiKey}
+                      onChange={(e2) => patchEnhancer(e.id, { apiKey: e2.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>模型</span>
+                    <input
+                      className="px-input"
+                      placeholder="gpt-4o-mini / qwen-plus"
+                      value={e.apiModel}
+                      onChange={(e2) => patchEnhancer(e.id, { apiModel: e2.target.value })}
+                    />
+                  </label>
                 </div>
               </div>
               <div className="provider-test">

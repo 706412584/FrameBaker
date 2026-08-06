@@ -9,7 +9,7 @@
 ```bash
 bun install
 bun dev          # → http://localhost:3000（PORT 可覆盖）
-./scripts/setup_matting.sh   # 抠图引擎（首次）；brew install ffmpeg（拆 GIF/MP4 需要）
+./scripts/setup_matting.sh   # 抠图引擎（首次，Windows 用 scripts\setup_matting.ps1）；ffmpeg 拆 GIF/MP4 需要（macOS: brew install ffmpeg / Windows: winget install ffmpeg）
 ```
 
 ## 两个核心概念
@@ -103,7 +103,7 @@ CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中�
 ## 常见问题
 
 - **第一次抠图很慢？** 正常，rembg 在下载模型（约百 MB）到 `storage/models`，之后秒级。设置页可看缓存状态。
-- **抠图没生效？** 看设置页体检：没装引擎时会退化为「原样复制」并给出安装提示（`./scripts/setup_matting.sh`）。
+- **抠图没生效？** 看设置页体检：没装引擎时会退化为「原样复制」并给出安装提示（`./scripts/setup_matting.sh`，Windows 用 `scripts\setup_matting.ps1`）。
 - **生成任务失败？** 任务卡片上的错误信息会直接说明（provider 未配置/未选模型/API 返回错误等）；设置页「测试连接」可先排障。
 - **GIF 拆帧**会忽略帧延迟，统一按 1 tick；任务队列在内存中，重启服务会丢未完成任务；应用无鉴权，仅适合本地使用。
 

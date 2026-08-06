@@ -165,7 +165,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               ? "引擎检测中…"
               : engineAvailable
                 ? `引擎: rembg/${cfg!.matting.model}`
-                : "未安装抠图引擎，抠图将仅复制原图（scripts/setup_matting.sh）"}
+                : "未安装抠图引擎，抠图将仅复制原图（scripts/setup_matting.sh，Windows 用 .ps1）"}
           </span>
           {prompt && <span className="mat-prompt">prompt: {prompt}</span>}
         </div>

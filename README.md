@@ -35,10 +35,12 @@ bun start        # production
 ```
 
 - Port: `PORT=8080 bun dev`
-- ffmpeg is required for frame extraction: `brew install ffmpeg`
+- ffmpeg is required for frame extraction: `brew install ffmpeg` (macOS) / `winget install ffmpeg` (Windows)
 - **Matting engine** (already installed on this machine; required again on a fresh checkout):
   ```bash
-  ./scripts/setup_matting.sh
+  ./scripts/setup_matting.sh            # macOS / Linux
+  # Windows (PowerShell):
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
   ```
   Creates `.venv-matting/` (python3 venv) and installs `rembg[cli,cpu]`. The u2net model downloads automatically to `storage/models` on first use. Skipping this leaves matting in passthrough mode (copies the original image with a warning).
 - Type check: `bun run typecheck`
@@ -48,7 +50,7 @@ bun start        # production
 Detected once at server start (see `GET /api/config`):
 
 1. `FRAMEBAKER_MATTING_CLI` — custom command template (`{input}` `{output}`, optional `{model}`)
-2. `<repo>/.venv-matting/bin/rembg` — installed by `scripts/setup_matting.sh` (engine = `rembg-bundled`)
+2. Bundled rembg in `<repo>/.venv-matting` (`bin/rembg` on POSIX, `Scripts/rembg.exe` on Windows) — installed by `scripts/setup_matting.sh` / `setup_matting.ps1` (engine = `rembg-bundled`)
 3. `rembg` found in `PATH` (engine = `rembg-path`)
 4. None — passthrough copy with an install hint (engine = `none`)
 

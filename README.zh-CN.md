@@ -35,10 +35,12 @@ bun start        # 生产
 ```
 
 - 端口覆盖：`PORT=8080 bun dev`
-- 拆帧依赖 ffmpeg：`brew install ffmpeg`
+- 拆帧依赖 ffmpeg：`brew install ffmpeg`（macOS）/ `winget install ffmpeg`（Windows）
 - **抠图引擎**（本机已装好；新机器需要重新执行一次）：
   ```bash
-  ./scripts/setup_matting.sh
+  ./scripts/setup_matting.sh            # macOS / Linux
+  # Windows（PowerShell）：
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
   ```
   创建 `.venv-matting/`（python3 venv）并安装 `rembg[cli,cpu]`。u2net 模型在首次抠图时自动下载到 `storage/models`。不安装则抠图退化为 passthrough（复制原图并给出警告）。
 - 类型检查：`bun run typecheck`
@@ -48,7 +50,7 @@ bun start        # 生产
 服务启动时探测一次（可用 `GET /api/config` 查看）：
 
 1. `FRAMEBAKER_MATTING_CLI` —— 自定义命令模板（占位符 `{input}` `{output}`，可选 `{model}`）
-2. `<repo>/.venv-matting/bin/rembg` —— 由 `scripts/setup_matting.sh` 安装（engine = `rembg-bundled`）
+2. `<repo>/.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`）—— 由 `scripts/setup_matting.sh` / `setup_matting.ps1` 安装（engine = `rembg-bundled`）
 3. PATH 中的 `rembg`（engine = `rembg-path`）
 4. 都没有 —— passthrough 复制原图并提示安装（engine = `none`）
 
