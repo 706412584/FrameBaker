@@ -13,6 +13,7 @@ import { REMBG_MODELS } from "@framebaker/shared";
 import { api } from "../api";
 import { refreshServerConfig, useServerConfig } from "../config";
 import { askConfirm, notify } from "../notice";
+import PxSuggest from "./PxSuggest";
 
 /** 编辑草稿：apiModels 用逗号分隔文本编辑，保存时才拆成数组；CLI 为结构化字段（免模板） */
 interface ProviderDraft {
@@ -626,18 +627,12 @@ export default function SettingsPage() {
         </div>
         <div className="form-row">
           <label>默认模型（生成/上传抠图时使用；留空用 env / 默认 u2net）</label>
-          <input
-            className="px-input"
-            list="rembg-model-list"
+          <PxSuggest
             placeholder="u2net"
+            suggestions={[...REMBG_MODELS]}
             value={mat.model}
-            onChange={(e) => setMat((s) => ({ ...s, model: e.target.value }))}
+            onChange={(v) => setMat((s) => ({ ...s, model: v }))}
           />
-          <datalist id="rembg-model-list">
-            {REMBG_MODELS.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
           {cfg && (
             <div className="hint">
               当前生效模型：<code>{cfg.matting.model}</code>（

@@ -1871,3 +1871,24 @@ body.resizing-row * {
   padding: 8px 10px;
   font-size: 14px;
 }
+
+/* 带建议下拉的输入框（PxSuggest，复用 px-select 列表样式） */
+.px-suggest {
+  position: relative;
+  width: 100%;
+}
+.px-suggest-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+}
+.px-suggest-toggle:hover {
+  color: var(--accent);
+}
