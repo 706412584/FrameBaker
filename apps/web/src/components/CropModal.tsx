@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Crop, Grid3x3, Maximize, Minus, Plus, Scan, X } from "lucide-react";
+import { Crop, Grid3x3, Layers, Maximize, Minus, Plus, Scan, X } from "lucide-react";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
 import { notify } from "../notice";
 import type { CropRect } from "../imageops/ops";
@@ -15,6 +15,12 @@ interface Props {
   onConfirm: (blob: Blob) => void | Promise<void>;
   /** 逐张剪裁时提供「跳过本张」 */
   onSkip?: () => void;
+  /** 队列批量：把当前剪裁框应用到剩余图片（remaining > 0 时才显示按钮） */
+  onConfirmAll?: (rect: CropRect) => void | Promise<void>;
+  /** 队列批量：剩余图片全部自动裁透明边 */
+  onTrimAll?: () => void | Promise<void>;
+  /** 队列中除当前张外的剩余未处理数量（驱动批量按钮的显示与文案） */
+  remaining?: number;
   onClose: () => void;
 }
 
@@ -27,6 +33,17 @@ type DragMode =
 
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 
+/** 宽高比锁定选项（null = 自由） */
+const RATIOS: { label: string; value: number | null }[] = [
+  { label: "自由", value: null },
+  { label: "1:1", value: 1 },
+  { label: "4:3", value: 4 / 3 },
+  { label: "16:9", value: 16 / 9 },
+];
+
+/** 常用尺寸预设（像素，居中放置） */
+const SIZE_PRESETS = [16, 32, 64] as const;
+
 /** 从 CSS 变量读画布配色（主题切换后重读，不硬编码色值） */
 function readColors() {
   const cs = getComputedStyle(document.documentElement);
@@ -36,6 +53,8 @@ function readColors() {
     accent: read("--accent", "#ffb86c"),
     grid: read("--border", "#3a3f45"),
     border: read("--text-muted", "#8a8f96"),
+    checkerA: read("--checker-a", "#3a3f45"),
+    checkerB: read("--checker-b", "#25292e"),
   };
 }
 
@@ -49,19 +68,34 @@ function clampRect(r: CropRect, imgW: number, imgH: number): CropRect {
 }
 
 /** 像素图剪裁工具：整数像素框选 + 缩放/网格/自动透明边，重活（扫描/编码）走 imageops worker */
-export default function CropModal({ image, title = "剪裁图片", subtitle, onConfirm, onSkip, onClose }: Props) {
+export default function CropModal({ image, title = "剪裁图片", subtitle, onConfirm, onSkip, onConfirmAll, onTrimAll, remaining = 0, onClose }: Props) {
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [rect, setRect] = useState<CropRect | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showGrid, setShowGrid] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [busyText, setBusyText] = useState("剪裁中…");
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<DragMode>({ kind: "none" });
   const theme = useTheme();
   const colors = useMemo(readColors, [theme]);
+  const [ratio, setRatio] = useState<number | null>(null);
+
+  // 透明底棋盘格瓦片（8px 格，随主题重建）
+  const checkerTile = useMemo(() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 16;
+    const g = c.getContext("2d")!;
+    g.fillStyle = colors.checkerB;
+    g.fillRect(0, 0, 16, 16);
+    g.fillStyle = colors.checkerA;
+    g.fillRect(0, 0, 8, 8);
+    g.fillRect(8, 8, 8, 8);
+    return c;
+  }, [colors]);
 
   const imgW = bitmap?.width ?? 0;
   const imgH = bitmap?.height ?? 0;
@@ -164,6 +198,12 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     if (!bitmap) return;
 
     ctx.imageSmoothingEnabled = false;
+    // 透明区域棋盘格底（先铺底再画图片，框外遮罩照常压暗）
+    const checker = ctx.createPattern(checkerTile, "repeat");
+    if (checker) {
+      ctx.fillStyle = checker;
+      ctx.fillRect(pan.x, pan.y, imgW * zoom, imgH * zoom);
+    }
     ctx.drawImage(bitmap, pan.x, pan.y, imgW * zoom, imgH * zoom);
 
     // 图像边界
@@ -214,7 +254,7 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
         ctx.fillRect(hx - 3, hy - 3, 6, 6);
       }
     }
-  }, [bitmap, rect, zoom, pan, showGrid, canvasSize, colors, imgW, imgH]);
+  }, [bitmap, rect, zoom, pan, showGrid, canvasSize, colors, checkerTile, imgW, imgH]);
 
   // ---- 指针交互：框内移动 / 八向缩放 / 空白新框 / 中键或 Alt 平移 ----
   const hitHandle = (sx: number, sy: number): string | null => {
@@ -238,8 +278,64 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     return sx >= rx && sx <= rx + rect.w * zoom && sy >= ry && sy <= ry + rect.h * zoom;
   };
 
+  /** 比例锁定时由锚点生成矩形：另一边按比例联动并 clamp 在图内 */
+  const ratioRect = (ax: number, ay: number, dirX: number, dirY: number, w: number, h: number, r: number): CropRect => {
+    const maxW = dirX > 0 ? imgW - ax : ax;
+    const maxH = dirY > 0 ? imgH - ay : ay;
+    w = Math.max(1, Math.min(Math.round(w), maxW));
+    h = Math.max(1, Math.round(w / r));
+    if (h > maxH) {
+      // 高被图片边界截断时反推宽，尽量保住比例
+      h = Math.max(1, maxH);
+      w = Math.max(1, Math.min(Math.round(h * r), maxW));
+    }
+    return { x: dirX > 0 ? ax : ax - w, y: dirY > 0 ? ay : ay - h, w, h };
+  };
+
   const resizeRect = (handle: string, ix: number, iy: number): CropRect | null => {
     if (!rect) return null;
+    if (ratio) {
+      // 比例锁定：以拖动边为主轴，另一边按比例联动
+      const isW = handle.includes("w");
+      const isE = handle.includes("e");
+      const isN = handle.includes("n");
+      const isS = handle.includes("s");
+      if ((isW || isE) && (isN || isS)) {
+        // 角手柄：锚定对角，取相对变化大的一边为主轴
+        const ax = isW ? rect.x + rect.w : rect.x;
+        const ay = isN ? rect.y + rect.h : rect.y;
+        const dw = Math.abs(ix - ax);
+        const dh = Math.abs(iy - ay);
+        let w: number;
+        let h: number;
+        if (dw / rect.w >= dh / rect.h) {
+          w = dw;
+          h = w / ratio;
+        } else {
+          h = dh;
+          w = h * ratio;
+        }
+        return ratioRect(ax, ay, isW ? -1 : 1, isN ? -1 : 1, w, h, ratio);
+      }
+      if (isW || isE) {
+        // 东西边：宽为主轴，高绕垂直中心联动
+        const ax = isW ? rect.x + rect.w : rect.x;
+        const maxW = isW ? ax : imgW - ax;
+        const w = Math.max(1, Math.min(Math.round(Math.abs(ix - ax)), maxW));
+        const h = Math.max(1, Math.min(Math.round(w / ratio), imgH));
+        const cy = rect.y + rect.h / 2;
+        const y = Math.max(0, Math.min(Math.round(cy - h / 2), imgH - h));
+        return { x: isW ? ax - w : ax, y, w, h };
+      }
+      // 南北边：高为主轴，宽绕水平中心联动
+      const ay = isN ? rect.y + rect.h : rect.y;
+      const maxH = isN ? ay : imgH - ay;
+      const h = Math.max(1, Math.min(Math.round(Math.abs(iy - ay)), maxH));
+      const w = Math.max(1, Math.min(Math.round(h * ratio), imgW));
+      const cx = rect.x + rect.w / 2;
+      const x = Math.max(0, Math.min(Math.round(cx - w / 2), imgW - w));
+      return { x, y: isN ? ay - h : ay, w, h };
+    }
     let { x, y } = rect;
     let x2 = rect.x + rect.w;
     let y2 = rect.y + rect.h;
@@ -288,6 +384,24 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     }
     const p = toImage(sx, sy);
     if (mode.kind === "new") {
+      if (ratio) {
+        // 比例锁定：从按下点（clamp 进图内）按比例拖出新框
+        const ax = Math.max(0, Math.min(Math.round(mode.ax), imgW - 1));
+        const ay = Math.max(0, Math.min(Math.round(mode.ay), imgH - 1));
+        const dw = Math.abs(p.x - ax);
+        const dh = Math.abs(p.y - ay);
+        let w: number;
+        let h: number;
+        if (dw >= dh * ratio) {
+          w = dw;
+          h = w / ratio;
+        } else {
+          h = dh;
+          w = h * ratio;
+        }
+        setRect(ratioRect(ax, ay, p.x >= ax ? 1 : -1, p.y >= ay ? 1 : -1, w, h, ratio));
+        return;
+      }
       const x = Math.min(mode.ax, p.x);
       const y = Math.min(mode.ay, p.y);
       setRect(
@@ -328,8 +442,32 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
     if (bitmap) setRect({ x: 0, y: 0, w: bitmap.width, h: bitmap.height });
   };
 
+  /** 切换宽高比锁定：已有框时保持中心、以宽为基准调高（clamp 到图内） */
+  const changeRatio = (r: number | null) => {
+    setRatio(r);
+    if (!r || !rect) return;
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    let w = rect.w;
+    let h = Math.max(1, Math.round(w / r));
+    if (h > imgH) {
+      h = imgH;
+      w = Math.max(1, Math.min(Math.round(h * r), imgW));
+    }
+    setRect(clampRect({ x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h }, imgW, imgH));
+  };
+
+  /** 尺寸预设：居中放置，超出图片的边 clamp（双边都超即整图） */
+  const applyPreset = (s: number) => {
+    if (!bitmap) return;
+    const w = Math.min(s, imgW);
+    const h = Math.min(s, imgH);
+    setRect({ x: Math.round((imgW - w) / 2), y: Math.round((imgH - h) / 2), w, h });
+  };
+
   const doConfirm = async () => {
     if (!rect || busy) return;
+    setBusyText("剪裁中…");
     setBusy(true);
     try {
       const blob = await cropImage(image, rect);
@@ -340,6 +478,71 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
       setBusy(false);
     }
   };
+
+  /** 「应用到剩余 N 张」：把当前框交给队列批量处理（hook 内逐张求交集），结束后队列关闭 */
+  const doConfirmAll = async () => {
+    if (!rect || busy || !onConfirmAll) return;
+    setBusyText("批量剪裁中…");
+    setBusy(true);
+    try {
+      await onConfirmAll(rect);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 「剩余全部 trim 透明边」：无需当前框，直接交给队列批量处理 */
+  const doTrimAll = async () => {
+    if (busy || !onTrimAll) return;
+    setBusyText("批量剪裁中…");
+    setBusy(true);
+    try {
+      await onTrimAll();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ---- 键盘快捷键：Enter 确认 / Esc 取消 / 方向键移动 1px（Shift 10px）----
+  // 经 ref 转发，window 监听只挂一次且始终拿到最新状态
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e) => {
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    };
+    const d = move[e.key];
+    if (d && rect) {
+      // 数字输入框内也接管方向键（preventDefault 挡住数值自增）
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      setRect(clampRect({ ...rect, x: rect.x + d[0] * step, y: rect.y + d[1] * step }, imgW, imgH));
+      return;
+    }
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // 输入框内只接管 Enter 确认，其余按键留给输入框
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doConfirm();
+      }
+      return;
+    }
+    if (e.key === "Enter") {
+      if (e.target instanceof HTMLButtonElement) return; // 按钮聚焦时 Enter 走原生点击
+      e.preventDefault();
+      doConfirm();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
+  };
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const num = (v: number, onChange: (n: number) => void, max: number) => (
     <input
@@ -412,13 +615,46 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
           <IconBtn title="全图" onClick={fullImage}>
             <Crop size={14} />
           </IconBtn>
-          <span className="crop-hint">拖动框选 · 滚轮缩放 · Alt/中键平移</span>
+          <span className="tb-sep" />
+          {RATIOS.map((r) => (
+            <IconBtn
+              key={r.label}
+              className={ratio === r.value ? "on" : ""}
+              title={`宽高比锁定：${r.label}`}
+              style={{ width: "auto", padding: "0 6px", fontSize: 11 }}
+              onClick={() => changeRatio(r.value)}
+            >
+              {r.label}
+            </IconBtn>
+          ))}
+          <span className="tb-sep" />
+          {SIZE_PRESETS.map((s) => (
+            <IconBtn
+              key={s}
+              title={`预设 ${s}×${s}（居中）`}
+              style={{ width: "auto", padding: "0 6px", fontSize: 11 }}
+              onClick={() => applyPreset(s)}
+            >
+              {s}
+            </IconBtn>
+          ))}
+          <span className="crop-hint">拖动框选 · 滚轮缩放 · Alt/中键平移 · 方向键微调</span>
         </div>
 
         <div className="modal-actions">
           {onSkip && (
             <button type="button" className="px-btn" disabled={busy} onClick={onSkip}>
               跳过本张
+            </button>
+          )}
+          {onTrimAll && remaining > 0 && (
+            <button type="button" className="px-btn" disabled={busy} onClick={doTrimAll}>
+              <Scan size={14} /> 剩余 {remaining} 张 trim 透明边
+            </button>
+          )}
+          {onConfirmAll && remaining > 0 && (
+            <button type="button" className="px-btn" disabled={!rect || busy} onClick={doConfirmAll}>
+              <Layers size={14} /> 应用到剩余 {remaining} 张
             </button>
           )}
           <button type="button" className="px-btn" disabled={busy} onClick={onClose}>
@@ -431,7 +667,7 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
             disabled={!rect || busy}
             onClick={doConfirm}
           >
-            <Crop size={14} /> {busy ? "剪裁中…" : `确认剪裁 ${rect ? `${rect.w}×${rect.h}` : ""}`}
+            <Crop size={14} /> {busy ? busyText : `确认剪裁 ${rect ? `${rect.w}×${rect.h}` : ""}`}
           </motion.button>
         </div>
       </motion.div>
