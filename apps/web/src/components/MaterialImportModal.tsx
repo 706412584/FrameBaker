@@ -10,6 +10,7 @@ import MattingOption from "./MattingOption";
 import CropModal from "./CropModal";
 import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
+import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 
 type FileState = "pending" | "uploading" | "queued" | "done" | "error";
@@ -51,6 +52,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
   const [prompt, setPrompt] = useState("");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
+  const [size, setSize] = useState("");
   const [reference, setReference] = useState<ReferenceSelection | null>(null);
   const [count, setCount] = useState(4);
   const [job, setJob] = useState<Job | null>(null); // CLI 生成的单任务跟踪
@@ -179,6 +181,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
         count,
         autoMatting,
         ...sel,
+        ...(size ? { size } : {}),
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
         ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
@@ -197,7 +200,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
   return (
     <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div
-        className="modal pixel-panel"
+        className="modal pixel-panel import-modal"
         initial={{ scale: 0.92, y: 24 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 24 }}
@@ -317,7 +320,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
           <>
             <PromptEnhancer
               label="提示词 Prompt"
-              placeholder="例如：pixel art slime idle"
+              placeholder="例如：穿斗篷的小史莱姆，待机呼吸"
               value={prompt}
               onChange={setPrompt}
             />
@@ -332,6 +335,7 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
               onProviderChange={setProviderId}
               onModelChange={setModel}
             />
+            <SizePicker providerId={providerId} value={size} onChange={setSize} />
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />
             <div className="hint">
               生成方式在「设置」页配置（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax，可配多个共存；也可用环境变量{" "}

@@ -1380,6 +1380,11 @@ body.resizing-row * {
   cursor: row-resize !important;
 }
 
+/* ===== 添加素材 / 导入素材弹窗（比默认 .modal 更宽） ===== */
+.import-modal {
+  width: min(920px, calc(100vw - 48px));
+}
+
 /* ===== 素材库选择（导入弹窗） ===== */
 .mat-pick-grid {
   display: grid;
@@ -1825,6 +1830,14 @@ body.resizing-row * {
 .enhance-model {
   max-width: 160px;
   flex-shrink: 0;
+}
+.enhance-style {
+  max-width: 120px;
+  flex-shrink: 0;
+}
+.enhance-prompt {
+  line-height: 1.5;
+  min-height: 72px;
 }
 .enhance-panel {
   display: flex;

@@ -51,6 +51,8 @@ interface GenerateBody {
   referenceFrameId?: string;
   providerId?: string;
   model?: string;
+  /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */
+  size?: string;
 }
 
 export const api = {
@@ -84,8 +86,8 @@ export const api = {
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
   listProviderModels: (body: ProviderModelsRequest) =>
     req<ProviderModelsResponse>("/api/provider/models", { method: "POST", ...json(body) }),
-  enhancePrompt: (enhancerId: string | undefined, prompt: string) =>
-    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt }) }),
+  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string) =>
+    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style }) }),
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),

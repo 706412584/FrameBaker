@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Wand2, X } from "lucide-react";
+import { ENHANCE_STYLES } from "@framebaker/shared";
 import { api } from "../api";
 import { useServerConfig } from "../config";
 import { notify } from "../notice";
@@ -17,6 +18,7 @@ interface EnhanceResult {
   original: string;
   enhanced: string;
   enhancerName: string;
+  styleLabel: string;
 }
 
 /**
@@ -27,6 +29,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
   const cfg = useServerConfig();
   const enhancers = cfg?.promptEnhancers ?? [];
   const [enhancerId, setEnhancerId] = useState("");
+  const [style, setStyle] = useState<string>(ENHANCE_STYLES[0].id);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<EnhanceResult | null>(null);
 
@@ -38,9 +41,14 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
     }
     setBusy(true);
     try {
-      const r = await api.enhancePrompt(enhancerId || undefined, value.trim());
+      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style);
       // original 快照保留发起时的原文，之后用户怎么改输入框都不影响对比
-      setResult({ original: value.trim(), enhanced: r.enhanced, enhancerName: r.enhancerName });
+      setResult({
+        original: value.trim(),
+        enhanced: r.enhanced,
+        enhancerName: r.enhancerName,
+        styleLabel: ENHANCE_STYLES.find((s) => s.id === style)?.label ?? style,
+      });
     } catch (e) {
       notify((e as Error).message);
     } finally {
@@ -51,12 +59,19 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
   return (
     <div className="form-row">
       <label>{label}</label>
-      <div className="form-inline">
-        <input
-          className="px-input"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+      <textarea
+        className="px-input px-textarea enhance-prompt"
+        rows={3}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <div className="form-inline enhance-bar">
+        <PxSelect
+          className="enhance-style"
+          value={style}
+          options={ENHANCE_STYLES.map((s) => ({ value: s.id, label: s.label }))}
+          onChange={setStyle}
         />
         {enhancers.length > 1 && (
           <PxSelect
@@ -80,7 +95,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
       {result && (
         <div className="enhance-panel">
           <div className="enhance-head">
-            <span>由「{result.enhancerName}」优化，选用哪一版？（原文不会被覆盖）</span>
+            <span>由「{result.enhancerName}」按「{result.styleLabel}」优化，选用哪一版？（原文不会被覆盖）</span>
             <IconBtn title="关闭对比" onClick={() => setResult(null)}>
               <X size={14} />
             </IconBtn>

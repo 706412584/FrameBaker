@@ -30,6 +30,8 @@ export interface GeneratePayload {
   providerId?: string;
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
   model?: string;
+  /** 生成时选择的尺寸（api 系覆盖 provider 的 apiSize；cli 无尺寸概念忽略） */
+  size?: string;
 }
 
 type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
@@ -251,7 +253,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
   const produce = (outPath: string, index: number) =>
     provider.type === "cli"
       ? runCmd(buildArgv(outPath, index))
-      : generateViaApi(provider, p.prompt, apiModel, index, outPath, p.referencePath);
+      : generateViaApi(provider, p.prompt, apiModel, index, outPath, p.referencePath, p.size);
 
   if (p.target.kind === "project") {
     const projectId = p.target.projectId;
@@ -275,7 +277,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
         baseIdx + i,
         rawPath,
         p.autoMatting ? "matting" : "ready",
-        JSON.stringify({ prompt: p.prompt, index: i, provider: provider.name, model: p.model ?? (apiModel || undefined) })
+        JSON.stringify({ prompt: p.prompt, index: i, provider: provider.name, model: p.model ?? (apiModel || undefined), size: p.size || undefined })
       );
       frameIds.push(id);
     }
@@ -297,7 +299,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
         id,
         p.count > 1 ? `${base} #${i + 1}` : base,
         rawPath,
-        JSON.stringify({ prompt: p.prompt, index: i, provider: provider.name, model: p.model ?? (apiModel || undefined) }),
+        JSON.stringify({ prompt: p.prompt, index: i, provider: provider.name, model: p.model ?? (apiModel || undefined), size: p.size || undefined }),
         Date.now()
       );
       ids.push(id);

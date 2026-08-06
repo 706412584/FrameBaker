@@ -1,12 +1,16 @@
-import type { EnhancePromptRequest, EnhancePromptResponse } from "@framebaker/shared";
+import { ENHANCE_STYLES, type EnhancePromptRequest, type EnhancePromptResponse } from "@framebaker/shared";
 import { enhancerConfigured, resolveEnhancer } from "./provider";
 
-// 加强用的系统提示词固定在这里（像素画/游戏 sprite 方向），用户无需手写任何模板
+// 加强用的系统提示词由这里按风格组装，用户无需手写任何模板
 
-const ENHANCE_SYSTEM = `你是像素画与游戏美术提示词专家。把用户简短的画面描述改写成适合图像生成模型的英文提示词。要求：
+/** 按所选风格组装系统提示词（未知 style 回退 pixel） */
+function buildSystem(style?: string): string {
+  const s = ENHANCE_STYLES.find((x) => x.id === style) ?? ENHANCE_STYLES[0];
+  return `你是游戏美术提示词专家。把用户简短的画面描述改写成适合图像生成模型的英文提示词。要求：
 - 严格保留用户原意（主体、动作、数量），只做丰富与具象化
-- 补充：pixel art 风格、主体外观细节、动作姿态、视角、配色与氛围；适合抠图时可加 plain solid background / isolated subject
+- 风格方向：${s.directive}；另补充主体外观细节、动作姿态、视角、配色与氛围；适合抠图时可加 plain solid background / isolated subject
 - 只输出改写后的提示词本身：单行英文，不要解释、不要引号、不要任何前缀`;
+}
 
 /** 调用用户配置的加强模型（OpenAI 兼容 chat/completions）优化生图提示词 */
 export async function enhancePrompt(req: EnhancePromptRequest): Promise<EnhancePromptResponse> {
@@ -30,7 +34,7 @@ export async function enhancePrompt(req: EnhancePromptRequest): Promise<EnhanceP
       body: JSON.stringify({
         model: enhancer.apiModel.trim(),
         messages: [
-          { role: "system", content: ENHANCE_SYSTEM },
+          { role: "system", content: buildSystem(req.style) },
           { role: "user", content: prompt },
         ],
         stream: false,

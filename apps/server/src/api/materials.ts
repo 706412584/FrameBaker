@@ -148,6 +148,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           referencePath: ref.referencePath,
           providerId: body.providerId,
           model: body.model,
+          size: body.size,
         },
       });
       return { jobId };
@@ -161,6 +162,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         referenceFrameId: t.Optional(t.String()),
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
+        size: t.Optional(t.String()),
       }),
     }
   )

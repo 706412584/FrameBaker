@@ -67,6 +67,7 @@ export const app = new Elysia()
       body: t.Object({
         enhancerId: t.Optional(t.String()),
         prompt: t.String(),
+        style: t.Optional(t.String()),
       }),
     }
   )

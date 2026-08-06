@@ -12,6 +12,7 @@ import MattingOption from "./MattingOption";
 import CropModal from "./CropModal";
 import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
+import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 
 type Tab = "materials" | "upload" | "cli";
@@ -66,6 +67,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const [prompt, setPrompt] = useState("");
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
+  const [size, setSize] = useState("");
   const [reference, setReference] = useState<ReferenceSelection | null>(null);
   const [count, setCount] = useState(4);
   const [job, setJob] = useState<Job | null>(null);
@@ -233,6 +235,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
         count,
         autoMatting,
         ...sel,
+        ...(size ? { size } : {}),
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
         ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
@@ -251,7 +254,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   return (
     <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
       <motion.div
-        className="modal pixel-panel"
+        className="modal pixel-panel import-modal"
         initial={{ scale: 0.92, y: 24 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 24 }}
@@ -439,7 +442,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
           <>
             <PromptEnhancer
               label="提示词 Prompt"
-              placeholder="例如：pixel art knight walking"
+              placeholder="例如：持剑的小骑士，向右走路循环"
               value={prompt}
               onChange={setPrompt}
             />
@@ -454,6 +457,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               onProviderChange={setProviderId}
               onModelChange={setModel}
             />
+            <SizePicker providerId={providerId} value={size} onChange={setSize} />
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />
             <div className="hint">
               生成方式在「设置」页配置（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax，可配多个共存；也可用环境变量{" "}

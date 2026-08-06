@@ -227,7 +227,8 @@ async function generateViaMinimax(
 
 /**
  * API 生成统一入口（按 provider.type 分发 OpenAI 兼容 / DashScope 原生 / Gemini / MiniMax）。
- * 模型在生成时单独指定（生成弹窗选择/输入），provider 只存连接信息
+ * 模型在生成时单独指定（生成弹窗选择/输入），provider 只存连接信息；
+ * sizeOverride 非空时覆盖 provider 的 apiSize（生成弹窗的尺寸选择）
  */
 export async function generateViaApi(
   cfg: GenProvider,
@@ -235,10 +236,12 @@ export async function generateViaApi(
   model: string,
   _index: number,
   outPath: string,
-  referencePath?: string
+  referencePath?: string,
+  sizeOverride?: string
 ): Promise<void> {
-  if (cfg.type === "dashscope") return generateViaDashscope(cfg, prompt, model, outPath, referencePath);
-  if (cfg.type === "gemini") return generateViaGemini(cfg, prompt, model, outPath, referencePath);
-  if (cfg.type === "minimax") return generateViaMinimax(cfg, prompt, model, outPath, referencePath);
-  return generateViaOpenAI(cfg, prompt, model, outPath, referencePath);
+  const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
+  if (eff.type === "dashscope") return generateViaDashscope(eff, prompt, model, outPath, referencePath);
+  if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath);
+  if (eff.type === "minimax") return generateViaMinimax(eff, prompt, model, outPath, referencePath);
+  return generateViaOpenAI(eff, prompt, model, outPath, referencePath);
 }

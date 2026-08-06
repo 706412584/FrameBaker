@@ -76,6 +76,41 @@ export interface PromptEnhancer {
   apiModel: string;
 }
 
+/**
+ * 生成尺寸预设（生成弹窗下拉；空串 = 用 provider 设置页配的 apiSize 默认）。
+ * 各厂商尺寸格式不同，按 provider 类型分档；CLI 无尺寸概念不下发
+ */
+export const GEN_SIZE_PRESETS: Record<Exclude<GenProviderType, "cli">, Array<{ value: string; label: string }>> = {
+  api: [
+    { value: "", label: "默认（provider 配置）" },
+    { value: "1024x1024", label: "1024×1024（方）" },
+    { value: "1536x1024", label: "1536×1024（横）" },
+    { value: "1024x1536", label: "1024×1536（竖）" },
+  ],
+  dashscope: [
+    { value: "", label: "默认（provider 配置）" },
+    { value: "1328*1328", label: "1328×1328（方）" },
+    { value: "1664*928", label: "1664×928（横）" },
+    { value: "928*1664", label: "928×1664（竖）" },
+  ],
+  gemini: [
+    { value: "", label: "默认（provider 配置）" },
+    { value: "1:1", label: "1:1（方）" },
+    { value: "3:2", label: "3:2（横）" },
+    { value: "2:3", label: "2:3（竖）" },
+    { value: "16:9", label: "16:9（宽屏）" },
+    { value: "9:16", label: "9:16（竖屏）" },
+  ],
+  minimax: [
+    { value: "", label: "默认（provider 配置）" },
+    { value: "1:1", label: "1:1（方）" },
+    { value: "3:2", label: "3:2（横）" },
+    { value: "2:3", label: "2:3（竖）" },
+    { value: "16:9", label: "16:9（宽屏）" },
+    { value: "9:16", label: "9:16（竖屏）" },
+  ],
+};
+
 /** GET /api/config 下发的 provider 摘要（不含 apiKey） */
 export interface GenProviderInfo {
   id: string;
@@ -119,11 +154,27 @@ export interface ServerConfig {
   promptEnhancers: Array<{ id: string; name: string; model: string }>;
 }
 
+/**
+ * 提示词加强的候选风格（前后端唯一事实源）。
+ * id 传给服务端；directive 由服务端拼进系统提示词（前端只用 id/label 做下拉）
+ */
+export const ENHANCE_STYLES = [
+  { id: "pixel", label: "像素画", directive: "pixel art 风格，retro game sprite，limited color palette，crisp clusters" },
+  { id: "anime", label: "动漫二次元", directive: "anime / cel-shaded 风格，clean lineart，vibrant colors" },
+  { id: "illustration", label: "手绘插画", directive: "hand-drawn illustration 风格，painterly texture，soft brush strokes" },
+  { id: "3d", label: "3D 渲染", directive: "3D render 风格，Pixar-like，soft studio lighting，octane render" },
+  { id: "realistic", label: "写实", directive: "photorealistic 风格，detailed texture，natural lighting" },
+  { id: "general", label: "不限风格", directive: "不限定风格，重点丰富主体外观、姿态、视角与氛围" },
+] as const;
+export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
+
 /** POST /api/enhance-prompt 请求/响应 */
 export interface EnhancePromptRequest {
   /** 缺省用第一个已配置的加强模型 */
   enhancerId?: string;
   prompt: string;
+  /** 目标风格（ENHANCE_STYLES 的 id）；缺省/未知值按 pixel 处理 */
+  style?: string;
 }
 
 export interface EnhancePromptResponse {
