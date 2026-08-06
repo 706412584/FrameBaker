@@ -1,9 +1,9 @@
-import type { GenProvider, GenProviderType, MattingSettings } from "@framebaker/shared";
+import type { GenProvider, GenProviderType, MattingSettings, PromptEnhancer } from "@framebaker/shared";
 import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
 import { db } from "./db";
 
-// 生成 / 抠图的运行配置：设置页（settings 表）优先，环境变量兜底
-// 生成 provider 为列表模型：CLI 与 API 可配置多个共存，生成时按 id 选择、模型单独指定
+// 生成 / 抠图 / 提示词加强的运行配置：设置页（settings 表）优先，环境变量兜底
+// 生成 provider 为列表模型：CLI 与 API 系可配置多个共存，生成时按 id 选择、模型单独指定
 
 /** 读 settings 表单个 key 并 JSON.parse；缺失/非法返回 null */
 export function getSettingJson<T>(key: string): T | null {
@@ -18,6 +18,8 @@ export function getSettingJson<T>(key: string): T | null {
 
 const ENV_GEN_CLI = () => process.env.FRAMEBAKER_GEN_CLI?.trim() ?? "";
 
+const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
 /** 归一化一个 provider 条目（settings 里可能缺字段/类型不对） */
 function normalizeProvider(raw: unknown): GenProvider | null {
   if (!raw || typeof raw !== "object") return null;
@@ -27,17 +29,24 @@ function normalizeProvider(raw: unknown): GenProvider | null {
     id: p.id,
     name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.id,
     type: GEN_PROVIDER_TYPES.includes(p.type as GenProviderType) ? (p.type as GenProviderType) : "cli",
-    cliTemplate: typeof p.cliTemplate === "string" ? p.cliTemplate : "",
-    apiBaseUrl: typeof p.apiBaseUrl === "string" ? p.apiBaseUrl : "",
-    apiKey: typeof p.apiKey === "string" ? p.apiKey : "",
+    cliBin: str(p.cliBin),
+    cliPromptArg: str(p.cliPromptArg),
+    cliOutputArg: str(p.cliOutputArg),
+    cliModelArg: str(p.cliModelArg),
+    cliReferenceArg: str(p.cliReferenceArg),
+    cliExtraArgs: str(p.cliExtraArgs),
+    legacyTemplate: typeof p.legacyTemplate === "string" && p.legacyTemplate ? p.legacyTemplate : undefined,
+    apiBaseUrl: str(p.apiBaseUrl),
+    apiKey: str(p.apiKey),
     apiModels: Array.isArray(p.apiModels) ? p.apiModels.filter((m): m is string => typeof m === "string") : [],
-    apiSize: typeof p.apiSize === "string" ? p.apiSize : "",
+    apiSize: str(p.apiSize),
   };
 }
 
 /**
  * 全部生成 provider：settings 表 genProviders 列表；
  * 列表为空且 env FRAMEBAKER_GEN_CLI 有值时，合成一个 id="env" 的 CLI provider 兜底
+ * （env 走遗留模板路径：{prompt} {output} {index} {reference} {model} 占位符）
  */
 export function getGenProviders(): GenProvider[] {
   const saved = getSettingJson<unknown[]>("genProviders");
@@ -48,7 +57,13 @@ export function getGenProviders(): GenProvider[] {
         id: "env",
         name: "环境变量 CLI",
         type: "cli",
-        cliTemplate: ENV_GEN_CLI(),
+        cliBin: "",
+        cliPromptArg: "",
+        cliOutputArg: "",
+        cliModelArg: "",
+        cliReferenceArg: "",
+        cliExtraArgs: "",
+        legacyTemplate: ENV_GEN_CLI(),
         apiBaseUrl: "",
         apiKey: "",
         apiModels: [],
@@ -61,7 +76,7 @@ export function getGenProviders(): GenProvider[] {
 
 /** provider 关键字段是否齐备（模型在生成时单独指定，不在此要求） */
 export function providerConfigured(p: GenProvider): boolean {
-  if (p.type === "cli") return p.cliTemplate.trim().length > 0;
+  if (p.type === "cli") return p.cliBin.trim().length > 0 || !!p.legacyTemplate?.trim();
   return !!(p.apiBaseUrl.trim() && p.apiKey.trim());
 }
 
@@ -76,17 +91,49 @@ export function resolveGenProvider(providerId?: string): GenProvider | null {
   return list.find(providerConfigured) ?? list[0] ?? null;
 }
 
-/** 解析抠图配置：settings 表 matting 逐字段优先于 env / 默认值 */
-export function getMattingSettings(): MattingSettings {
+/** 解析抠图配置：settings 表 matting 逐字段优先于 env / 默认值；cliTemplate env 模板走遗留路径 */
+export function getMattingSettings(): MattingSettings & { envTemplate: string } {
   const saved = getSettingJson<Partial<MattingSettings>>("matting");
   return {
-    cliTemplate:
-      typeof saved?.cliTemplate === "string" && saved.cliTemplate.trim()
-        ? saved.cliTemplate.trim()
-        : (process.env.FRAMEBAKER_MATTING_CLI?.trim() ?? ""),
+    cliBin: str(saved?.cliBin),
+    cliInputArg: str(saved?.cliInputArg),
+    cliOutputArg: str(saved?.cliOutputArg),
+    cliModelArg: str(saved?.cliModelArg),
     model:
       typeof saved?.model === "string" && saved.model.trim()
         ? saved.model.trim()
         : process.env.FRAMEBAKER_MATTING_MODEL?.trim() || "u2net",
+    envTemplate: process.env.FRAMEBAKER_MATTING_CLI?.trim() ?? "",
   };
+}
+
+/** 归一化一个加强模型条目 */
+function normalizeEnhancer(raw: unknown): PromptEnhancer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Partial<PromptEnhancer>;
+  if (typeof e.id !== "string" || !e.id) return null;
+  return {
+    id: e.id,
+    name: typeof e.name === "string" && e.name.trim() ? e.name.trim() : e.id,
+    apiBaseUrl: str(e.apiBaseUrl),
+    apiKey: str(e.apiKey),
+    apiModel: str(e.apiModel),
+  };
+}
+
+/** 全部提示词加强模型（settings 表 promptEnhancers 列表） */
+export function getPromptEnhancers(): PromptEnhancer[] {
+  const saved = getSettingJson<unknown[]>("promptEnhancers");
+  return Array.isArray(saved) ? saved.map(normalizeEnhancer).filter((e): e is PromptEnhancer => e !== null) : [];
+}
+
+export function enhancerConfigured(e: PromptEnhancer): boolean {
+  return !!(e.apiBaseUrl.trim() && e.apiKey.trim() && e.apiModel.trim());
+}
+
+/** 解析本次加强使用的模型：按 id 找，缺省第一个配置齐备的 */
+export function resolveEnhancer(enhancerId?: string): PromptEnhancer | null {
+  const list = getPromptEnhancers();
+  if (enhancerId) return list.find((e) => e.id === enhancerId) ?? null;
+  return list.find(enhancerConfigured) ?? list[0] ?? null;
 }

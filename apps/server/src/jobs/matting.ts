@@ -19,8 +19,8 @@ const BUNDLED_REMBG = join(REPO_ROOT, ".venv-matting", "bin", "rembg");
 const NO_ENGINE_HINT = "未安装抠图引擎，已原样复制：请先执行 scripts/setup_matting.sh";
 
 export function getMattingInfo(): MattingInfo {
-  const { cliTemplate, model } = getMattingSettings();
-  if (cliTemplate) return { engine: "custom-cli", model, hint: null };
+  const { cliBin, envTemplate, model } = getMattingSettings();
+  if (cliBin.trim() || envTemplate) return { engine: "custom-cli", model, hint: null };
   if (existsSync(BUNDLED_REMBG)) return { engine: "rembg-bundled", model, hint: null };
   if (Bun.which("rembg")) return { engine: "rembg-path", model, hint: null };
   return { engine: "none", model, hint: NO_ENGINE_HINT };
@@ -28,17 +28,28 @@ export function getMattingInfo(): MattingInfo {
 
 /**
  * 抠图执行，解析顺序：
- * a. 自定义 CLI 模板（设置页 matting.cliTemplate，或 env FRAMEBAKER_MATTING_CLI；占位符 {input} {output}，可选 {model}）
+ * a. 设置页结构化 CLI（命令 + 参数名映射，免模板）或 env FRAMEBAKER_MATTING_CLI 遗留模板（占位符 {input} {output}，可选 {model}）
  * b. <repo>/.venv-matting/bin/rembg（scripts/setup_matting.sh 安装）
  * c. PATH 中的 rembg
  * d. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
  */
 async function runMatting(input: string, output: string): Promise<string | null> {
-  const { cliTemplate, model } = getMattingSettings();
+  const { cliBin, cliInputArg, cliOutputArg, cliModelArg, envTemplate, model } = getMattingSettings();
 
-  if (cliTemplate) {
-    const argv = cliTemplate
+  if (cliBin.trim()) {
+    const argv = [cliBin.trim()];
+    if (cliInputArg.trim()) argv.push(cliInputArg.trim());
+    argv.push(input);
+    if (cliOutputArg.trim()) argv.push(cliOutputArg.trim());
+    argv.push(output);
+    if (cliModelArg.trim()) argv.push(cliModelArg.trim(), model);
+    await runCmd(argv);
+    return null;
+  }
+
+  if (envTemplate) {
+    const argv = envTemplate
       .split(/\s+/)
       .map((tok) =>
         tok.replaceAll("{input}", input).replaceAll("{output}", output).replaceAll("{model}", model)

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { PlugZap, Plus, Save, Settings2, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { PlugZap, Plus, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
   GenProviderType,
   MattingSettings,
+  PromptEnhancer,
   ProviderTestResponse,
 } from "@framebaker/shared";
 import { REMBG_MODELS } from "@framebaker/shared";
@@ -13,22 +14,59 @@ import { api } from "../api";
 import { refreshServerConfig, useServerConfig } from "../config";
 import { askConfirm, notify } from "../notice";
 
-/** 编辑草稿：apiModels 用逗号分隔文本编辑，保存时才拆成数组 */
+/** 编辑草稿：apiModels 用逗号分隔文本编辑，保存时才拆成数组；CLI 为结构化字段（免模板） */
 interface ProviderDraft {
   id: string;
   name: string;
   type: GenProviderType;
-  cliTemplate: string;
+  cliBin: string;
+  cliPromptArg: string;
+  cliOutputArg: string;
+  cliModelArg: string;
+  cliReferenceArg: string;
+  cliExtraArgs: string;
   apiBaseUrl: string;
   apiKey: string;
   modelsText: string;
   apiSize: string;
 }
 
-const MAT_DEFAULT: MattingSettings = { cliTemplate: "", model: "" };
+/** 加强模型草稿（同 GenProvider 的 api 系字段，但只走 chat/completions） */
+interface EnhancerDraft {
+  id: string;
+  name: string;
+  apiBaseUrl: string;
+  apiKey: string;
+  apiModel: string;
+}
+
+const MAT_DEFAULT: MattingSettings = { cliBin: "", cliInputArg: "", cliOutputArg: "", cliModelArg: "", model: "" };
+
+const CLI_EMPTY = {
+  cliBin: "",
+  cliPromptArg: "",
+  cliOutputArg: "",
+  cliModelArg: "",
+  cliReferenceArg: "",
+  cliExtraArgs: "",
+};
 
 function toDraft(p: GenProvider): ProviderDraft {
-  return { ...p, modelsText: p.apiModels.join(", ") };
+  return {
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    cliBin: p.cliBin,
+    cliPromptArg: p.cliPromptArg,
+    cliOutputArg: p.cliOutputArg,
+    cliModelArg: p.cliModelArg,
+    cliReferenceArg: p.cliReferenceArg,
+    cliExtraArgs: p.cliExtraArgs,
+    apiBaseUrl: p.apiBaseUrl,
+    apiKey: p.apiKey,
+    modelsText: p.apiModels.join(", "),
+    apiSize: p.apiSize,
+  };
 }
 
 function fromDraft(d: ProviderDraft): GenProvider {
@@ -36,7 +74,12 @@ function fromDraft(d: ProviderDraft): GenProvider {
     id: d.id,
     name: d.name.trim() || d.id,
     type: d.type,
-    cliTemplate: d.cliTemplate,
+    cliBin: d.cliBin,
+    cliPromptArg: d.cliPromptArg,
+    cliOutputArg: d.cliOutputArg,
+    cliModelArg: d.cliModelArg,
+    cliReferenceArg: d.cliReferenceArg,
+    cliExtraArgs: d.cliExtraArgs,
     apiBaseUrl: d.apiBaseUrl,
     apiKey: d.apiKey,
     apiModels: d.modelsText
@@ -52,9 +95,9 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   {
     label: "OpenAI",
     draft: {
+      ...CLI_EMPTY,
       name: "OpenAI",
       type: "api",
-      cliTemplate: "",
       apiBaseUrl: "https://api.openai.com/v1",
       apiKey: "",
       modelsText: "gpt-image-1",
@@ -64,9 +107,9 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   {
     label: "百炼",
     draft: {
+      ...CLI_EMPTY,
       name: "百炼（qwen-image）",
       type: "dashscope",
-      cliTemplate: "",
       apiBaseUrl: "https://dashscope.aliyuncs.com",
       apiKey: "",
       modelsText: "qwen-image-2.0-pro, qwen-image-edit-max",
@@ -76,9 +119,9 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   {
     label: "banana",
     draft: {
+      ...CLI_EMPTY,
       name: "banana（Gemini）",
       type: "gemini",
-      cliTemplate: "",
       apiBaseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "",
       modelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
@@ -88,9 +131,9 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   {
     label: "MiniMax",
     draft: {
+      ...CLI_EMPTY,
       name: "MiniMax",
       type: "minimax",
-      cliTemplate: "",
       apiBaseUrl: "https://api.minimaxi.com",
       apiKey: "",
       modelsText: "image-01",
@@ -100,9 +143,9 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   {
     label: "火山方舟（豆包）",
     draft: {
+      ...CLI_EMPTY,
       name: "火山方舟（豆包 Seedream）",
       type: "api",
-      cliTemplate: "",
       apiBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
       apiKey: "",
       modelsText: "doubao-seedream-4-0-250828",
@@ -111,11 +154,27 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
   },
   {
     label: "自定义 CLI",
-    draft: { name: "未命名 CLI", type: "cli", cliTemplate: "", apiBaseUrl: "", apiKey: "", modelsText: "", apiSize: "" },
+    draft: {
+      ...CLI_EMPTY,
+      name: "未命名 CLI",
+      type: "cli",
+      apiBaseUrl: "",
+      apiKey: "",
+      modelsText: "",
+      apiSize: "",
+    },
   },
   {
     label: "自定义 API",
-    draft: { name: "未命名 API", type: "api", cliTemplate: "", apiBaseUrl: "", apiKey: "", modelsText: "", apiSize: "" },
+    draft: {
+      ...CLI_EMPTY,
+      name: "未命名 API",
+      type: "api",
+      apiBaseUrl: "",
+      apiKey: "",
+      modelsText: "",
+      apiSize: "",
+    },
   },
 ];
 
@@ -174,9 +233,11 @@ function engineText(cfg: ReturnType<typeof useServerConfig>): string {
 export default function SettingsPage() {
   const [drafts, setDrafts] = useState<ProviderDraft[]>([]);
   const [mat, setMat] = useState<MattingSettings>(MAT_DEFAULT);
+  const [enhancers, setEnhancers] = useState<EnhancerDraft[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savingMat, setSavingMat] = useState(false);
+  const [savingEnh, setSavingEnh] = useState(false);
   const [tests, setTests] = useState<Record<string, { testing: boolean; result: ProviderTestResponse | null }>>({});
   const [doctor, setDoctor] = useState<DoctorResponse | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(false);
@@ -191,6 +252,16 @@ export default function SettingsPage() {
         setDrafts(list.map(toDraft));
         const m = s["matting"] as Partial<MattingSettings> | undefined;
         if (m && typeof m === "object") setMat({ ...MAT_DEFAULT, ...m });
+        const enh = Array.isArray(s["promptEnhancers"]) ? (s["promptEnhancers"] as PromptEnhancer[]) : [];
+        setEnhancers(
+          enh.map((e) => ({
+            id: e.id,
+            name: e.name,
+            apiBaseUrl: e.apiBaseUrl,
+            apiKey: e.apiKey,
+            apiModel: e.apiModel,
+          }))
+        );
       })
       .catch((e) => notify(`读取设置失败: ${(e as Error).message}`));
   }, []);
@@ -277,6 +348,64 @@ export default function SettingsPage() {
     }
   };
 
+  // ---- 提示词加强模型 ----
+  const patchEnhancer = (id: string, patch: Partial<EnhancerDraft>) =>
+    setEnhancers((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+
+  const addEnhancer = () =>
+    setEnhancers((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: "未命名加强模型", apiBaseUrl: "", apiKey: "", apiModel: "" },
+    ]);
+
+  const persistEnhancers = async (list: EnhancerDraft[]): Promise<boolean> => {
+    try {
+      await api.putSetting("promptEnhancers", list);
+      await refreshServerConfig();
+      return true;
+    } catch (e) {
+      notify(`保存失败: ${(e as Error).message}`);
+      return false;
+    }
+  };
+
+  const saveEnhancers = async () => {
+    setSavingEnh(true);
+    if (await persistEnhancers(enhancers)) {
+      notify("加强模型已保存", "info");
+      runDoctorCheck();
+    }
+    setSavingEnh(false);
+  };
+
+  const removeEnhancer = async (id: string) => {
+    const e = enhancers.find((x) => x.id === id);
+    if (!(await askConfirm(`确定删除加强模型「${e?.name ?? id}」吗？`))) return;
+    const next = enhancers.filter((x) => x.id !== id);
+    if (await persistEnhancers(next)) {
+      setEnhancers(next);
+      notify("已删除加强模型", "info");
+      runDoctorCheck();
+    }
+  };
+
+  /** 加强模型测试：OpenAI 兼容 chat 端点普遍有 /models，复用 provider 测试 */
+  const testEnhancer = async (e: EnhancerDraft) => {
+    const key = `enh-${e.id}`;
+    setTests((prev) => ({ ...prev, [key]: { testing: true, result: null } }));
+    try {
+      const result = await api.testProvider({
+        type: "api",
+        apiBaseUrl: e.apiBaseUrl,
+        apiKey: e.apiKey,
+        apiModel: e.apiModel,
+      });
+      setTests((prev) => ({ ...prev, [key]: { testing: false, result } }));
+    } catch (err) {
+      setTests((prev) => ({ ...prev, [key]: { testing: false, result: { ok: false, error: (err as Error).message } } }));
+    }
+  };
+
   return (
     <div className="page settings-page">
       <header className="home-header">
@@ -334,20 +463,58 @@ export default function SettingsPage() {
               </div>
 
               {d.type === "cli" ? (
-                <div className="form-row">
-                  <label>命令模板</label>
-                  <textarea
-                    className="px-input px-textarea"
-                    rows={2}
-                    placeholder={'mygen --prompt "{prompt}" --model {model} --ref {reference} -o {output}'}
-                    value={d.cliTemplate}
-                    onChange={(e) => patchDraft(d.id, { cliTemplate: e.target.value })}
-                  />
-                  <div className="hint">
-                    占位符：{"{prompt}"} {"{output}"} {"{index}"} {"{reference}"} {"{model}"}
-                    （{"{model}"} 由生成弹窗的模型输入填入）；模板按空白切分为 argv，不经 shell
+                <>
+                  <div className="form-row">
+                    <label>命令（PATH 名或绝对路径）/ prompt 参数名 / 输出参数名</label>
+                    <div className="form-inline">
+                      <input
+                        className="px-input"
+                        placeholder="mygen 或 /abs/path/mygen"
+                        value={d.cliBin}
+                        onChange={(e) => patchDraft(d.id, { cliBin: e.target.value })}
+                      />
+                      <input
+                        className="px-input"
+                        placeholder="--prompt（留空=位置参数）"
+                        value={d.cliPromptArg}
+                        onChange={(e) => patchDraft(d.id, { cliPromptArg: e.target.value })}
+                      />
+                      <input
+                        className="px-input"
+                        placeholder="-o 或 --output"
+                        value={d.cliOutputArg}
+                        onChange={(e) => patchDraft(d.id, { cliOutputArg: e.target.value })}
+                      />
+                    </div>
                   </div>
-                </div>
+                  <div className="form-row">
+                    <label>模型参数名 / 引用图参数名 / 额外固定参数（都可留空）</label>
+                    <div className="form-inline">
+                      <input
+                        className="px-input"
+                        placeholder="--model（留空不下发模型）"
+                        value={d.cliModelArg}
+                        onChange={(e) => patchDraft(d.id, { cliModelArg: e.target.value })}
+                      />
+                      <input
+                        className="px-input"
+                        placeholder="--ref（留空=不支持引用图）"
+                        value={d.cliReferenceArg}
+                        onChange={(e) => patchDraft(d.id, { cliReferenceArg: e.target.value })}
+                      />
+                      <input
+                        className="px-input"
+                        placeholder="--steps 20（原样追加）"
+                        value={d.cliExtraArgs}
+                        onChange={(e) => patchDraft(d.id, { cliExtraArgs: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="hint">
+                    不用手写任何 {"{占位符}"}：执行时按上表组装 <code>argv</code>（命令 + 参数名 值 …），不经 shell；
+                    参数名留空表示对应值作位置参数传入；模型 / 引用图在生成弹窗选择后按对应参数名下发
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="form-row">
@@ -429,13 +596,33 @@ export default function SettingsPage() {
           </span>
         </h3>
         <div className="form-row">
-          <label>自定义 CLI 模板（留空走自动探测：.venv-matting → PATH rembg → 原样复制）</label>
-          <input
-            className="px-input"
-            placeholder={"rembg i -m {model} {input} {output}（留空用自动探测）"}
-            value={mat.cliTemplate}
-            onChange={(e) => setMat((s) => ({ ...s, cliTemplate: e.target.value }))}
-          />
+          <label>自定义抠图命令（留空走自动探测：.venv-matting → PATH rembg → 原样复制）</label>
+          <div className="form-inline">
+            <input
+              className="px-input"
+              placeholder="命令，如 mymatte 或 /abs/path/mymatte"
+              value={mat.cliBin}
+              onChange={(e) => setMat((s) => ({ ...s, cliBin: e.target.value }))}
+            />
+            <input
+              className="px-input"
+              placeholder="输入图参数名（留空=位置参数）"
+              value={mat.cliInputArg}
+              onChange={(e) => setMat((s) => ({ ...s, cliInputArg: e.target.value }))}
+            />
+            <input
+              className="px-input"
+              placeholder="输出图参数名（如 -o）"
+              value={mat.cliOutputArg}
+              onChange={(e) => setMat((s) => ({ ...s, cliOutputArg: e.target.value }))}
+            />
+            <input
+              className="px-input num"
+              placeholder="模型参数名"
+              value={mat.cliModelArg}
+              onChange={(e) => setMat((s) => ({ ...s, cliModelArg: e.target.value }))}
+            />
+          </div>
         </div>
         <div className="form-row">
           <label>默认模型（生成/上传抠图时使用；留空用 env / 默认 u2net）</label>
@@ -467,6 +654,96 @@ export default function SettingsPage() {
             onClick={saveMatting}
           >
             <Save size={14} /> {savingMat ? "保存中…" : "保存抠图配置"}
+          </motion.button>
+        </div>
+      </section>
+
+      {/* ===== 提示词加强模型 ===== */}
+      <section className="settings-sec">
+        <h3>
+          <Sparkles size={14} /> 提示词加强模型
+          <span className="settings-head-actions">
+            <button type="button" className="px-btn mini" onClick={addEnhancer}>
+              <Plus size={12} /> 添加
+            </button>
+          </span>
+        </h3>
+        <div className="hint">
+          用于生成弹窗的「优化提示词」：把简短描述改写成更适合生图的提示词（加强模板内置固定，无需手写）。
+          OpenAI 兼容 <code>chat/completions</code> 接口均可（OpenAI / 百炼兼容模式 qwen / DeepSeek 等）。
+          优化后新旧提示词并排展示，由你选择用哪版。
+        </div>
+        {enhancers.map((e) => {
+          const t = tests[`enh-${e.id}`];
+          return (
+            <div key={e.id} className="provider-card">
+              <div className="provider-head">
+                <span className="provider-type enhancer">加强</span>
+                <input
+                  className="px-input provider-name"
+                  value={e.name}
+                  onChange={(e2) => patchEnhancer(e.id, { name: e2.target.value })}
+                />
+                <button type="button" className="px-btn mini danger" onClick={() => removeEnhancer(e.id)}>
+                  <Trash2 size={12} /> 删除
+                </button>
+              </div>
+              <div className="form-row">
+                <label>Base URL / API Key / 模型</label>
+                <div className="form-inline">
+                  <input
+                    className="px-input"
+                    placeholder="https://api.openai.com/v1（或百炼兼容模式 …/compatible-mode/v1）"
+                    value={e.apiBaseUrl}
+                    onChange={(e2) => patchEnhancer(e.id, { apiBaseUrl: e2.target.value })}
+                  />
+                  <input
+                    className="px-input"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="sk-…"
+                    value={e.apiKey}
+                    onChange={(e2) => patchEnhancer(e.id, { apiKey: e2.target.value })}
+                  />
+                  <input
+                    className="px-input"
+                    placeholder="gpt-4o-mini / qwen-plus"
+                    value={e.apiModel}
+                    onChange={(e2) => patchEnhancer(e.id, { apiModel: e2.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="provider-test">
+                <button type="button" className="px-btn mini" disabled={t?.testing} onClick={() => testEnhancer(e)}>
+                  <PlugZap size={12} /> {t?.testing ? "测试中…" : "测试连接"}
+                </button>
+                {t?.result && (
+                  <span className={`engine-status ${t.result.ok ? "ok" : "bad"}`}>
+                    <span className="dot" />
+                    {t.result.ok
+                      ? `连通（${t.result.latencyMs}ms）${
+                          t.result.modelsFound === true
+                            ? "，模型在列表中"
+                            : t.result.modelsFound === false
+                              ? "，但模型列表中没有该模型"
+                              : ""
+                        }`
+                      : `失败：${t.result.error}`}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            className="px-btn accent"
+            disabled={savingEnh}
+            onClick={saveEnhancers}
+          >
+            <Save size={14} /> {savingEnh ? "保存中…" : "保存加强模型"}
           </motion.button>
         </div>
       </section>

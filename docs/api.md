@@ -138,7 +138,7 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 
 provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个共存，类型：`cli` / `api`（OpenAI 兼容）/ `dashscope`（百炼原生）/ `gemini`（banana）/ `minimax`；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。
 
-- **CLI provider**：命令模板逐项执行，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（`{model}` 由请求的 `model` 字段填入）。
+- **CLI provider**：结构化字段组装 argv（`cliBin` + 参数名映射：`cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，留空=位置参数或不下发），不经 shell；env `FRAMEBAKER_GEN_CLI` 与旧数据走遗留模板占位符路径（`{prompt}` `{output}` `{index}` `{reference}` `{model}`）。
 - **API provider（OpenAI 兼容，含 OpenAI 官方 / 火山方舟豆包 Seedream / 各类网关）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`（multipart：image + prompt + model + size?，需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
 - **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（qwen-image 系列官方接口，不在兼容模式内）；无引用图 content 仅 `[{text}]`，有引用图前置 `{image: dataURI}`（base64）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 为星号格式（如 `2048*2048`）原样透传；baseUrl 可填工作区子域（`{WorkspaceId}.cn-beijing.maas.aliyuncs.com`），尾部的 `/api/v1` 会自动归一。
 - **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；parts 为 `[{text}, {inlineData: base64 引用图}?]`；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）；响应取 `candidates[0].content.parts[*].inlineData.data`（base64）。
@@ -291,9 +291,11 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 `theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。写入后广播 `settings_changed` `{ key }`。
 
-`genProviders`：生成 provider 列表（CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"` | `"dashscope"` | `"gemini"` | `"minimax"`）/ `cliTemplate`（占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空；api 为 `1024x1024` 形式，dashscope 为 `2048*2048` 星号形式，gemini/minimax 为宽高比如 `16:9`）。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
+`genProviders`：生成 provider 列表（CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"` | `"dashscope"` | `"gemini"` | `"minimax"`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空；api 为 `1024x1024` 形式，dashscope 为 `2048*2048` 星号形式，gemini/minimax 为宽高比如 `16:9`）。**CLI 为结构化字段**（免手写模板）：`cliBin`（命令，PATH 名或绝对路径）/ `cliPromptArg`（prompt 参数名，留空=位置参数）/ `cliOutputArg`（输出参数名）/ `cliModelArg`（模型参数名，留空不下发）/ `cliReferenceArg`（引用图参数名，留空=不支持引用图）/ `cliExtraArgs`（原样追加的固定参数）。执行 argv = `[cliBin, cliPromptArg?, prompt, cliOutputArg?, output, cliModelArg?+model, cliReferenceArg?+ref, ...extra]`，不经 shell。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底（走遗留模板占位符路径）。
 
-`matting`：`cliTemplate`（占位符 `{input}` `{output}`，可选 `{model}`）留空回退 `FRAMEBAKER_MATTING_CLI` / 自动探测；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
+`promptEnhancers`：提示词加强模型列表，元素 `{ id, name, apiBaseUrl, apiKey, apiModel }`（OpenAI 兼容 chat/completions）；加强用的系统提示词服务端内置固定。
+
+`matting`：结构化抠图命令 `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg`（均留空走 env `FRAMEBAKER_MATTING_CLI` 模板 → 自动探测）；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
 
 ## 其他
 
@@ -319,5 +321,6 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
   `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备）。
 - `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models` 联通测试；百炼 / MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
 - `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`；api 实发 `GET {baseUrl}/models` + Bearer、gemini 实发 `GET {baseUrl}/v1beta/models`（x-goog-api-key），返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；dashscope / minimax 无轻量探测端点，仅校验字段并在 `note` 说明。
+- `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置）：`{ "enhancerId"?, "prompt" }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
 - `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）

@@ -10,6 +10,7 @@ import { themedSourceColor, useTheme } from "../theme";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
 import CropModal from "./CropModal";
+import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 
@@ -436,15 +437,12 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
 
         {tab === "cli" && (
           <>
-            <div className="form-row">
-              <label>提示词 Prompt</label>
-              <input
-                className="px-input"
-                placeholder="例如：pixel art knight walking"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-            </div>
+            <PromptEnhancer
+              label="提示词 Prompt"
+              placeholder="例如：pixel art knight walking"
+              value={prompt}
+              onChange={setPrompt}
+            />
             <div className="form-row">
               <label>帧数：{count}</label>
               <input type="range" min={1} max={16} value={count} onChange={(e) => setCount(Number(e.target.value))} />
@@ -458,11 +456,11 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             />
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />
             <div className="hint">
-              生成方式在「设置」页配置（CLI 模板 / OpenAI 兼容 API，可配多个共存；也可用环境变量{" "}
+              生成方式在「设置」页配置（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax，可配多个共存；也可用环境变量{" "}
               <code>FRAMEBAKER_GEN_CLI</code> 兜底）。
               <br />
-              CLI 模板占位符：{"{prompt}"} {"{output}"} {"{index}"} {"{reference}"} {"{model}"}
-              （CLI 选了引用图时模板必须含 {"{reference}"}；API / 百炼 provider 原生支持引用图）
+              CLI 填命令与参数名即可（无需手写占位符；引用图需配「引用图参数名」）；API / 百炼 / banana / MiniMax
+              原生支持引用图
             </div>
             <div className="modal-actions">
               <motion.button

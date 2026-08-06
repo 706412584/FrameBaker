@@ -33,8 +33,8 @@ export interface GeneratePayload {
 /**
  * 解析引用图并做 provider 一致性前置校验（API 层调用，error 非空时返回 400）：
  * - referenceMaterialId / referenceFrameId 二选一，服务端查文件路径（优先 processed 否则 raw），查不到报错
- * - provider=api/dashscope：原生支持引用图（OpenAI images/edits / DashScope multimodal-generation），无需校验
- * - provider=cli：选了引用图但模板缺 {reference} → 报错；模板有 {reference} 但没选引用图 → 报错
+ * - provider=api 系（dashscope/gemini/minimax/openai 兼容）：原生支持引用图，无需校验
+ * - provider=cli：结构化字段未配引用图参数名 / 遗留模板缺 {reference} → 选了引用图时报错
  */
 export function resolveReferencePath(opts: {
   referenceMaterialId?: string;
@@ -61,10 +61,14 @@ export function resolveReferencePath(opts: {
   }
 
   if (provider.type === "cli") {
-    const tpl = provider.cliTemplate.trim();
-    const hasRef = tpl.includes("{reference}");
-    if (p && !hasRef) return { error: `已选择引用图，但 provider「${provider.name}」的模板缺少 {reference} 占位符` };
-    if (!p && hasRef) return { error: "模板包含 {reference} 占位符，但未选择引用图" };
+    if (!p) return { referencePath: undefined };
+    // 结构化 CLI：未配置引用图参数名 → 不支持引用图；遗留模板：需含 {reference}
+    if (provider.legacyTemplate) {
+      if (!provider.legacyTemplate.includes("{reference}"))
+        return { error: `已选择引用图，但 provider「${provider.name}」的模板缺少 {reference} 占位符` };
+    } else if (!provider.cliReferenceArg.trim()) {
+      return { error: `provider「${provider.name}」未配置引用图参数名，请改用其他 provider 或取消引用图` };
+    }
   }
   return { referencePath: p ?? undefined };
 }
@@ -185,13 +189,13 @@ export async function extractFrames(p: ExtractPayload, progress: (s: string) => 
 
 /**
  * 生成任务：按 payload.providerId 解析 provider（缺省第一个已配置的），支持多 provider 共存：
- * - cli：命令模板逐项生成，占位符 {prompt} {output} {index} {reference} {model}
- * - api：OpenAI 兼容接口 POST {apiBaseUrl}/images/generations，模型取 payload.model（缺省 provider 模型列表第一项）
+ * - cli：结构化字段组装 argv（命令 + 参数名映射；遗留模板走占位符替换）
+ * - api 系（OpenAI 兼容 / dashscope / gemini / minimax）：HTTP 调用，模型取 payload.model（缺省列表第一项）
  */
 export async function generateFrames(p: GeneratePayload, progress: (s: string) => void) {
   const provider = resolveGenProvider(p.providerId);
   if (!provider) {
-    throw new Error("未配置生成方式：请到「设置」页添加生成 provider（CLI 模板或 API，可配多个共存）");
+    throw new Error("未配置生成方式：请到「设置」页添加生成 provider（CLI 或各厂商 API，可配多个共存）");
   }
   if (!providerConfigured(provider)) {
     throw new Error(`生成 provider「${provider.name}」配置不完整，请到「设置」页补齐`);
@@ -203,19 +207,36 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
     throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   }
 
-  // CLI 模板按空白切分后再替换占位符，prompt 含空格也会落在同一个 argv 元素里，避免 shell 注入
-  const tpl = provider.cliTemplate.trim();
-  const buildArgv = (output: string, index: number) =>
-    tpl
-      .split(/\s+/)
-      .map((tok) =>
-        tok
-          .replaceAll("{prompt}", p.prompt)
-          .replaceAll("{output}", output)
-          .replaceAll("{index}", String(index))
-          .replaceAll("{reference}", p.referencePath ?? "")
-          .replaceAll("{model}", p.model ?? "")
-      );
+  /**
+   * CLI argv 组装（不经 shell）：
+   * - 遗留模板（env / 旧数据）：按空白切分后替换 {prompt} {output} {index} {reference} {model}
+   * - 结构化字段：[bin, promptArg?, prompt, outputArg?, output, modelArg?+model, refArg?+ref, ...extra]
+   *   参数名留空 = 对应值作位置参数；未选模型/引用图或未配对应参数名时不传
+   */
+  const buildArgv = (output: string, index: number): string[] => {
+    if (provider.legacyTemplate) {
+      return provider.legacyTemplate
+        .trim()
+        .split(/\s+/)
+        .map((tok) =>
+          tok
+            .replaceAll("{prompt}", p.prompt)
+            .replaceAll("{output}", output)
+            .replaceAll("{index}", String(index))
+            .replaceAll("{reference}", p.referencePath ?? "")
+            .replaceAll("{model}", p.model ?? "")
+        );
+    }
+    const argv = [provider.cliBin.trim()];
+    if (provider.cliPromptArg.trim()) argv.push(provider.cliPromptArg.trim());
+    argv.push(p.prompt);
+    if (provider.cliOutputArg.trim()) argv.push(provider.cliOutputArg.trim());
+    argv.push(output);
+    if (p.model?.trim() && provider.cliModelArg.trim()) argv.push(provider.cliModelArg.trim(), p.model.trim());
+    if (p.referencePath && provider.cliReferenceArg.trim()) argv.push(provider.cliReferenceArg.trim(), p.referencePath);
+    if (provider.cliExtraArgs.trim()) argv.push(...provider.cliExtraArgs.trim().split(/\s+/));
+    return argv;
+  };
 
   /** 生成单张图到 outPath（按 provider 分发；API 系透传引用图） */
   const produce = (outPath: string, index: number) =>

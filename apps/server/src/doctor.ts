@@ -8,7 +8,7 @@ import type {
 } from "@framebaker/shared";
 import { STORAGE_ROOT } from "./db";
 import { getMattingInfo } from "./jobs/matting";
-import { getGenProviders, getMattingSettings, providerConfigured } from "./provider";
+import { enhancerConfigured, getGenProviders, getMattingSettings, getPromptEnhancers, providerConfigured } from "./provider";
 
 /** provider 类型展示名（doctor 标签用） */
 export const PROVIDER_TYPE_LABEL: Record<string, string> = {
@@ -131,7 +131,8 @@ export async function runDoctor(): Promise<DoctorResponse> {
   // 抠图引擎
   const matting = getMattingInfo();
   if (matting.engine === "custom-cli") {
-    const bin = getMattingSettings().cliTemplate.split(/\s+/)[0] ?? "";
+    const ms = getMattingSettings();
+    const bin = ms.cliBin.trim() || (ms.envTemplate.split(/\s+/)[0] ?? "");
     const found = !!bin && (existsSync(bin) || !!Bun.which(bin));
     checks.push({
       id: "matting-engine",
@@ -171,11 +172,11 @@ export async function runDoctor(): Promise<DoctorResponse> {
   }
   for (const p of providers) {
     if (p.type === "cli") {
-      if (!p.cliTemplate.trim()) {
-        checks.push({ id: `gen-${p.id}`, ok: false, label: `生成 provider「${p.name}」（CLI）`, detail: "未配置模板" });
+      if (!providerConfigured(p)) {
+        checks.push({ id: `gen-${p.id}`, ok: false, label: `生成 provider「${p.name}」（CLI）`, detail: "未配置命令" });
       } else {
-        const bin = p.cliTemplate.trim().split(/\s+/)[0];
-        const found = existsSync(bin) || !!Bun.which(bin);
+        const bin = p.cliBin.trim() || (p.legacyTemplate?.trim().split(/\s+/)[0] ?? "");
+        const found = !!bin && (existsSync(bin) || !!Bun.which(bin));
         checks.push({
           id: `gen-${p.id}`,
           ok: found,
@@ -208,6 +209,29 @@ export async function runDoctor(): Promise<DoctorResponse> {
           : (r.error ?? "连接失败"),
       });
     }
+  }
+
+  // 提示词加强模型（OpenAI 兼容 chat，逐个探测 /models）
+  const enhancers = getPromptEnhancers();
+  for (const e of enhancers) {
+    if (!enhancerConfigured(e)) {
+      checks.push({
+        id: `enh-${e.id}`,
+        ok: false,
+        label: `加强模型「${e.name}」`,
+        detail: "Base URL / API Key / 模型 未填齐",
+      });
+      continue;
+    }
+    const r = await testApiProvider({ type: "api", apiBaseUrl: e.apiBaseUrl, apiKey: e.apiKey, apiModel: e.apiModel });
+    checks.push({
+      id: `enh-${e.id}`,
+      ok: r.ok,
+      label: `加强模型「${e.name}」`,
+      detail: r.ok
+        ? `${e.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${e.apiModel}` : ""}`
+        : (r.error ?? "连接失败"),
+    });
   }
 
   return { checks };

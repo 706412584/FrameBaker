@@ -3,8 +3,9 @@ import { join } from "node:path";
 import type { ServerConfig } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
-import { getGenProviders, providerConfigured } from "./provider";
+import { enhancerConfigured, getGenProviders, getPromptEnhancers, providerConfigured } from "./provider";
 import { isModelCached, runDoctor, testApiProvider } from "./doctor";
+import { enhancePrompt } from "./enhance";
 import { projectsApi } from "./api/projects";
 import { framesApi } from "./api/frames";
 import { importApi } from "./api/import";
@@ -47,8 +48,28 @@ export const app = new Elysia()
           configured: providerConfigured(p),
         })),
       },
+      promptEnhancers: getPromptEnhancers()
+        .filter(enhancerConfigured)
+        .map((e) => ({ id: e.id, name: e.name, model: e.apiModel })),
     };
   })
+  // 提示词加强：调用设置页配置的加强模型（OpenAI 兼容 chat/completions），原提示词由前端保留
+  .post(
+    "/api/enhance-prompt",
+    async ({ body, status }) => {
+      try {
+        return await enhancePrompt(body);
+      } catch (e) {
+        return status(400, (e as Error).message);
+      }
+    },
+    {
+      body: t.Object({
+        enhancerId: t.Optional(t.String()),
+        prompt: t.String(),
+      }),
+    }
+  )
   // 体检：逐项检查存储 / ffmpeg / 抠图引擎与模型 / 生成 provider（API 方式含联通测试）
   .get("/api/doctor", () => runDoctor())
   // API provider 联通测试（用表单当前值，不要求已保存）：api 实发 GET /models；dashscope 仅校验字段

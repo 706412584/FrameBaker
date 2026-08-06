@@ -32,7 +32,7 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 - 后端文件路径必须用 `db.ts` 导出的 `STORAGE_ROOT`（基于 import.meta.dir），禁止依赖 cwd 的相对路径。
 - 依赖最小化：不引入新依赖除非确有必要；拖拽用原生 HTML5 DnD，不装 dnd 库；不用 Vite / react-router / drizzle。
 - 外部命令（ffmpeg / 生成 CLI / 抠图 CLI）一律走 `apps/server/src/jobs/run.ts` 的 runCmd（Bun.spawn + stderr 捕获），命令模板按空白 split 后替换占位符，禁止拼 shell 字符串。
-- 生成/抠图的运行配置经 `apps/server/src/provider.ts` 解析：**settings 表（设置页）优先，环境变量兜底**，每次调用实时读取，不要缓存启动时值。生成 provider 是列表（settings key `genProviders`，CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存），生成请求按 `providerId` 选择、模型单独指定（CLI 模板 `{model}` 占位符 / API 请求模型）；生成 API 调用走 `apps/server/src/jobs/generateApi.ts`（OpenAI 兼容 images/generations + 引用图 images/edits；DashScope 原生 multimodal-generation 引用图 base64 随 messages 上送；Gemini generateContent inlineData；MiniMax image_generation subject_reference）。体检与联通测试在 `apps/server/src/doctor.ts`（`GET /api/doctor` / `POST /api/provider/test`）。
+- 生成/抠图/提示词加强的运行配置经 `apps/server/src/provider.ts` 解析：**settings 表（设置页）优先，环境变量兜底**，每次调用实时读取，不要缓存启动时值。生成 provider 是列表（settings key `genProviders`，CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存），生成请求按 `providerId` 选择、模型单独指定；**CLI 一律用结构化字段**（`cliBin` + `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，服务端组 argv），不要在设置页引入手写 `{}` 模板（模板路径仅为 env/旧数据保留，见 `legacyTemplate`）；API 系走 `apps/server/src/jobs/generateApi.ts`。提示词加强模型在 settings key `promptEnhancers`（OpenAI 兼容 chat/completions），加强逻辑在 `apps/server/src/enhance.ts`（系统提示词内置固定）。体检与联通测试在 `apps/server/src/doctor.ts`（`GET /api/doctor` / `POST /api/provider/test`）。
 - 前端图像重活（剪裁解码/透明边扫描/PNG 编码）走 `apps/web/src/imageops/` 的 Web Worker（OffscreenCanvas；脚本经服务端路由 `/imageops/imageOps.worker.js` 按需 Bun.build 下发，不要用 `new Worker(new URL(...))` —— Bun HTML 打包不处理），worker 不可用时自动降级主线程 canvas（纯计算在 `ops.ts`，两侧共用）；剪裁 UI 在 `components/CropModal.tsx`，导入弹窗的逐张剪裁队列在 `hooks/useCropQueue.ts`。
 - UI 文案与代码注释用中文；像素风主题（Fusion Pixel 12 字体、box-shadow 阶梯边框、image-rendering: pixelated），配色为 Cassette Futurism 双主题调色板（深色 Magnetic Night 默认 / 浅色 Beige Terminal），全部走 `apps/web/src/styles.css` 的 CSS 变量（`[data-theme="dark"|"light"]`），不要新增硬编码色值；主题管理在 `apps/web/src/theme.ts`。
 - 不用浏览器默认弹窗（alert/confirm/prompt）：错误/提示走 `apps/web/src/notice.ts` 的 `notify()`，确认走 `await askConfirm()`，渲染由 App 根部 `AppModals` 单例完成。
@@ -43,6 +43,6 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 
 - `PORT`（默认 3000）
 - `FRAMEBAKER_GEN_CLI`：CLI 生成模板，占位符 `{prompt}` `{output}` `{index}` `{reference}` `{model}`（引用图由前端传 referenceMaterialId/referenceFrameId，服务端按 id 解析路径，模板与引用图不一致在创建 job 时 400）。**兜底项**：设置页可配多个生成 provider（CLI 模板 / OpenAI 兼容 API，存 settings 表 `genProviders`，生成时按 id 选择、模型单独指定）；仅当 provider 列表为空时本 env 合成为 id=`env` 的 CLI provider
-- `FRAMEBAKER_MATTING_CLI`：自定义抠图模板，占位符 `{input}` `{output}`（可选 `{model}`）；**兜底项**，设置页 matting.cliTemplate 优先
+- `FRAMEBAKER_MATTING_CLI`：自定义抠图模板，占位符 `{input}` `{output}`（可选 `{model}`）；**兜底项**，设置页结构化字段（matting.cliBin + 参数名）优先
 - `FRAMEBAKER_MATTING_MODEL`：rembg 模型名（默认 `u2net`）；**兜底项**，设置页 matting.model 优先；模型缓存在 `storage/models`（U2NET_HOME）
 - 抠图引擎：未配 CLI 时用 `scripts/setup_matting.sh` 安装的 `.venv-matting/bin/rembg`（已 gitignore），再次之 PATH rembg，最后 passthrough 复制；探测结果见 `GET /api/config`（每次请求实时解析）

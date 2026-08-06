@@ -5,6 +5,7 @@ import type {
   FrameResponse,
   FramesResponse,
   DoctorResponse,
+  EnhancePromptResponse,
   Job,
   JobCreatedResponse,
   JobResponse,
@@ -79,6 +80,8 @@ export const api = {
   getDoctor: () => req<DoctorResponse>("/api/doctor"),
   testProvider: (body: ProviderTestRequest) =>
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
+  enhancePrompt: (enhancerId: string | undefined, prompt: string) =>
+    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt }) }),
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),

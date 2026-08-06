@@ -36,21 +36,44 @@ export type GenProviderType = (typeof GEN_PROVIDER_TYPES)[number];
 
 /**
  * 一个生成 provider（存 settings 表 key=genProviders 的数组元素）。
- * CLI / OpenAI 兼容 / DashScope 原生可配置多个共存；生成时按 id 选择，模型在生成时单独指定
+ * CLI / OpenAI 兼容 / DashScope 原生 / Gemini / MiniMax 可配置多个共存；生成时按 id 选择，模型在生成时单独指定。
+ * CLI 为结构化字段（免手写 {占位符} 模板）：参数名留空表示对应值作位置参数传入
  */
 export interface GenProvider {
   id: string;
   name: string;
   type: GenProviderType;
-  /** type=cli：命令模板，占位符 {prompt} {output} {index} {reference} {model} */
-  cliTemplate: string;
+  /** type=cli：可执行命令（PATH 名或绝对路径） */
+  cliBin: string;
+  /** type=cli：prompt 参数名（如 --prompt；留空 = 位置参数） */
+  cliPromptArg: string;
+  /** type=cli：输出文件参数名（如 -o / --output；留空 = 位置参数，跟在 prompt 后） */
+  cliOutputArg: string;
+  /** type=cli：模型参数名（如 --model；留空则不下发模型） */
+  cliModelArg: string;
+  /** type=cli：引用图参数名（如 --ref；留空则该 CLI 不支持引用图，选了引用图创建任务时 400） */
+  cliReferenceArg: string;
+  /** type=cli：追加的固定参数（按空白切分原样拼接，可空） */
+  cliExtraArgs: string;
+  /** type=cli：遗留命令模板（env FRAMEBAKER_GEN_CLI 兜底及旧数据兼容；设置页不再暴露） */
+  legacyTemplate?: string;
   /** type=api：OpenAI 兼容 baseUrl；type=dashscope：DashScope 原生 baseUrl（可含工作区子域） */
   apiBaseUrl: string;
   apiKey: string;
-  /** type=api/dashscope：可用模型列表（生成弹窗下拉选项） */
+  /** type=api 系：可用模型列表（生成弹窗下拉选项） */
   apiModels: string[];
-  /** 尺寸：api 如 1024x1024，dashscope 如 2048*2048（星号格式）；留空则不传 */
+  /** 尺寸：api 如 1024x1024，dashscope 如 2048*2048（星号），gemini/minimax 如 16:9；留空则不传 */
   apiSize: string;
+}
+
+/** 提示词加强模型（存 settings 表 key=promptEnhancers 的数组元素；OpenAI 兼容 chat/completions） */
+export interface PromptEnhancer {
+  id: string;
+  name: string;
+  /** OpenAI 兼容 baseUrl（POST {apiBaseUrl}/chat/completions） */
+  apiBaseUrl: string;
+  apiKey: string;
+  apiModel: string;
 }
 
 /** GET /api/config 下发的 provider 摘要（不含 apiKey） */
@@ -60,14 +83,20 @@ export interface GenProviderInfo {
   type: GenProviderType;
   /** api 可用模型；cli 恒为空数组 */
   models: string[];
-  /** 关键字段是否齐备（cli=模板非空；api=baseUrl/key 齐全） */
+  /** 关键字段是否齐备（cli=命令非空；api 系=baseUrl/key 齐全） */
   configured: boolean;
 }
 
-/** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量） */
+/** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量）；CLI 为结构化字段（免模板） */
 export interface MattingSettings {
-  /** 自定义抠图 CLI 模板，占位符 {input} {output}，可选 {model}；留空走自动探测 */
-  cliTemplate: string;
+  /** 抠图命令（PATH 名或绝对路径；留空走自动探测 rembg） */
+  cliBin: string;
+  /** 输入图参数名（留空 = 位置参数） */
+  cliInputArg: string;
+  /** 输出图参数名（留空 = 位置参数，跟在输入后） */
+  cliOutputArg: string;
+  /** 模型参数名（留空则不下发模型） */
+  cliModelArg: string;
   /** rembg 模型名，留空用 env / 默认 u2net */
   model: string;
 }
@@ -86,6 +115,20 @@ export interface ServerConfig {
     /** 全部已配置 provider（不含 apiKey）；生成时按 id 选择 */
     providers: GenProviderInfo[];
   };
+  /** 提示词加强模型摘要（不含 apiKey）；为空表示未配置 */
+  promptEnhancers: Array<{ id: string; name: string; model: string }>;
+}
+
+/** POST /api/enhance-prompt 请求/响应 */
+export interface EnhancePromptRequest {
+  /** 缺省用第一个已配置的加强模型 */
+  enhancerId?: string;
+  prompt: string;
+}
+
+export interface EnhancePromptResponse {
+  enhanced: string;
+  enhancerName: string;
 }
 
 /** GET /api/doctor 单项检查 */
@@ -139,7 +182,7 @@ export const WS_EVENTS = [
 export type WSEventType = (typeof WS_EVENTS)[number];
 
 /** 服务端 settings 表白名单 key（PUT /api/settings/:key 校验用） */
-export const SETTING_KEYS = ["layout", "theme", "genProviders", "matting"] as const;
+export const SETTING_KEYS = ["layout", "theme", "genProviders", "matting", "promptEnhancers"] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 export interface WSMessage<T = unknown> {
