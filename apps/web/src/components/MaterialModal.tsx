@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Crop, Grid3x3, MoveHorizontal, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Check, Crop, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialImageUrl, type Material, type Project } from "../api";
 import { notify } from "../notice";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
 import CropModal from "./CropModal";
 import GridSplitModal from "./GridSplitModal";
+import ActionGenModal from "./ActionGenModal";
 
 interface Props {
   material: Material;
@@ -28,6 +29,8 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   // 网格切分：多宫格精灵图逐格切成独立素材
   const [showSplit, setShowSplit] = useState(false);
+  // 多动作生成：以当前素材为引用图逐动作生成帧序列
+  const [showActions, setShowActions] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cfg = useServerConfig();
   const engine = cfg?.matting.engine;
@@ -198,6 +201,16 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           >
             <Grid3x3 size={14} /> 网格切分
           </motion.button>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            className="px-btn"
+            disabled={busy}
+            title="以当前素材为引用图，按动作预设（待机/走路/奔跑…）逐动作生成帧序列素材"
+            onClick={() => setShowActions(true)}
+          >
+            <PersonStanding size={14} /> 多动作生成
+          </motion.button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy} onClick={openImport}>
             <Send size={14} /> 导入到项目
           </motion.button>
@@ -268,6 +281,13 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
         <AnimatePresence>
           {showSplit && (
             <GridSplitModal material={m} v={v} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
+          )}
+        </AnimatePresence>
+
+        {/* 多动作生成：以当前素材为引用图 → 每动作 N 帧素材 */}
+        <AnimatePresence>
+          {showActions && (
+            <ActionGenModal material={m} v={v} onClose={() => setShowActions(false)} onToast={onToast} />
           )}
         </AnimatePresence>
       </motion.div>

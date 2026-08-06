@@ -25,6 +25,8 @@ export interface GeneratePayload {
   count: number;
   autoMatting: boolean;
   target: JobTarget;
+  /** 素材命名基准（仅 materials 目标；缺省取 prompt 前 24 字符） */
+  name?: string;
   /** 引用图绝对路径（服务端按 id 解析，防注入） */
   referencePath?: string;
   /** 生成时选择的 provider id（缺省用第一个已配置 provider） */
@@ -258,6 +260,8 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
     throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
   }
   const fps = Math.min(Math.max(p.fps ?? 8, 1), 60);
+  /** 素材命名基准：显式 name 优先（多动作生成按「素材名_动作」传入），缺省取 prompt 前 24 字符 */
+  const matBase = (p.name?.trim().slice(0, 48) || p.prompt.trim().slice(0, 24)) || "生成素材";
 
   /**
    * CLI argv 组装（不经 shell）：
@@ -322,7 +326,6 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       });
       return ids;
     }
-    const base = p.prompt.trim().slice(0, 24) || "生成素材";
     const ids: string[] = [];
     files.forEach((file, i) => {
       const id = uid();
@@ -332,7 +335,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
       renameSync(`${stageDir}/${file}`, rawPath);
       db.query(
         "INSERT INTO materials (id, name, raw_path, status, source, metadata, created_at) VALUES (?, ?, ?, 'raw', 'cli', ?, ?)"
-      ).run(id, files.length > 1 ? `${base} #${i + 1}` : base, rawPath, metadataOf(i), Date.now());
+      ).run(id, files.length > 1 ? `${matBase} #${i + 1}` : matBase, rawPath, metadataOf(i), Date.now());
       ids.push(id);
     });
     return ids;
@@ -414,7 +417,6 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
     afterImportFrames(projectId, frameIds, p.autoMatting, enqueueMatting);
   } else {
     const ids: string[] = [];
-    const base = p.prompt.trim().slice(0, 24) || "生成素材";
     for (let i = 0; i < p.count; i++) {
       progress(`生成第 ${i + 1}/${p.count} 个素材`);
       const id = uid();
@@ -437,7 +439,7 @@ export async function generateFrames(p: GeneratePayload, progress: (s: string) =
         "INSERT INTO materials (id, name, raw_path, status, source, metadata, created_at) VALUES (?, ?, ?, 'raw', 'cli', ?, ?)"
       ).run(
         id,
-        p.count > 1 ? `${base} #${i + 1}` : base,
+        p.count > 1 ? `${matBase} #${i + 1}` : matBase,
         rawPath,
         metadataOf(i),
         Date.now()

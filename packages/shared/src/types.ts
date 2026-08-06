@@ -179,6 +179,23 @@ export const ENHANCE_STYLES = [
 ] as const;
 export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
 
+/**
+ * 多动作生成的动作预设（素材详情「多动作生成」用；前后端唯一事实源）。
+ * label 用于素材命名（<素材名>_<label> #i）与界面展示；prompt 为生成用的英文动作描述片段，
+ * 完整 prompt 由前端组装（动作 prompt + 用户附加描述），以选中素材为引用图保持角色一致
+ */
+export const ACTION_PRESETS = [
+  { id: "idle", label: "待机", prompt: "idle breathing animation pose, standing still" },
+  { id: "walk", label: "走路", prompt: "walking animation pose, walk cycle" },
+  { id: "run", label: "奔跑", prompt: "running animation pose, run cycle, dynamic" },
+  { id: "jump", label: "跳跃", prompt: "jumping animation pose, mid-air" },
+  { id: "attack", label: "攻击", prompt: "attacking animation pose, weapon swing" },
+  { id: "cast", label: "施法", prompt: "casting spell animation pose, magic glow" },
+  { id: "hurt", label: "受击", prompt: "hurt animation pose, taking damage, recoil" },
+  { id: "death", label: "死亡", prompt: "death animation pose, falling down defeated" },
+] as const;
+export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
+
 /** POST /api/enhance-prompt 请求/响应 */
 export interface EnhancePromptRequest {
   /** 缺省用第一个已配置的加强模型 */

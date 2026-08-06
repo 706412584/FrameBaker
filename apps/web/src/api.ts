@@ -48,6 +48,8 @@ interface GenerateBody {
   prompt: string;
   count: number;
   autoMatting?: boolean;
+  /** 素材命名基准（仅 /api/materials/generate；缺省服务端取 prompt 前 24 字符） */
+  name?: string;
   referenceMaterialId?: string;
   referenceFrameId?: string;
   providerId?: string;
