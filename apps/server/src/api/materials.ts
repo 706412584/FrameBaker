@@ -4,8 +4,7 @@ import { dirname, join } from "node:path";
 import type { MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob } from "../queue";
-import { matteMaterial } from "../jobs/matting";
-import { resolveReferencePath } from "../jobs/extract";
+import { checkVideoSupport, resolveReferencePath } from "../jobs/extract";
 import { broadcast } from "../ws";
 
 function baseName(filename: string): string {
@@ -139,6 +138,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       // 引用图 id 解析 + 模板一致性前置校验（在创建 job 前就 400）
       const ref = resolveReferencePath(body);
       if (ref.error) return status(400, ref.error);
+      const videoErr = checkVideoSupport(body);
+      if (videoErr) return status(400, videoErr);
       const jobId = createJob("", "generate_frames", {
         generate: {
           prompt: body.prompt,
@@ -149,6 +150,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           providerId: body.providerId,
           model: body.model,
           size: body.size,
+          mediaKind: body.mediaKind,
+          fps: body.fps,
         },
       });
       return { jobId };
@@ -163,19 +166,18 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         size: t.Optional(t.String()),
+        mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
+        fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
       }),
     }
   )
-  // 执行抠图（同步；引擎解析见 jobs/matting.ts，无引擎时 passthrough 并返回 warning）
-  .post("/materials/:id/matting", async ({ params, status }) => {
+  // 执行抠图：入队异步执行（模型首次下载可能耗时数分钟，同步会挂死请求；与批量抠图同路径）
+  .post("/materials/:id/matting", ({ params, status }) => {
     const m = getMaterial(params.id);
     if (!m) return status(404, "素材不存在");
-    try {
-      const warning = await matteMaterial(params.id);
-      return { material: serializeMaterial(getMaterial(params.id)!), warning };
-    } catch (e) {
-      return status(500, (e as Error).message);
-    }
+    if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少 raw 文件");
+    const jobId = createJob("", "matting", { matting: { target: "material", id: params.id } });
+    return { jobId };
   })
   // 批量抠图：选中的素材逐个入队（不是所有图都需要加工，按需触发）
   .post(

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Package, Scissors, Terminal, Upload, X } from "lucide-react";
+import { Check, Package, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
-import { api, materialImageUrl, type Job, type Material } from "../api";
+import { api, materialImageUrl, type Material } from "../api";
 import { useServerConfig } from "../config";
 import { isVideoFile, useCropQueue } from "../hooks/useCropQueue";
 import { notify } from "../notice";
@@ -10,6 +10,7 @@ import { themedSourceColor, useTheme } from "../theme";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
 import CropModal from "./CropModal";
+import PxSelect from "./PxSelect";
 import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import SizePicker from "./SizePicker";
@@ -59,6 +60,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const [mats, setMats] = useState<Material[] | null>(null);
   const [matV, setMatV] = useState(0);
   const [pickedIds, setPickedIds] = useState<string[]>([]); // 数组保持点选顺序
+  const [matQuery, setMatQuery] = useState(""); // 素材搜索（name + prompt 本地过滤）
   // 上传 Tab：多文件逐个分发
   const [items, setItems] = useState<UploadItem[]>([]);
   const [finished, setFinished] = useState(false);
@@ -70,7 +72,8 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const [size, setSize] = useState("");
   const [reference, setReference] = useState<ReferenceSelection | null>(null);
   const [count, setCount] = useState(4);
-  const [job, setJob] = useState<Job | null>(null);
+  const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片逐帧 / 视频逐帧切割
+  const [videoFps, setVideoFps] = useState(8); // 视频抽帧帧率
   const [submitting, setSubmitting] = useState(false);
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
@@ -98,30 +101,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const crop = useCropQueue(items, (i, file) => updateItem(i, { file, cropped: true }));
   const imageCount = items.filter((it) => !isVideoFile(it.file)).length;
 
-  // 单任务轮询（CLI 生成），WS 也会触发帧列表刷新，这里是面板内展示 + 兜底
-  const startPoll = (jobId: string) => {
-    const tick = async () => {
-      try {
-        const j = await api.getJob(jobId);
-        setJob(j);
-        if (j.status === "done") {
-          setSubmitting(false);
-          onDone();
-          return;
-        }
-        if (j.status === "error") {
-          setSubmitting(false);
-          return;
-        }
-        pollRef.current = window.setTimeout(tick, 1000);
-      } catch {
-        pollRef.current = window.setTimeout(tick, 1500);
-      }
-    };
-    tick();
-  };
-
-  // 多任务轮询（上传 Tab）：全部结束后汇总
+  // 多任务轮询（上传 Tab）：全部结束后汇总（生成 Tab 不轮询——提交即关窗，由右侧任务面板跟踪）
   const pollJobs = (entries: { jobId: string; index: number }[]) => {
     const pending = new Map(entries.map((e) => [e.jobId, e.index]));
     const tick = async () => {
@@ -157,8 +137,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
     []
   );
 
-  const resetJob = () => {
-    setJob(null);
+  const resetProgress = () => {
     setFinished(false);
     if (pollRef.current) clearTimeout(pollRef.current);
   };
@@ -167,6 +146,14 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const togglePick = (id: string) => {
     setPickedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
+
+  // 搜索过滤：不影响已选（过滤掉的仍保留在 pickedIds）
+  const q = matQuery.trim().toLowerCase();
+  const filteredMats = (mats ?? []).filter((m) => {
+    if (!q) return true;
+    const prompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : "";
+    return m.name.toLowerCase().includes(q) || prompt.toLowerCase().includes(q);
+  });
 
   const submitPick = async () => {
     if (pickedIds.length === 0 || submitting) return;
@@ -222,24 +209,27 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
     }
   };
 
-  // ---- CLI 生成 Tab ----
+  // ---- 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示 ----
   const submitGenerate = async () => {
     if (!prompt.trim() || submitting) return;
     setSubmitting(true);
-    resetJob();
     try {
-      const sel = resolveProviderSelection(cfg?.gen.providers ?? [], providerId, model);
-      const { jobId } = await api.generate({
+      const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
+      const sel = resolveProviderSelection(providers, providerId, model);
+      await api.generate({
         projectId,
         prompt: prompt.trim(),
         count,
         autoMatting,
         ...sel,
-        ...(size ? { size } : {}),
-        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(mediaKind === "video" ? { mediaKind: "video" as const, fps: videoFps } : {}),
+        ...(mediaKind === "image" && size ? { size } : {}),
+        ...(mediaKind === "image" && reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
+        ...(mediaKind === "image" && reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
-      startPoll(jobId);
+      notify("已加入任务队列，可在右侧任务面板查看进度", "info");
+      onDone();
+      onClose();
     } catch (e) {
       notify(`提交失败: ${(e as Error).message}`);
       setSubmitting(false);
@@ -248,8 +238,6 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
 
   const okCount = items.filter((it) => it.state === "done").length;
   const errCount = items.filter((it) => it.state === "error").length;
-  const jobDone = job?.status === "done";
-  const jobError = job?.status === "error";
 
   return (
     <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
@@ -273,16 +261,16 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             className={`tab ${tab === "materials" ? "active" : ""}`}
             onClick={() => {
               setTab("materials");
-              resetJob();
+              resetProgress();
             }}
           >
             <Package size={14} /> 素材库
           </button>
-          <button type="button" className={`tab ${tab === "upload" ? "active" : ""}`} onClick={() => { setTab("upload"); resetJob(); }}>
+          <button type="button" className={`tab ${tab === "upload" ? "active" : ""}`} onClick={() => { setTab("upload"); resetProgress(); }}>
             <Upload size={14} /> 上传文件
           </button>
-          <button type="button" className={`tab ${tab === "cli" ? "active" : ""}`} onClick={() => { setTab("cli"); resetJob(); }}>
-            <Terminal size={14} /> 生成
+          <button type="button" className={`tab ${tab === "cli" ? "active" : ""}`} onClick={() => { setTab("cli"); resetProgress(); }}>
+            <Sparkles size={14} /> 生成
           </button>
         </div>
 
@@ -300,8 +288,20 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               </div>
             ) : (
               <>
+                <div className="mat-search">
+                  <Search size={14} />
+                  <input
+                    className="px-input"
+                    placeholder="搜索素材名 / prompt"
+                    value={matQuery}
+                    onChange={(e) => setMatQuery(e.target.value)}
+                  />
+                </div>
+                {filteredMats.length === 0 ? (
+                  <div className="empty">无匹配素材</div>
+                ) : (
                 <div className="mat-pick-grid">
-                  {mats.map((m) => {
+                  {filteredMats.map((m) => {
                     const picked = pickedIds.includes(m.id);
                     return (
                       <div
@@ -323,6 +323,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
                     );
                   })}
                 </div>
+                )}
                 <div className="up-summary">
                   已选 <span className="ok">{pickedIds.length}</span> 个素材（按点选顺序追加到时间轴末尾）
                 </div>
@@ -440,24 +441,45 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
 
         {tab === "cli" && (
           <>
+            <div className="form-row">
+              <label>生成内容</label>
+              <PxSelect
+                value={mediaKind}
+                options={[
+                  { value: "image", label: "图片（逐帧生成）" },
+                  { value: "video", label: "视频（生成后逐帧切割）" },
+                ]}
+                onChange={(v) => setMediaKind(v as "image" | "video")}
+              />
+            </div>
             <PromptEnhancer
               label="提示词 Prompt"
-              placeholder="例如：持剑的小骑士，向右走路循环"
+              placeholder={mediaKind === "video" ? "例如：像素小骑士向右奔跑，循环动作" : "例如：持剑的小骑士，向右走路循环"}
               value={prompt}
               onChange={setPrompt}
             />
-            <div className="form-row">
-              <label>帧数：{count}</label>
-              <input type="range" min={1} max={16} value={count} onChange={(e) => setCount(Number(e.target.value))} />
-            </div>
-            <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            {mediaKind === "image" ? (
+              <div className="form-row">
+                <label>帧数：{count}</label>
+                <input type="range" min={1} max={16} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+              </div>
+            ) : (
+              <div className="form-row">
+                <label>视频抽帧帧率：{videoFps} fps（生成一段视频后逐帧切割入库）</label>
+                <input type="range" min={1} max={24} value={videoFps} onChange={(e) => setVideoFps(Number(e.target.value))} />
+              </div>
+            )}
+            {mediaKind === "image" && (
+              <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            )}
             <ProviderModelPicker
               providerId={providerId}
               model={model}
               onProviderChange={setProviderId}
               onModelChange={setModel}
+              videoOnly={mediaKind === "video"}
             />
-            <SizePicker providerId={providerId} value={size} onChange={setSize} />
+            {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             <MattingOption checked={autoMatting} onChange={setAutoMatting} />
             <div className="hint">
               生成方式在「设置」页配置（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax，可配多个共存；也可用环境变量{" "}
@@ -465,45 +487,21 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               <br />
               CLI 填命令与参数名即可（无需手写占位符；引用图需配「引用图参数名」）；API / 百炼 / banana / MiniMax
               原生支持引用图
+              <br />
+              视频生成仅支持 CLI / 百炼 / MiniMax（异步任务约需数分钟；CLI 产出 mp4 即自动逐帧切割）
             </div>
             <div className="modal-actions">
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 className="px-btn accent"
-                disabled={!prompt.trim() || submitting || (job != null && !jobDone && !jobError)}
+                disabled={!prompt.trim() || submitting}
                 onClick={submitGenerate}
               >
-                <Terminal size={14} /> 开始生成
+                <Sparkles size={14} /> 开始生成
               </motion.button>
             </div>
           </>
-        )}
-
-        {job && tab === "cli" && (
-          <div className="job-status">
-            <div className="label">
-              <span>任务 {job.type}</span>
-              {jobDone ? (
-                <span className="ok">完成 ✓</span>
-              ) : jobError ? (
-                <span className="err">失败 ✗</span>
-              ) : (
-                <span>{job.progress ?? job.status}</span>
-              )}
-            </div>
-            <div className={`px-progress ${jobDone ? "done" : ""} ${jobError ? "error" : ""}`}>
-              <div className="bar" />
-            </div>
-            {jobError && <div className="job-error-text">{job.error}</div>}
-            {jobDone && (
-              <div className="modal-actions">
-                <button type="button" className="px-btn" onClick={onClose}>
-                  完成，关闭面板
-                </button>
-              </div>
-            )}
-          </div>
         )}
 
         {/* 剪裁工具：逐张队列或单张重裁 */}

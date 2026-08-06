@@ -131,7 +131,7 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 
 ```json
 // 请求
-{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…" }
+{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…", "mediaKind": "image", "fps": 8 }
 // 响应
 { "jobId": "…" }
 ```
@@ -146,7 +146,15 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
 
-引用图（可选）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）。API / 百炼 provider 原生支持引用图；CLI 前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
+**视频模式**：`mediaKind: "video"`（缺省 `image`）+ `fps`（1–60，缺省 8）——生成一段视频后按 fps 逐帧切割入库（`count` 忽略）。仅支持 CLI / 百炼 / MiniMax provider（其余类型前置 400；支持情况见 `GET /api/config` 的 `gen.providers[].video`）：
+
+- **CLI provider**：`{output}` 给 `.mp4` 后缀路径，产出经魔数检测为视频（ftyp/EBML/RIFF-AVI）则走 ffmpeg 抽帧。**图片模式下 CLI 产物若实为视频同样自动转拆帧**（此时 `count` 忽略）。
+- **MiniMax provider（v2 协议，MiniMax-H3 等）**：`POST {apiBaseUrl}/v2/video_generation`（`{ model, content:[{type:"text",text}], ratio? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v2/query/video_generation/{task_id}`（5s 间隔，10 分钟超时；`task.status`：succeeded/failed/cancelled），成功取 `task.content.url` 下载。
+- **DashScope provider（万相 wan2.x/wanx2.1 旧版异步协议）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`；`{ model, input:{prompt}, parameters:{size?, watermark:false} }`）→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。
+
+视频为异步任务（约 1–5 分钟），进度写 `job.progress` 并经 WS 推送；拆出帧按 target 入库（项目帧 / 素材），`autoMatting` 照常生效。视频模式不支持引用图（前端不展示，服务端忽略）。
+
+引用图（可选，仅图片模式）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）。API / 百炼 provider 原生支持引用图；CLI 前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
 
 ## 素材库 /api/materials
 
@@ -183,11 +191,11 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。引用图规则与 `/api/import/generate` 一致（可选 `referenceMaterialId` / `referenceFrameId`，前置 400 校验）。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。引用图规则与 `/api/import/generate` 一致（可选 `referenceMaterialId` / `referenceFrameId`，前置 400 校验）。支持 `mediaKind: "video"` + `fps` 视频逐帧切割（同 `/api/import/generate` 的视频模式，拆出帧逐张成素材）。
 
 ### POST /api/materials/:id/matting
 
-同步执行抠图（rembg 为秒级耗时）：按 `GET /api/config` 的引擎解析顺序执行——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制。`status` 置 `matted`，响应 `{ "material": {…}, "warning": null }`（passthrough 时 `warning` 为安装提示文本），广播 `material_updated`。
+入队抠图任务（`matting` job，队列并发 2），响应 `{ "jobId": "…" }`；素材不存在 404，缺 raw 文件 400。引擎解析顺序见 `GET /api/config`——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制（passthrough 警告写入 `job.progress`）。完成后 `status` 置 `matted` 并广播 `material_updated`；rembg 模型首次使用需下载（可达数百 MB），进度经 WS `job_*` 事件推送。
 
 ### POST /api/materials/batch-matting
 
@@ -222,6 +230,10 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 ## 任务
 
+### GET /api/jobs
+
+→ `{ "jobs": [ {…}, … ] }`，按创建时间倒序取最近 50 条（前端任务面板初始加载用，之后以 WS 事件为主）。
+
 ### GET /api/jobs/:id
 
 ```json
@@ -233,7 +245,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 }
 ```
 
-`status`：`queued` / `running` / `done` / `error`。任务负载在内存中，服务重启后历史任务仅剩 DB 状态。
+`status`：`queued` / `running` / `done` / `error`。任务负载在内存中，服务重启时会把遗留的 `queued` / `running` 任务标记为 `error`（「服务重启，任务中断」）。
 
 ## WebSocket /ws
 
@@ -318,7 +330,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 }
 ```
 
-  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备）。
+  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备，`video` 表示支持视频生成——仅 cli/dashscope/minimax，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
 - `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`、百炼实发 `GET /compatible-mode/v1/models` 联通测试；MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
 - `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`；api 实发 `GET {baseUrl}/models` + Bearer、gemini 实发 `GET {baseUrl}/v1beta/models`（x-goog-api-key）、dashscope 实发 `GET {baseUrl}/compatible-mode/v1/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；minimax 无轻量探测端点，仅校验字段并在 `note` 说明。
 - `POST /api/provider/models` → API provider 模型列表（设置页「获取模型」，用表单当前值拉取，不要求已保存）：`{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`；端点与联通测试同源（api `/models`、dashscope `/compatible-mode/v1/models`、gemini `/v1beta/models` 去 `models/` 前缀；minimax 为 best-effort 试 `/v1/models`），失败返回 `{ "ok": false, "error" }`，前端保持手填。

@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { createJob } from "../queue";
-import { resolveReferencePath } from "../jobs/extract";
+import { checkVideoSupport, resolveReferencePath } from "../jobs/extract";
 
 export const importApi = new Elysia({ prefix: "/api" })
   // 上传素材拆帧：gif / mp4 / 单图
@@ -60,6 +60,8 @@ export const importApi = new Elysia({ prefix: "/api" })
       // 引用图 id 解析 + 模板一致性前置校验（在创建 job 前就 400）
       const ref = resolveReferencePath(body);
       if (ref.error) return status(400, ref.error);
+      const videoErr = checkVideoSupport(body);
+      if (videoErr) return status(400, videoErr);
       const jobId = createJob(body.projectId, "generate_frames", {
         generate: {
           prompt: body.prompt,
@@ -70,6 +72,8 @@ export const importApi = new Elysia({ prefix: "/api" })
           providerId: body.providerId,
           model: body.model,
           size: body.size,
+          mediaKind: body.mediaKind,
+          fps: body.fps,
         },
       });
       return { jobId };
@@ -85,6 +89,8 @@ export const importApi = new Elysia({ prefix: "/api" })
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         size: t.Optional(t.String()),
+        mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
+        fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
       }),
     }
   );

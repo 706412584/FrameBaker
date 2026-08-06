@@ -19,7 +19,7 @@ interface Props {
 }
 
 /**
- * CLI 生成的引用图选择器：素材库 / 项目帧（可选）两个来源，网格单选。
+ * 生成弹窗的引用图选择器：素材库 / 项目帧（可选）两个来源，网格单选。
  * 选中显示缩略图 + 清除按钮。
  */
 export default function ReferencePicker({ value, onChange, showFrames, projectId }: Props) {

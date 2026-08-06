@@ -16,6 +16,9 @@ const waiting: string[] = [];
 let running = 0;
 const CONCURRENCY = 2;
 
+// 启动时把上次进程遗留的 queued/running 任务标记为中断（负载随内存丢失，不可能再继续）
+db.query("UPDATE jobs SET status = 'error', error = '服务重启，任务中断' WHERE status IN ('queued', 'running')").run();
+
 export function createJob(projectId: string, type: JobType, payload: JobPayload): string {
   const id = uid();
   db.query("INSERT INTO jobs (id, project_id, type, status, created_at) VALUES (?, ?, ?, 'queued', ?)").run(

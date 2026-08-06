@@ -10,6 +10,7 @@
                         │  Timeline(DnD) PlaybackBar    ImportModal   │
                         │  MaterialsPage MaterialModal(对比滑杆/剪裁)   │
                         │  CropModal ─ imageops/（Web Worker 图像处理） │
+│  JobPanel（右侧常驻任务队列，WS 驱动）          │
                         │        │ fetch /api        │ WebSocket /ws   │
                         └────────┼───────────────────┼────────────────┘
                                  │                   │
@@ -26,14 +27,17 @@
 │   ├─ api/materials.ts  素材 CRUD/抠图/批量抠图/剪裁替换/导入项目     │
 │   ├─ api/settings.ts   settings 表读写（layout/theme/genProviders/  │
 │   │                    matting 白名单）                             │
-│   └─ /api/jobs/:id     任务状态查询（轮询兜底）                      │
+│   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
 │  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
 │  doctor.ts（体检 + API 联通测试：/api/doctor /api/provider/test）    │
 │  queue.ts（内存队列，并发 2；JobTarget = project | materials）      │
 │   ├─ jobs/extract.ts   extract_frames / generate_frames             │
 │   │                    ├─ CLI 模板（jobs/run.ts）                    │
-│   │                    └─ OpenAI 兼容 API（jobs/generateApi.ts）     │
+│   │                    ├─ OpenAI 兼容 API（jobs/generateApi.ts）     │
+│   │                    └─ 视频生成（generateApi.ts：百炼/MiniMax     │
+│   │                       异步任务轮询 → mp4 → ffmpeg 逐帧切割；     │
+│   │                       CLI 产物按魔数检测自动拆帧）               │
 │   └─ jobs/matting.ts   matting（frame | material；引擎探测见下）    │
 │                                                                     │
 │  db.ts（bun:sqlite，WAL）  ──  jobs/frames/projects/materials 四表  │
@@ -63,7 +67,7 @@
 
 - **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/` 与 `/project/:id`；编辑器页前端读 `location.pathname` 恢复项目上下文（无路由库）。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
-- **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复。所有状态变化经 `ws.ts` 广播。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
+- **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复，启动时统一把遗留的 queued/running 标记为 error（「服务重启，任务中断」）。所有状态变化经 `ws.ts` 广播；前端由 `JobPanel`（右侧常驻面板，挂在 App 根部）经 WS `job_*` 事件 + `GET /api/jobs(/:id)` 兜底轮询展示进度。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。
 - **拆帧编号**：ffmpeg 先拆到 `staging/extract_<uuid>/frame_%04d.png`，再按 raw 目录现存最大编号续编搬入 `raw/frame_XXXX.png`，多次导入互不覆盖；`duplicate` 生成的 `dup_<uuid>.png` 不匹配该扫描规则，不会被误收。
 - **注入安全**：外部命令（生成 CLI / 抠图 CLI）不走模板字符串：设置页配的是结构化字段（命令 + 参数名映射），服务端组装 argv 数组（Bun.spawn，不经 shell）；遗留 env 模板（FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，同样不经 shell，prompt 含空格也安全。
@@ -72,7 +76,8 @@
   - dashscope（百炼原生，qwen-image 系列不在兼容模式内）：`POST {base}/api/v1/services/aigc/multimodal-generation/generation`，messages content 为 `[{image: dataURI}?, {text}]`（引用图 base64 上送），同步返回 `output.choices[0].message.content[*].image` URL 后下载；baseUrl 尾部的 `/api/v1` 自动归一。
   - gemini（banana / nano-banana）：`POST {base}/v1beta/models/{model}:generateContent`（x-goog-api-key），parts `[{text}, {inlineData}?]`，响应取首个 `inlineData.data`；`apiSize` 映射 `imageConfig.aspectRatio`。
   - minimax（image-01）：`POST {base}/v1/image_generation`（Bearer），引用图走 `subject_reference`（限一张，主体特征保持），`response_format=base64` 取 `data.image_base64[0]`；`apiSize` 映射 `aspect_ratio`。
-  模型取请求 `model` 缺省列表第一项。`GET /api/config` 下发 `gen.providers` 与 `promptEnhancers` 摘要（不含 apiKey）。
+  模型取请求 `model` 缺省列表第一项。`GET /api/config` 下发 `gen.providers` 与 `promptEnhancers` 摘要（不含 apiKey；providers 带 `video` 标记，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
+- **视频生成逐帧切割**（`generateFrames` 的 `mediaKind="video"` + `fps`，仅 cli/dashscope/minimax，路由层 `checkVideoSupport` 前置 400）：生成一段视频后经 `extractToStaging`（ffmpeg fps 抽帧）逐帧入库，`count` 忽略、不支持引用图。CLI：`{output}` 给 `.mp4` 路径；API 走异步任务（generateApi.ts `generateVideoViaApi`）：minimax 为 v2 协议（`POST {base}/v2/video_generation` → `task_id` → 轮询 `GET {base}/v2/query/video_generation/{task_id}` 取 `task.content.url`），dashscope 为万相旧版协议（`POST {base}/api/v1/services/aigc/video-generation/video-synthesis` + `X-DashScope-Async: enable` → `output.task_id` → 轮询 `GET {base}/api/v1/tasks/{task_id}` 取 `output.video_url`）；轮询 5s 间隔、10 分钟超时。**图片模式下 CLI 产物经魔数检测（ftyp/EBML/RIFF-AVI）若为视频同样自动转拆帧**。
 - **提示词加强**（`enhance.ts`）：`POST /api/enhance-prompt` 调用设置页 `promptEnhancers` 列表里的 OpenAI 兼容 `chat/completions`（加强系统提示词内置固定，像素画方向），返回优化后文本；前端保留原文并并排展示新旧两版供选择。
 - **体检与联通测试**（`doctor.ts`）：`GET /api/doctor` 逐项检查存储可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 查命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`；百炼 / MiniMax 无探测端点仅校验字段）/ 每个加强模型（实发 `GET /models`）；`POST /api/provider/test` 用表单未保存的值单独测某个 API provider 或加强模型（8s 超时，401/403 判认证失败，标准模型列表时核对模型是否在列）。
 - **抠图引擎探测**（`jobs/matting.ts`，每次调用实时解析，`GET /api/config` 可查）：a. 自定义 CLI（设置页 `matting.cliBin` 结构化字段优先，否则 env `FRAMEBAKER_MATTING_CLI` 遗留模板 `{input}` `{output}` 可选 `{model}`）→ b. `<repo>/.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`；由 `scripts/setup_matting.sh` / `setup_matting.ps1` 安装：python3 venv + `pip install "rembg[cli,cpu]"`）→ c. PATH 里的 `rembg` → d. passthrough 复制并在 job.progress / 响应 warning 里提示安装。rembg 调用为 `rembg i -m <MODEL> in out`，模型名取 设置页 `matting.model` → `FRAMEBAKER_MATTING_MODEL` → 默认 u2net，模型缓存在 `storage/models`（spawn 时注入 `U2NET_HOME`）。前端上传/生成表单的「抠图去背」开关默认勾选，`GET /api/config` 驱动引擎状态显示。
@@ -167,8 +172,8 @@ storage/
 - `SettingsPage`：生成 provider 列表管理（CLI / API 多个共存，增删改 + 保存 + API 测试连接）、抠图配置（CLI 模板 / 默认模型 datalist + 缓存状态）、体检（doctor 结果列表）
 - `ProjectList`：像素卡片网格（motion stagger 入场、hover 上浮）、新建/删除弹窗
 - `MaterialsPage`：素材库页——卡片网格（source 彩色徽标、抠图状态点、复选框 + Cmd/Shift 多选）、批量条（删除/导入项目/批量抠图/取消）、toast 提示
-- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、导入项目（选项目+复制帧数）、删除（二次确认）
-- `MaterialImportModal` / `ProjectPickerModal`：素材上传与生成入口 / 项目选择弹窗；上传 Tab 选文件后询问「是否需要剪裁」（`useCropQueue` 逐张队列或单张重裁，仅静态图）；生成 Tab 用 `ProviderModelPicker` 选 provider + 模型
+- `MaterialModal`：素材详情——原图/抠图对比滑杆（pointer 拖动 clip 比例）、抠图/还原、剪裁（CropModal，作用于当前显示图槽位）、网格切分（GridSplitModal：多宫格精灵图按行×列逐格切成独立素材，网格线预览，复用 imageops cropImage + `/api/materials/upload` 单图入库，原素材保留）、导入项目（选项目+复制帧数）、删除（二次确认）
+- `MaterialImportModal` / `ProjectPickerModal`：素材上传与生成入口 / 项目选择弹窗；上传 Tab 选文件后询问「是否需要剪裁」（`useCropQueue` 逐张队列或单张重裁，仅静态图）；生成 Tab 用 `ProviderModelPicker` 选 provider + 模型，提交即关窗（同 ImportModal，进度交给 JobPanel）
 - `ProviderModelPicker`：生成弹窗共用的 provider + 模型选择（`GET /api/config` 的 `gen.providers` 驱动；api=模型下拉/输入，cli=`{model}` 占位符值），`resolveProviderSelection` 在提交时解析缺省值
 - `CropModal` + `imageops/` + `hooks/useCropQueue`：像素图剪裁工具——整数像素框选（拖动/八向缩放/数字输入）、滚轮缩放、像素网格（zoom≥8）、自动框选非透明区域；重活走 Web Worker，失败降级主线程；两个导入弹窗、素材详情与项目帧替换共用，统一产出 PNG
 - `Editor`：状态中枢（frames/activeId/selectedIds/图片版本号 v），WS 订阅刷新；帧多选与批量操作（BatchBar）
@@ -176,7 +181,8 @@ storage/
 - `FrameEditor`：PixiJS `Application`（async init + cancelled 竞态处理）；viewport 居中缩放；主精灵拖拽改 offset；洋葱皮（prev 红 0.3 / next 蓝 0.2）；网格 Graphics；画布背景与网格色随主题（CSS 变量）；工具栏可调 scale（10% 步进）/rotation（15° 步进）/opacity（10% 步进），并支持剪裁替换/时长±/关键帧
 - `Timeline`：HTML5 DnD 换序、关键帧星标、时长角标
 - `PlaybackBar` + `FrameEditor` 播放模式：1–24 fps tick，每帧停留 duration 个 tick；直接复用 Pixi 变换渲染
-- `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程）；上传 Tab 多文件逐个分发，选文件后同样询问「是否需要剪裁」（与素材导入共用 useCropQueue + CropModal）；提交后轮询 `/api/jobs/:id`（WS 为主）
+- `ImportModal`：素材库 / 上传文件 / CLI 生成三 Tab——素材库 Tab 网格多选素材后 `batch-import` 进当前项目（主流程），顶部搜索框按素材名/prompt 本地过滤（不影响已选）；上传 Tab 多文件逐个分发，选文件后同样询问「是否需要剪裁」（与素材导入共用 useCropQueue + CropModal），提交后弹窗内轮询 `/api/jobs/:id` 汇总；生成 Tab 提交即关窗（不阻塞等待），进度交给 JobPanel；生成 Tab 支持「图片 / 视频」切换（视频模式：fps 抽帧滑杆、`ProviderModelPicker` 只列支持视频的 provider，隐藏数量/引用图/尺寸）
+- `JobPanel`（挂在 App 根部）：右侧常驻任务队列面板——初始 `GET /api/jobs` 接管进行中任务，之后 WS `job_*` 事件驱动 + 活动任务 3s 轮询兜底；完成的停留 6s 自动移除，失败的常驻可手动关闭；无任务时不渲染
 - `SplitDivider` + `layout.ts`：编辑器布局分隔条（帧列表宽度 180–480 默认 240、时间轴高度 80–320 默认 140），pointer capture 拖动、双击恢复默认、尺寸存 localStorage `framebaker-layout`；画布区依赖 Pixi `resizeTo`（ResizeObserver）自动跟随重绘
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）
 - `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗

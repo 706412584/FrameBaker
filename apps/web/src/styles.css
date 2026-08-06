@@ -886,6 +886,76 @@ input[type="range"] {
   white-space: pre-wrap;
 }
 
+/* ===== 任务队列面板（右侧常驻，JobPanel） ===== */
+.job-panel {
+  position: fixed;
+  top: 60px;
+  right: 12px;
+  width: 264px;
+  max-height: 65vh;
+  overflow-y: auto;
+  z-index: 60; /* 低于 modal(100)：弹窗打开时盖住面板 */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--elevated);
+  font-size: 12px;
+}
+.job-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.job-panel-head .count {
+  margin-left: auto;
+  color: var(--accent);
+}
+.job-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+  padding: 8px;
+}
+.job-item .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.job-item .wait {
+  color: var(--yellow);
+}
+.job-item .ok {
+  color: var(--success);
+}
+.job-item .err {
+  color: var(--error);
+}
+.job-item .kind {
+  color: var(--text);
+}
+.job-item .prog {
+  flex: 1;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-item .dismiss {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.job-item .dismiss:hover {
+  color: var(--text);
+}
+
 /* ===== 播放预览（就在 Pixi 画布内，悬浮控制条覆盖画布框底部） ===== */
 .stage-shell {
   position: relative;
@@ -1144,11 +1214,18 @@ input[type="range"] {
 
 /* ===== 素材详情：原图/抠图对比滑杆 ===== */
 .mat-modal {
-  width: min(640px, calc(100vw - 48px));
+  width: min(920px, calc(100vw - 48px));
+}
+/* 按钮多（抠图/还原/剪裁/切分/导入/删除），禁止文字换行 */
+.mat-modal .modal-actions {
+  gap: 10px;
+}
+.mat-modal .modal-actions .px-btn {
+  white-space: nowrap;
 }
 .compare {
   position: relative;
-  height: 340px;
+  height: 460px;
   overflow: hidden;
   background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
   box-shadow:
@@ -1242,6 +1319,59 @@ input[type="range"] {
   gap: 10px;
   border-top: 2px solid var(--border);
   padding-top: 12px;
+}
+
+/* ===== 网格切分（GridSplitModal） ===== */
+.gs-modal {
+  width: min(640px, calc(100vw - 48px));
+}
+.gs-wrap {
+  position: relative;
+  align-self: center;
+  max-width: 100%;
+  line-height: 0;
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: 0 0 0 2px var(--border);
+  overflow: hidden;
+}
+.gs-wrap img {
+  max-width: 100%;
+  max-height: 46vh;
+  display: block;
+  image-rendering: pixelated;
+}
+.gs-line {
+  position: absolute;
+  background: var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.gs-line.v {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+}
+.gs-line.h {
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+.gs-total {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ===== 素材搜索框（导入弹窗素材库 Tab） ===== */
+.mat-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.mat-search .px-input {
+  flex: 1;
 }
 
 /* ===== 多文件上传列表 ===== */

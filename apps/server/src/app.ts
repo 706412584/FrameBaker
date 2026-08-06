@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { join } from "node:path";
 import type { ServerConfig } from "@framebaker/shared";
+import { PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
 import { enhancerConfigured, getGenProviders, getPromptEnhancers, providerConfigured } from "./provider";
@@ -46,6 +47,7 @@ export const app = new Elysia()
           type: p.type,
           models: p.apiModels,
           configured: providerConfigured(p),
+          video: PROVIDER_VIDEO_SUPPORT[p.type],
         })),
       },
       promptEnhancers: getPromptEnhancers()
@@ -98,6 +100,11 @@ export const app = new Elysia()
       }),
     }
   )
+  // 任务列表（右侧任务面板初始加载；之后以 WS 事件为主，单任务查询用 /api/jobs/:id）
+  .get("/api/jobs", () => {
+    const jobs = db.query("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50").all();
+    return { jobs };
+  })
   // 任务状态查询（前端轮询兜底，WS 为主）
   .get("/api/jobs/:id", ({ params, status }) => {
     const job = db.query("SELECT * FROM jobs WHERE id = ?").get(params.id);

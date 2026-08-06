@@ -14,16 +14,17 @@ async function saveFirstImage(json: ImagesResponse, outPath: string): Promise<vo
     return;
   }
   if (item?.url) {
-    await downloadImage(item.url, outPath);
+    await downloadFile(item.url, outPath);
     return;
   }
   throw new Error("生成 API 响应缺少 data[0].b64_json / data[0].url");
 }
 
-async function downloadImage(url: string, outPath: string): Promise<void> {
-  const img = await fetch(url, { signal: AbortSignal.timeout(120_000) });
-  if (!img.ok) throw new Error(`下载生成图失败: HTTP ${img.status}`);
-  writeFileSync(outPath, Buffer.from(await img.arrayBuffer()));
+/** 通用下载（生成图/视频写盘）；视频较大，超时放宽到 300s */
+async function downloadFile(url: string, outPath: string): Promise<void> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+  if (!res.ok) throw new Error(`下载生成文件失败: HTTP ${res.status}`);
+  writeFileSync(outPath, Buffer.from(await res.arrayBuffer()));
 }
 
 async function readError(res: Response, which: string): Promise<Error> {
@@ -127,7 +128,7 @@ async function generateViaDashscope(
   if (json.code) throw new Error(`DashScope 错误 ${json.code}: ${json.message ?? ""}`);
   const imageUrl = json.output?.choices?.[0]?.message?.content?.find((c) => c.image)?.image;
   if (!imageUrl) throw new Error("DashScope 响应缺少 output.choices[0].message.content[*].image");
-  await downloadImage(imageUrl, outPath);
+  await downloadFile(imageUrl, outPath);
 }
 
 interface GeminiResponse {
@@ -244,4 +245,148 @@ export async function generateViaApi(
   if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath);
   if (eff.type === "minimax") return generateViaMinimax(eff, prompt, model, outPath, referencePath);
   return generateViaOpenAI(eff, prompt, model, outPath, referencePath);
+}
+
+// ===== 视频生成（异步任务制：创建 → 轮询 → 下载 mp4；仅 dashscope / minimax）=====
+
+const VIDEO_POLL_INTERVAL = 5_000;
+const VIDEO_POLL_TIMEOUT = 10 * 60_000;
+
+interface VideoPollResult {
+  done: boolean;
+  url?: string;
+  error?: string;
+}
+
+/** 视频任务轮询：5s 间隔，10 分钟超时；进度文案经 report 写入 job.progress */
+async function pollVideoTask(report: (s: string) => void, query: () => Promise<VideoPollResult>): Promise<string> {
+  const deadline = Date.now() + VIDEO_POLL_TIMEOUT;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, VIDEO_POLL_INTERVAL));
+    const r = await query();
+    if (r.error) throw new Error(r.error);
+    if (r.done) {
+      if (!r.url) throw new Error("视频任务成功但响应缺少下载地址");
+      return r.url;
+    }
+    if (Date.now() >= deadline) throw new Error("视频生成超时（10 分钟），请稍后重试");
+    report("视频生成中（异步任务，约需数分钟）");
+  }
+}
+
+/**
+ * MiniMax 视频生成（v2 协议，MiniMax-H3 等）：
+ * POST {base}/v2/video_generation { model, content:[{type:"text",text}], ratio? } → task_id
+ * 轮询 GET {base}/v2/query/video_generation/{task_id}（task.status: succeeded/failed/cancelled）
+ * 成功直接取 task.content.url 下载
+ */
+async function generateVideoViaMinimax(
+  cfg: GenProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  report: (s: string) => void
+): Promise<void> {
+  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
+  const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
+  const body: Record<string, unknown> = { model, content: [{ type: "text", text: prompt }] };
+  if (cfg.apiSize.trim()) body.ratio = cfg.apiSize.trim();
+
+  const res = await fetch(`${base}/v2/video_generation`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw await readError(res, "v2/video_generation");
+  const created = (await res.json()) as {
+    task_id?: string;
+    base_resp?: { status_code?: number; status_msg?: string };
+  };
+  if (created.base_resp?.status_code && created.base_resp.status_code !== 0) {
+    throw new Error(`MiniMax 错误 ${created.base_resp.status_code}: ${created.base_resp.status_msg ?? ""}`);
+  }
+  if (!created.task_id) throw new Error("MiniMax 视频任务创建失败：响应缺少 task_id");
+
+  const url = await pollVideoTask(report, async () => {
+    const q = await fetch(`${base}/v2/query/video_generation/${created.task_id}`, {
+      headers: auth,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!q.ok) throw await readError(q, "v2/query/video_generation");
+    const j = (await q.json()) as { task?: { status?: string; content?: { url?: string }; error?: { message?: string } } };
+    const st = j.task?.status;
+    if (st === "succeeded") return { done: true, url: j.task?.content?.url };
+    if (st === "failed" || st === "cancelled") {
+      return { done: false, error: `MiniMax 视频任务 ${st}: ${j.task?.error?.message ?? ""}` };
+    }
+    return { done: false };
+  });
+  await downloadFile(url, outPath);
+}
+
+/**
+ * 百炼 DashScope 视频生成（万相 wan2.x/wanx2.1 旧版异步协议）：
+ * POST {base}/api/v1/services/aigc/video-generation/video-synthesis（X-DashScope-Async: enable）
+ *   { model, input:{prompt}, parameters:{size?, watermark:false} } → output.task_id
+ * 轮询 GET {base}/api/v1/tasks/{task_id}（output.task_status: PENDING/RUNNING/SUCCEEDED/FAILED）
+ * 成功取 output.video_url 下载
+ */
+async function generateVideoViaDashscope(
+  cfg: GenProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  report: (s: string) => void
+): Promise<void> {
+  // 容忍用户填到 /api/v1 为止的 baseUrl
+  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+  const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
+  const parameters: Record<string, unknown> = { watermark: false };
+  if (cfg.apiSize.trim()) parameters.size = cfg.apiSize.trim();
+
+  const res = await fetch(`${base}/api/v1/services/aigc/video-generation/video-synthesis`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json", "X-DashScope-Async": "enable" },
+    body: JSON.stringify({ model, input: { prompt }, parameters }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw await readError(res, "video-synthesis");
+  const created = (await res.json()) as {
+    output?: { task_id?: string };
+    code?: string;
+    message?: string;
+  };
+  if (created.code) throw new Error(`DashScope 错误 ${created.code}: ${created.message ?? ""}`);
+  const taskId = created.output?.task_id;
+  if (!taskId) throw new Error("DashScope 视频任务创建失败：响应缺少 output.task_id");
+
+  const url = await pollVideoTask(report, async () => {
+    const q = await fetch(`${base}/api/v1/tasks/${taskId}`, { headers: auth, signal: AbortSignal.timeout(30_000) });
+    if (!q.ok) throw await readError(q, "tasks 查询");
+    const j = (await q.json()) as { output?: { task_status?: string; video_url?: string; code?: string; message?: string } };
+    const st = j.output?.task_status;
+    if (st === "SUCCEEDED") return { done: true, url: j.output?.video_url };
+    if (st === "FAILED" || st === "CANCELED" || st === "UNKNOWN") {
+      return { done: false, error: `DashScope 视频任务 ${st}: ${j.output?.message ?? j.output?.code ?? ""}` };
+    }
+    return { done: false };
+  });
+  await downloadFile(url, outPath);
+}
+
+/**
+ * API 视频生成统一入口（仅 dashscope / minimax，其余类型在前端已被过滤，这里兜底报错）。
+ * 产出 mp4 到 outPath；耗时数分钟，进度经 report 写入 job.progress
+ */
+export async function generateVideoViaApi(
+  cfg: GenProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  report: (s: string) => void
+): Promise<void> {
+  if (cfg.type === "dashscope") return generateVideoViaDashscope(cfg, prompt, model, outPath, report);
+  if (cfg.type === "minimax") return generateVideoViaMinimax(cfg, prompt, model, outPath, report);
+  throw new Error(`该 provider 类型（${cfg.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
 }

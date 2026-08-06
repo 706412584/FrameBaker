@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Crop, MoveHorizontal, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Check, Crop, Grid3x3, MoveHorizontal, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialImageUrl, type Material, type Project } from "../api";
 import { notify } from "../notice";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
 import CropModal from "./CropModal";
+import GridSplitModal from "./GridSplitModal";
 
 interface Props {
   material: Material;
@@ -19,13 +20,14 @@ interface Props {
 export default function MaterialModal({ material: m, v, onClose, onChanged, onToast }: Props) {
   const [pos, setPos] = useState(55);
   const [busy, setBusy] = useState(false);
-  const [matting, setMatting] = useState(false); // 抠图进行中（可能秒级耗时）
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
   // 剪裁二次加工：载入当前显示图（processed ?? raw），确认后覆盖同一槽位
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
+  // 网格切分：多宫格精灵图逐格切成独立素材
+  const [showSplit, setShowSplit] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cfg = useServerConfig();
   const engine = cfg?.matting.engine;
@@ -50,14 +52,12 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
     }
   };
 
-  const doMatting = () => {
-    setMatting(true);
+  // 抠图走任务队列（模型首次下载可能耗时数分钟，同步请求会挂死；进度见右侧任务面板）
+  const doMatting = () =>
     run(async () => {
-      const r = await api.matteMaterial(m.id);
-      onChanged();
-      onToast(r.warning ?? "抠图完成");
-    }).finally(() => setMatting(false));
-  };
+      await api.matteMaterial(m.id);
+      onToast("抠图任务已加入队列");
+    });
 
   const doUnmatting = () =>
     run(async () => {
@@ -175,10 +175,10 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             type="button"
             whileTap={{ scale: 0.95 }}
             className="px-btn accent-cyan"
-            disabled={busy || matting}
+            disabled={busy}
             onClick={doMatting}
           >
-            <Wand2 size={14} /> {matting ? "抠图中…" : m.status === "matted" ? "重新抠图" : "执行抠图"}
+            <Wand2 size={14} /> {m.status === "matted" ? "重新抠图" : "执行抠图"}
           </motion.button>
           {m.status === "matted" && (
             <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={doUnmatting}>
@@ -187,6 +187,16 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           )}
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
             <Crop size={14} /> 剪裁
+          </motion.button>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            className="px-btn"
+            disabled={busy}
+            title="多宫格精灵图按行×列逐格切成独立素材"
+            onClick={() => setShowSplit(true)}
+          >
+            <Grid3x3 size={14} /> 网格切分
           </motion.button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy} onClick={openImport}>
             <Send size={14} /> 导入到项目
@@ -251,6 +261,13 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               onConfirm={doCrop}
               onClose={() => setCrop(null)}
             />
+          )}
+        </AnimatePresence>
+
+        {/* 网格切分：多宫格精灵图 → N 个素材 */}
+        <AnimatePresence>
+          {showSplit && (
+            <GridSplitModal material={m} v={v} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
           )}
         </AnimatePresence>
       </motion.div>

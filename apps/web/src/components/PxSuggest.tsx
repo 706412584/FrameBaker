@@ -12,16 +12,18 @@ interface Props {
 
 /**
  * 带主题化建议下拉的输入框（替代原生 datalist——原生弹层不吃主题样式）：
- * 输入时按子串过滤建议；聚焦/点箭头展开全部；蒙层点击 / Esc 关闭；点建议项回填
+ * 输入时按子串过滤建议；聚焦/点箭头展开全部（不按当前值过滤）；蒙层点击 / Esc 关闭；点建议项回填
  */
 export default function PxSuggest({ value, suggestions, onChange, placeholder, className = "" }: Props) {
   const [open, setOpen] = useState(false);
+  // 过滤词：仅输入时跟随键入内容；聚焦/点箭头展开时清空（否则已有值会把建议过滤光）
+  const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
-    const q = value.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
     const list = q ? suggestions.filter((s) => s.toLowerCase().includes(q)) : suggestions;
     return list.filter((s) => s !== value); // 已完全一致的建议不再占位
-  }, [value, suggestions]);
+  }, [query, value, suggestions]);
 
   useEffect(() => {
     if (!open) return;
@@ -38,9 +40,13 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
         className="px-input"
         value={value}
         placeholder={placeholder}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          setQuery("");
+          setOpen(true);
+        }}
         onChange={(e) => {
           onChange(e.target.value);
+          setQuery(e.target.value);
           setOpen(true);
         }}
       />
@@ -49,7 +55,10 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
         className="px-suggest-toggle"
         title="展开建议"
         tabIndex={-1}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setQuery("");
+          setOpen((o) => !o);
+        }}
       >
         <ChevronDown size={14} />
       </button>
@@ -64,6 +73,7 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
                   className="px-select-opt"
                   onClick={() => {
                     onChange(s);
+                    setQuery("");
                     setOpen(false);
                   }}
                 >

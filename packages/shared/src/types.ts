@@ -120,7 +120,18 @@ export interface GenProviderInfo {
   models: string[];
   /** 关键字段是否齐备（cli=命令非空；api 系=baseUrl/key 齐全） */
   configured: boolean;
+  /** 是否支持视频生成（文生视频 → 逐帧切割）：cli/dashscope/minimax 支持 */
+  video: boolean;
 }
+
+/** 各 provider 类型是否支持视频生成（服务端 /api/config 摘要与前端弹窗过滤共用） */
+export const PROVIDER_VIDEO_SUPPORT: Record<GenProviderType, boolean> = {
+  cli: true, // 产物按魔数检测：是视频自动逐帧拆帧
+  api: false,
+  dashscope: true,
+  gemini: false,
+  minimax: true,
+};
 
 /** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量）；CLI 为结构化字段（免模板） */
 export interface MattingSettings {
@@ -361,6 +372,9 @@ export interface FrameResponse {
 }
 export interface JobResponse {
   job: Job;
+}
+export interface JobsResponse {
+  jobs: Job[];
 }
 export interface JobCreatedResponse {
   jobId: string;

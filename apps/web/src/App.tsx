@@ -5,6 +5,7 @@ import MaterialsPage from "./components/MaterialsPage";
 import SettingsPage from "./components/SettingsPage";
 import TopNav from "./components/TopNav";
 import AppModals from "./components/AppModals";
+import JobPanel from "./components/JobPanel";
 import { wsClient } from "./api";
 
 type View = { page: "home" } | { page: "editor"; projectId: string } | { page: "materials" } | { page: "settings" };
@@ -50,6 +51,8 @@ export default function App() {
       {view.page === "materials" && <MaterialsPage />}
       {view.page === "settings" && <SettingsPage />}
       {view.page === "editor" && <Editor projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
+      {/* 右侧常驻任务队列面板（有任务时才显示） */}
+      <JobPanel />
       {/* 全局通知条 + 确认弹窗（notice.ts） */}
       <AppModals />
     </>

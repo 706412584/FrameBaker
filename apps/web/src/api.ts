@@ -9,6 +9,7 @@ import type {
   Job,
   JobCreatedResponse,
   JobResponse,
+  JobsResponse,
   Material,
   MaterialCreatedResponse,
   MaterialResponse,
@@ -42,7 +43,7 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-/** CLI 生成请求体（引用图二选一，服务端按 id 解析路径防注入；providerId/model 生成时选择） */
+/** 生成请求体（引用图二选一，服务端按 id 解析路径防注入；providerId/model 生成时选择） */
 interface GenerateBody {
   prompt: string;
   count: number;
@@ -53,6 +54,10 @@ interface GenerateBody {
   model?: string;
   /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */
   size?: string;
+  /** 视频模式：生成一段视频后逐帧切割入库（仅 CLI / 百炼 / MiniMax） */
+  mediaKind?: "image" | "video";
+  /** 视频抽帧帧率（mediaKind=video 生效） */
+  fps?: number;
 }
 
 export const api = {
@@ -80,6 +85,7 @@ export const api = {
   generate: (body: GenerateBody & { projectId: string }) =>
     req<JobCreatedResponse>("/api/import/generate", { method: "POST", ...json(body) }),
   getJob: (id: string) => req<JobResponse>(`/api/jobs/${id}`).then((r) => r.job),
+  listJobs: () => req<JobsResponse>("/api/jobs").then((r) => r.jobs),
   getConfig: () => req<ServerConfig>("/api/config"),
   getDoctor: () => req<DoctorResponse>("/api/doctor"),
   testProvider: (body: ProviderTestRequest) =>
@@ -100,8 +106,7 @@ export const api = {
     req<JobCreatedResponse | MaterialCreatedResponse>("/api/materials/upload", { method: "POST", body: fd }),
   generateMaterial: (body: GenerateBody) =>
     req<JobCreatedResponse>("/api/materials/generate", { method: "POST", ...json(body) }),
-  matteMaterial: (id: string) =>
-    req<MaterialResponse & { warning: string | null }>(`/api/materials/${id}/matting`, { method: "POST" }),
+  matteMaterial: (id: string) => req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST" }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
   batchMatteMaterials: (ids: string[]) =>
     req<OkResponse & { count: number }>("/api/materials/batch-matting", { method: "POST", ...json({ ids }) }),

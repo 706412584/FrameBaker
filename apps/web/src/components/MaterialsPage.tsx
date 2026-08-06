@@ -163,7 +163,7 @@ export default function MaterialsPage() {
             className="px-btn accent"
             onClick={() => setImportTab("cli")}
           >
-            <Sparkles size={16} /> CLI 生成
+            <Sparkles size={16} /> AI 生成
           </motion.button>
         </div>
       </header>
@@ -171,7 +171,7 @@ export default function MaterialsPage() {
       {materials.length === 0 ? (
         <div className="empty">
           <Package size={32} />
-          <p>素材库为空，先上传或用 CLI 生成一些素材吧</p>
+          <p>素材库为空，先上传或 AI 生成一些素材吧</p>
         </div>
       ) : (
         <div className="project-grid">
