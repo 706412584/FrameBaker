@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { Pause, Play } from "lucide-react";
+import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 
 /** 播放控制条：覆盖在画布框内部底部的悬浮条（不挤占布局），仅播放时显示 */
 export default function PlaybackBar({ fps, paused, cursor, total, zoom, onTogglePause, onFpsChange }: Props) {
+  const t = useT();
   return (
     <motion.div
       className="playback-bar"
@@ -23,7 +25,7 @@ export default function PlaybackBar({ fps, paused, cursor, total, zoom, onToggle
       exit={{ opacity: 0, y: 10 }}
       transition={{ duration: 0.15 }}
     >
-      <IconBtn onClick={onTogglePause} title={paused ? "继续" : "暂停"}>
+      <IconBtn onClick={onTogglePause} title={paused ? t("继续") : t("暂停")}>
         {paused ? <Play size={15} /> : <Pause size={15} />}
       </IconBtn>
       <label className="fps-ctl">
@@ -32,7 +34,7 @@ export default function PlaybackBar({ fps, paused, cursor, total, zoom, onToggle
         <span>{fps}</span>
       </label>
       <span className="frame-indicator">{total ? `${cursor + 1} / ${total}` : "0 / 0"}</span>
-      <span className="fps-ctl" title="工具栏 ± 或 Cmd/Ctrl+滚轮缩放">缩放 {Math.round(zoom * 100)}%</span>
+      <span className="fps-ctl" title={t("工具栏 ± 或 Cmd/Ctrl+滚轮缩放")}>{t("缩放 {pct}%", { pct: Math.round(zoom * 100) })}</span>
     </motion.div>
   );
 }

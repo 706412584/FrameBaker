@@ -25,7 +25,7 @@
 │   ├─ api/frames.ts     帧查询/PATCH/替换/删除/复制/换序 + 图片流     │
 │   ├─ api/import.ts     上传拆帧 / 生成 → 创建 job（项目帧）          │
 │   ├─ api/materials.ts  素材 CRUD/抠图/批量抠图/剪裁替换/导入项目     │
-│   ├─ api/settings.ts   settings 表读写（layout/theme/genProviders/  │
+│   ├─ api/settings.ts   settings 表读写（layout/theme/lang/genProviders/  │
 │   │                    matting 白名单）                             │
 │   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
@@ -163,12 +163,12 @@ storage/
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, metadata, created_at)`
-- `settings(key, value, updated_at)`：界面偏好（layout / theme）与运行配置（genProvider / matting），服务端权威持久化；主题前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
+- `settings(key, value, updated_at)`：界面偏好（layout / theme / lang）与运行配置（genProvider / matting），服务端权威持久化；主题与语言前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
 
 ## 前端页面与组件
 
 - `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/settings` 设置页（history.pushState + popstate）；全局屏蔽浏览器原生右键菜单（输入框/文本域保留用于粘贴，帧项走自定义 ContextMenu）
-- `TopNav`：一级导航（项目 / 素材库 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）；编辑器页有自己的顶栏不显示
+- `TopNav`：一级导航（项目 / 素材库 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）+ 界面语言切换（zh/en，`LangToggle`）；编辑器页有自己的顶栏不显示
 - `SettingsPage`：生成 provider 列表管理（CLI / API 多个共存，增删改 + 保存 + API 测试连接）、抠图配置（CLI 模板 / 默认模型 datalist + 缓存状态）、体检（doctor 结果列表）
 - `ProjectList`：像素卡片网格（motion stagger 入场、hover 上浮）、新建/删除弹窗
 - `MaterialsPage`：素材库页——卡片网格（source 彩色徽标、抠图状态点、复选框 + Cmd/Shift 多选）、批量条（删除/导入项目/批量抠图/取消）、toast 提示
@@ -186,5 +186,6 @@ storage/
 - `JobPanel`（挂在 App 根部）：右侧常驻任务队列面板——初始 `GET /api/jobs` 接管进行中任务，之后 WS `job_*` 事件驱动 + 活动任务 3s 轮询兜底；完成的停留 6s 自动移除，失败的常驻可手动关闭；无任务时不渲染
 - `SplitDivider` + `layout.ts`：编辑器布局分隔条（帧列表宽度 180–480 默认 240、时间轴高度 80–320 默认 140），pointer capture 拖动、双击恢复默认、尺寸存 localStorage `framebaker-layout`；画布区依赖 Pixi `resizeTo`（ResizeObserver）自动跟随重绘
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）
+- `i18n.ts` + `i18n/en.ts`：界面语言（zh 默认 / en）；`t()` / `useT()`；localStorage `framebaker-lang` + settings `lang`
 - `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗
 - `api.ts`：fetch 封装 + WS 客户端（断线 3s 重连）

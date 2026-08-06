@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useT } from "../i18n";
 
 export interface PxSelectOption {
   value: string;
@@ -21,7 +22,9 @@ interface Props {
  * 按钮式触发器与 .px-input 同字体同尺寸（原生 select 不吃全局 font 继承，高度/字体总会错位的根因）；
  * 蒙层点击 / Esc 关闭，disabled 选项仅展示不可选
  */
-export default function PxSelect({ value, options, onChange, placeholder = "请选择", className = "", disabled }: Props) {
+export default function PxSelect({ value, options, onChange, placeholder, className = "", disabled }: Props) {
+  const t = useT();
+  const ph = placeholder ?? t("请选择");
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value);
 
@@ -37,7 +40,7 @@ export default function PxSelect({ value, options, onChange, placeholder = "请�
   return (
     <div className={`px-select ${className}${open ? " open" : ""}`}>
       <button type="button" className="px-select-btn" disabled={disabled} onClick={() => setOpen((o) => !o)}>
-        <span className={current ? "" : "px-select-ph"}>{current?.label ?? placeholder}</span>
+        <span className={current ? "" : "px-select-ph"}>{current?.label ?? ph}</span>
         <ChevronDown size={14} />
       </button>
       {open && (

@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api, frameImageUrl, type Project } from "../api";
+import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 
 export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }) {
+  const t = useT();
   const [projects, setProjects] = useState<Project[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState("");
@@ -22,14 +24,14 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
       setName("");
       onOpen(id);
     } catch (e) {
-      notify(`创建失败: ${(e as Error).message}`);
+      notify(t("创建失败: {msg}", { msg: (e as Error).message }));
     }
   };
 
   const remove = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!(await askConfirm("确定删除该项目及其全部帧吗？此操作不可恢复。"))) return;
-    await api.deleteProject(id).catch((err) => notify(`删除失败: ${err.message}`));
+    if (!(await askConfirm(t("确定删除该项目及其全部帧吗？此操作不可恢复。")))) return;
+    await api.deleteProject(id).catch((err) => notify(t("删除失败: {msg}", { msg: (err as Error).message })));
     load();
   };
 
@@ -39,7 +41,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
         <h1>
           <Clapperboard size={30} /> FrameBaker
         </h1>
-        <p className="subtitle">像素逐帧动画编辑器 · 拆帧 / 生成 / 编辑 / 导出精灵表</p>
+        <p className="subtitle">{t("像素逐帧动画编辑器 · 拆帧 / 生成 / 编辑 / 导出精灵表")}</p>
         <motion.button
           type="button"
           whileHover={{ scale: 1.05 }}
@@ -47,14 +49,14 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
           className="px-btn accent"
           onClick={() => setShowModal(true)}
         >
-          <Plus size={16} /> 新建项目
+          <Plus size={16} /> {t("新建项目")}
         </motion.button>
       </header>
 
       {projects.length === 0 ? (
         <div className="empty">
           <Sparkles size={32} />
-          <p>还没有项目，点击「新建项目」开始创作吧</p>
+          <p>{t("还没有项目，点击「新建项目」开始创作吧")}</p>
         </div>
       ) : (
         <div className="project-grid">
@@ -74,10 +76,10 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
               <div className="info">
                 <div className="name">{p.name}</div>
                 <div className="meta">
-                  {p.frame_count} 帧 · {new Date(p.created_at).toLocaleString("zh-CN")}
+                  {t("{n} 帧", { n: p.frame_count ?? 0 })} · {new Date(p.created_at).toLocaleString(getLocale())}
                 </div>
               </div>
-              <button type="button" className="icon-btn danger card-del" title="删除项目" onClick={(e) => remove(e, p.id)}>
+              <button type="button" className="icon-btn danger card-del" title={t("删除项目")} onClick={(e) => remove(e, p.id)}>
                 <Trash2 size={14} />
               </button>
             </motion.div>
@@ -101,18 +103,18 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
               exit={{ scale: 0.9, y: 24 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h2>新建项目</h2>
+              <h2>{t("新建项目")}</h2>
               <input
                 className="px-input"
                 autoFocus
-                placeholder="项目名称"
+                placeholder={t("项目名称")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && create()}
               />
               <div className="modal-actions">
                 <button type="button" className="px-btn" onClick={() => setShowModal(false)}>
-                  取消
+                  {t("取消")}
                 </button>
                 <motion.button
                   type="button"
@@ -120,7 +122,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                   className="px-btn accent"
                   onClick={create}
                 >
-                  创建
+                  {t("创建")}
                 </motion.button>
               </div>
             </motion.div>

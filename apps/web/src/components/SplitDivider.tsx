@@ -1,3 +1,5 @@
+import { useT } from "../i18n";
+
 interface Props {
   /** col = 竖分隔条（调宽度）；row = 横分隔条（调高度） */
   direction: "col" | "row";
@@ -9,6 +11,7 @@ interface Props {
 
 /** 布局分隔条：pointer capture 拖动，拖动期间全局禁文本选择并锁定光标 */
 export default function SplitDivider({ direction, onDelta, onReset }: Props) {
+  const t = useT();
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const el = e.currentTarget;
@@ -43,7 +46,7 @@ export default function SplitDivider({ direction, onDelta, onReset }: Props) {
       aria-orientation={direction === "col" ? "vertical" : "horizontal"}
       onPointerDown={onPointerDown}
       onDoubleClick={onReset}
-      title="拖动调整大小 · 双击恢复默认"
+      title={t("拖动调整大小 · 双击恢复默认")}
     />
   );
 }

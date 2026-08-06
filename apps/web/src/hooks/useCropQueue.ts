@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { t } from "../i18n";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
 import type { CropRect } from "../imageops/ops";
 import { notify } from "../notice";
@@ -86,7 +87,7 @@ export function useCropQueue<T extends CroppableItem>(
       busyRef.current = false;
       setQueue([]);
     }
-    notify(`已剪裁 ${done} 张，跳过 ${skipped} 张`);
+    notify(t("已剪裁 {done} 张，跳过 {skipped} 张", { done, skipped }));
   };
 
   /** 「应用到剩余」：同一剪裁框应用到队列全部未处理图片（含当前张），与各图实际边界求交集；交集为空或等于整图则跳过 */

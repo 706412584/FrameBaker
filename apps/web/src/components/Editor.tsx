@@ -18,6 +18,7 @@ import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
 import ThemeToggle from "./ThemeToggle";
 import { exportSpritesheet } from "../export";
+import { useT } from "../i18n";
 import {
   LAYOUT_DEFAULTS,
   clampSidebarW,
@@ -35,6 +36,7 @@ export interface FrameClickMods {
 }
 
 export default function Editor({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+  const t = useT();
   const [project, setProject] = useState<Project | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -132,7 +134,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           }
         })
         .catch((e) => {
-          notify(`帧属性更新失败: ${(e as Error).message}`);
+          notify(t("帧属性更新失败: {msg}", { msg: (e as Error).message }));
           if (patchRevisions.current.get(id) === revision) void loadFrames();
         })
         .finally(() => {
@@ -145,7 +147,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDuplicate = useCallback(
     async (id: string) => {
-      await api.duplicateFrame(id, 1).catch((e) => notify(`复制失败: ${e.message}`));
+      await api.duplicateFrame(id, 1).catch((e) => notify(t("复制失败: {msg}", { msg: (e as Error).message })));
       await loadFrames();
     },
     [loadFrames]
@@ -153,14 +155,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDelete = useCallback(
     async (id: string) => {
-      await api.deleteFrame(id).catch((e) => notify(`删除失败: ${e.message}`));
+      await api.deleteFrame(id).catch((e) => notify(t("删除失败: {msg}", { msg: (e as Error).message })));
       await loadFrames();
     },
     [loadFrames]
   );
 
   const onReplace = useCallback((id: string, file: File) => {
-    setReplaceCrop({ frameId: id, image: file, title: "替换并剪裁帧图片" });
+    setReplaceCrop({ frameId: id, image: file, title: t("替换并剪裁帧图片") });
   }, []);
 
   // 剪裁当前帧：取当前显示图（processed 优先，服务端缺失回退 raw），确认后覆盖写回
@@ -168,10 +170,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     async (id: string) => {
       try {
         const res = await fetch(frameImageUrl(id, v));
-        if (!res.ok) throw new Error("读取帧图片失败");
-        setReplaceCrop({ frameId: id, image: await res.blob(), title: "剪裁帧图片" });
+        if (!res.ok) throw new Error(t("读取帧图片失败"));
+        setReplaceCrop({ frameId: id, image: await res.blob(), title: t("剪裁帧图片") });
       } catch (e) {
-        notify(`剪裁失败: ${(e as Error).message}`);
+        notify(t("剪裁失败: {msg}", { msg: (e as Error).message }));
       }
     },
     [v]
@@ -186,7 +188,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         setV((x) => x + 1);
         await loadFrames();
       } catch (e) {
-        notify(`剪裁写回失败: ${(e as Error).message}`);
+        notify(t("剪裁写回失败: {msg}", { msg: (e as Error).message }));
       }
     },
     [loadFrames, replaceCrop]
@@ -200,7 +202,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       arr.splice(to, 0, moved);
       setFrames(arr);
       api.reorder(projectId, arr.map((f) => f.id)).catch((e) => {
-        notify(`排序失败: ${e.message}`);
+        notify(t("排序失败: {msg}", { msg: (e as Error).message }));
         loadFrames();
       });
     },
@@ -342,7 +344,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames(); // 当前帧被删时 loadFrames 会自动切到剩余第一帧
-    if (failed.length) notify(`${failed.length} 帧删除失败`);
+    if (failed.length) notify(t("{n} 帧删除失败", { n: failed.length }));
   }, [selectedInOrder, loadFrames]);
 
   const batchDuplicate = useCallback(async () => {
@@ -353,7 +355,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames();
-    if (failed.length) notify(`${failed.length} 帧复制失败`);
+    if (failed.length) notify(t("{n} 帧复制失败", { n: failed.length }));
   }, [selectedInOrder, loadFrames]);
 
   const batchSetDuration = useCallback(
@@ -365,7 +367,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       }
       setSelectedIds(new Set());
       await loadFrames();
-      if (failed.length) notify(`${failed.length} 帧设置失败`);
+      if (failed.length) notify(t("{n} 帧设置失败", { n: failed.length }));
     },
     [selectedInOrder, loadFrames]
   );
@@ -374,14 +376,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const batchTrim = useCallback(async () => {
     const ids = selectedInOrder();
     if (ids.length === 0) return;
-    if (!(await askConfirm(`将裁掉 ${ids.length} 帧图片的透明边（覆盖当前帧图片），继续？`))) return;
+    if (!(await askConfirm(t("将裁掉 {n} 帧图片的透明边（覆盖当前帧图片），继续？", { n: ids.length })))) return;
     let trimmed = 0;
     let skipped = 0;
     let failed = 0;
     for (const id of ids) {
       try {
         const res = await fetch(frameImageUrl(id, v));
-        if (!res.ok) throw new Error("读取帧图片失败");
+        if (!res.ok) throw new Error(t("读取帧图片失败"));
         const blob = await res.blob();
         const bitmap = await createImageBitmap(blob);
         const { width, height } = bitmap;
@@ -403,7 +405,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     setSelectedIds(new Set());
     setV((x) => x + 1);
     await loadFrames();
-    notify(`已剪裁 ${trimmed} 帧，跳过 ${skipped} 帧，失败 ${failed} 帧`, failed > 0 ? "error" : "info");
+    notify(t("已剪裁 {trimmed} 帧，跳过 {skipped} 帧，失败 {failed} 帧", { trimmed, skipped, failed }), failed > 0 ? "error" : "info");
   }, [selectedInOrder, loadFrames, v]);
 
   const activeIndex = frames.findIndex((f) => f.id === activeId);
@@ -420,52 +422,52 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     ? []
     : ctxBatch
       ? [
-          { label: `复制 ${selectedIds.size} 帧`, icon: <Copy size={13} />, onClick: batchDuplicate },
-          { label: "裁透明边", icon: <Scan size={13} />, onClick: batchTrim },
+          { label: t("复制 {n} 帧", { n: selectedIds.size }), icon: <Copy size={13} />, onClick: batchDuplicate },
+          { label: t("裁透明边"), icon: <Scan size={13} />, onClick: batchTrim },
           {
-            label: `删除 ${selectedIds.size} 帧`,
+            label: t("删除 {n} 帧", { n: selectedIds.size }),
             icon: <Trash2 size={13} />,
             danger: true,
             onClick: async () => {
-              if (await askConfirm(`确认删除选中的 ${selectedIds.size} 帧？`)) await batchDelete();
+              if (await askConfirm(t("确认删除选中的 {n} 帧？", { n: selectedIds.size }))) await batchDelete();
             },
           },
         ]
       : ctxFrame
         ? [
             {
-              label: ctxFrame.is_keyframe ? "取消关键帧" : "标记关键帧",
+              label: ctxFrame.is_keyframe ? t("取消关键帧") : t("标记关键帧"),
               icon: <Star size={13} />,
               onClick: () => patchFrame(ctxFrame.id, { is_keyframe: ctxFrame.is_keyframe ? 0 : 1 }),
             },
             {
-              label: `时长 +1（当前 ×${ctxFrame.duration}）`,
+              label: t("时长 +1（当前 ×{n}）", { n: ctxFrame.duration }),
               icon: <Plus size={13} />,
               onClick: () => patchFrame(ctxFrame.id, { duration: Math.min(600, ctxFrame.duration + 1) }),
             },
             {
-              label: `时长 −1（当前 ×${ctxFrame.duration}）`,
+              label: t("时长 −1（当前 ×{n}）", { n: ctxFrame.duration }),
               icon: <Minus size={13} />,
               disabled: ctxFrame.duration <= 1,
               onClick: () => patchFrame(ctxFrame.id, { duration: Math.max(1, ctxFrame.duration - 1) }),
             },
-            { label: "剪裁图片…", icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
-            { label: "复制", icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
-            { label: "删除", icon: <Trash2 size={13} />, danger: true, onClick: () => onDelete(ctxFrame.id) },
+            { label: t("剪裁图片…"), icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
+            { label: t("复制"), icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
+            { label: t("删除"), icon: <Trash2 size={13} />, danger: true, onClick: () => onDelete(ctxFrame.id) },
           ]
         : [];
 
   return (
     <div className="editor">
       <header className="topbar pixel-bar">
-        <IconBtn onClick={onBack} title="返回项目列表">
+        <IconBtn onClick={onBack} title={t("返回项目列表")}>
           <ArrowLeft size={16} />
         </IconBtn>
         <span className="proj-name">{project?.name ?? "…"}</span>
-        <span className="frame-count">{frames.length} 帧</span>
+        <span className="frame-count">{t("{n} 帧", { n: frames.length })}</span>
         <div className="spacer" />
         <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" onClick={() => setShowImport(true)}>
-          <Upload size={14} /> 导入素材
+          <Upload size={14} /> {t("导入素材")}
         </motion.button>
         <motion.button
           type="button"
@@ -473,16 +475,16 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           className={`px-btn ${showPreview ? "accent-cyan" : ""}`}
           onClick={togglePlayback}
         >
-          <Play size={14} /> 播放预览
+          <Play size={14} /> {t("播放预览")}
         </motion.button>
         <motion.button
           type="button"
           whileTap={{ scale: 0.95 }}
           className="px-btn accent"
           disabled={frames.length === 0}
-          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(`导出失败: ${e.message}`))}
+          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(t("导出失败: {msg}", { msg: (e as Error).message })))}
         >
-          <Download size={14} /> 导出精灵表
+          <Download size={14} /> {t("导出精灵表")}
         </motion.button>
         <ThemeToggle />
       </header>
@@ -604,7 +606,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           <CropModal
             image={replaceCrop.image}
             title={replaceCrop.title}
-            subtitle="保存为 PNG"
+            subtitle={t("保存为 PNG")}
             onConfirm={confirmReplace}
             onClose={() => setReplaceCrop(null)}
           />

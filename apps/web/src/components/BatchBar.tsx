@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { Check, Copy, Scan, Trash2, X } from "lucide-react";
+import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 
 interface Props {
@@ -18,6 +19,7 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
   const [confirming, setConfirming] = useState(false);
   const [dur, setDur] = useState("2");
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -43,27 +45,27 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
       exit={{ opacity: 0, y: -14 }}
       transition={{ duration: 0.15 }}
     >
-      <span className="batch-count">已选 {count} 帧</span>
+      <span className="batch-count">{t("已选 {count} 帧", { count })}</span>
       <span className="tb-sep" />
       {confirming ? (
         <span className="batch-confirm">
-          确认删除？
-          <IconBtn className="danger" title="确认删除" disabled={busy} onClick={() => run(onDelete)}>
+          {t("确认删除？")}
+          <IconBtn className="danger" title={t("确认删除")} disabled={busy} onClick={() => run(onDelete)}>
             <Check size={14} />
           </IconBtn>
-          <IconBtn title="放弃删除" disabled={busy} onClick={() => setConfirming(false)}>
+          <IconBtn title={t("放弃删除")} disabled={busy} onClick={() => setConfirming(false)}>
             <X size={14} />
           </IconBtn>
         </span>
       ) : (
-        <IconBtn className="danger" title="批量删除" disabled={busy} onClick={() => setConfirming(true)}>
+        <IconBtn className="danger" title={t("批量删除")} disabled={busy} onClick={() => setConfirming(true)}>
           <Trash2 size={14} />
         </IconBtn>
       )}
-      <IconBtn title="批量复制（各 ×1）" disabled={busy} onClick={() => run(onDuplicate)}>
+      <IconBtn title={t("批量复制（各 ×1）")} disabled={busy} onClick={() => run(onDuplicate)}>
         <Copy size={14} />
       </IconBtn>
-      <IconBtn title={busy ? "处理中…" : "剪裁透明边（批量）"} disabled={busy} onClick={() => run(onTrim)}>
+      <IconBtn title={busy ? t("处理中…") : t("剪裁透明边（批量）")} disabled={busy} onClick={() => run(onTrim)}>
         <Scan size={14} />
       </IconBtn>
       <span className="tb-sep" />
@@ -78,11 +80,11 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
           onKeyDown={(e) => e.key === "Enter" && applyDuration()}
         />
         <button type="button" className="px-btn mini" disabled={busy} onClick={applyDuration}>
-          设时长
+          {t("设时长")}
         </button>
       </span>
       <span className="tb-sep" />
-      <IconBtn title="取消选择" disabled={busy} onClick={onClear}>
+      <IconBtn title={t("取消选择")} disabled={busy} onClick={onClear}>
         <X size={14} />
       </IconBtn>
     </motion.div>

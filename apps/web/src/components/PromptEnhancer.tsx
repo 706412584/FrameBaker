@@ -3,6 +3,7 @@ import { Wand2, X } from "lucide-react";
 import { ENHANCE_STYLES } from "@framebaker/shared";
 import { api } from "../api";
 import { useServerConfig } from "../config";
+import { useT } from "../i18n";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 import PxSelect from "./PxSelect";
@@ -26,6 +27,7 @@ interface EnhanceResult {
  * 原/优化后提示词并排展示，由用户点按钮决定用哪版（原文永不覆盖）
  */
 export default function PromptEnhancer({ label, placeholder, value, onChange }: Props) {
+  const t = useT();
   const cfg = useServerConfig();
   const enhancers = cfg?.promptEnhancers ?? [];
   const [enhancerId, setEnhancerId] = useState("");
@@ -36,7 +38,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
   const run = async () => {
     if (!value.trim() || busy) return;
     if (enhancers.length === 0) {
-      notify("未配置提示词加强模型：请到「设置」页添加");
+      notify(t("未配置提示词加强模型：请到「设置」页添加"));
       return;
     }
     setBusy(true);
@@ -70,7 +72,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
         <PxSelect
           className="enhance-style"
           value={style}
-          options={ENHANCE_STYLES.map((s) => ({ value: s.id, label: s.label }))}
+          options={ENHANCE_STYLES.map((s) => ({ value: s.id, label: t(s.label) }))}
           onChange={setStyle}
         />
         {enhancers.length > 1 && (
@@ -85,42 +87,42 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
           type="button"
           className="px-btn mini enhance-btn"
           disabled={busy || !value.trim()}
-          title={enhancers.length ? `用「${enhancers.find((e) => e.id === (enhancerId || enhancers[0]?.id))?.name}」优化` : "先到「设置」页添加提示词加强模型"}
+          title={enhancers.length ? t("用「{name}」优化", { name: enhancers.find((e) => e.id === (enhancerId || enhancers[0]?.id))?.name ?? "" }) : t("先到「设置」页添加提示词加强模型")}
           onClick={run}
         >
-          <Wand2 size={12} /> {busy ? "优化中…" : "优化提示词"}
+          <Wand2 size={12} /> {busy ? t("优化中…") : t("优化提示词")}
         </button>
       </div>
 
       {result && (
         <div className="enhance-panel">
           <div className="enhance-head">
-            <span>由「{result.enhancerName}」按「{result.styleLabel}」优化，选用哪一版？（原文不会被覆盖）</span>
-            <IconBtn title="关闭对比" onClick={() => setResult(null)}>
+            <span>{t("由「{enhancer}」按「{style}」优化，选用哪一版？（原文不会被覆盖）", { enhancer: result.enhancerName, style: t(result.styleLabel) })}</span>
+            <IconBtn title={t("关闭对比")} onClick={() => setResult(null)}>
               <X size={14} />
             </IconBtn>
           </div>
           <div className="enhance-grid">
             <div className="enhance-block">
-              <div className="enhance-tag">原提示词</div>
+              <div className="enhance-tag">{t("原提示词")}</div>
               <div className="enhance-text">{result.original}</div>
               <button
                 type="button"
                 className={`px-btn mini ${value === result.original ? "accent" : ""}`}
                 onClick={() => onChange(result.original)}
               >
-                {value === result.original ? "当前使用中" : "用原提示词"}
+                {value === result.original ? t("当前使用中") : t("用原提示词")}
               </button>
             </div>
             <div className="enhance-block">
-              <div className="enhance-tag new">优化后</div>
+              <div className="enhance-tag new">{t("优化后")}</div>
               <div className="enhance-text">{result.enhanced}</div>
               <button
                 type="button"
                 className={`px-btn mini ${value === result.enhanced ? "accent" : ""}`}
                 onClick={() => onChange(result.enhanced)}
               >
-                {value === result.enhanced ? "当前使用中" : "用优化后的"}
+                {value === result.enhanced ? t("当前使用中") : t("用优化后的")}
               </button>
             </div>
           </div>

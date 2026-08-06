@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ImagePlus, X } from "lucide-react";
 import { api, frameImageUrl, materialImageUrl, type Frame, type Material } from "../api";
+import { useT } from "../i18n";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 
@@ -23,6 +24,7 @@ interface Props {
  * 选中显示缩略图 + 清除按钮。
  */
 export default function ReferencePicker({ value, onChange, showFrames, projectId }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"materials" | "frames">("materials");
   const [mats, setMats] = useState<Material[] | null>(null);
@@ -33,10 +35,10 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
   useEffect(() => {
     if (!open) return;
     if (tab === "materials" && mats === null) {
-      api.listMaterials().then(setMats).catch((e) => notify(`加载素材库失败: ${e.message}`));
+      api.listMaterials().then(setMats).catch((e) => notify(t("加载素材库失败: {msg}", { msg: (e as Error).message })));
     }
     if (tab === "frames" && frames === null && projectId) {
-      api.getFrames(projectId).then(setFrames).catch((e) => notify(`加载项目帧失败: ${e.message}`));
+      api.getFrames(projectId).then(setFrames).catch((e) => notify(t("加载项目帧失败: {msg}", { msg: (e as Error).message })));
     }
   }, [open, tab, mats, frames, projectId]);
 
@@ -50,18 +52,18 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
 
   return (
     <div className="form-row">
-      <label>引用图片（可选，模板占位符 {"{reference}"}）</label>
+      <label>{t("引用图片（可选，模板占位符 {reference}）")}</label>
       {value == null ? (
         <div className="file-drop" onClick={() => setOpen((o) => !o)}>
           <span className="ref-empty">
-            <ImagePlus size={16} /> 选择引用图
+            <ImagePlus size={16} /> {t("选择引用图")}
           </span>
         </div>
       ) : (
         <div className="ref-selected">
-          <img src={thumb!} alt="引用图" draggable={false} />
-          <span className="ref-kind">{value.kind === "material" ? "素材" : "项目帧"}</span>
-          <IconBtn title="清除引用图" onClick={() => onChange(null)}>
+          <img src={thumb!} alt={t("引用图")} draggable={false} />
+          <span className="ref-kind">{value.kind === "material" ? t("素材") : t("项目帧")}</span>
+          <IconBtn title={t("清除引用图")} onClick={() => onChange(null)}>
             <X size={14} />
           </IconBtn>
         </div>
@@ -71,20 +73,20 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
         <div className="ref-panel">
           <div className="import-tabs">
             <button type="button" className={`tab ${tab === "materials" ? "active" : ""}`} onClick={() => setTab("materials")}>
-              素材库
+              {t("素材库")}
             </button>
             {showFrames && (
               <button type="button" className={`tab ${tab === "frames" ? "active" : ""}`} onClick={() => setTab("frames")}>
-                项目帧
+                {t("项目帧")}
               </button>
             )}
           </div>
           <div className="mat-pick-grid ref-grid">
             {tab === "materials" ? (
               mats === null ? (
-                <div className="empty">加载中…</div>
+                <div className="empty">{t("加载中…")}</div>
               ) : mats.length === 0 ? (
-                <div className="empty">素材库为空</div>
+                <div className="empty">{t("素材库为空")}</div>
               ) : (
                 mats.map((m) => (
                   <div key={m.id} className="mat-pick" title={m.name} onClick={() => pick({ kind: "material", id: m.id })}>
@@ -94,9 +96,9 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
                 ))
               )
             ) : frames === null ? (
-              <div className="empty">加载中…</div>
+              <div className="empty">{t("加载中…")}</div>
             ) : frames.length === 0 ? (
-              <div className="empty">项目还没有帧</div>
+              <div className="empty">{t("项目还没有帧")}</div>
             ) : (
               frames.map((f, i) => (
                 <div key={f.id} className="mat-pick" title={`#${i + 1}`} onClick={() => pick({ kind: "frame", id: f.id })}>

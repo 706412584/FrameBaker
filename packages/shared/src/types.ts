@@ -276,7 +276,7 @@ export const WS_EVENTS = [
 export type WSEventType = (typeof WS_EVENTS)[number];
 
 /** 服务端 settings 表白名单 key（PUT /api/settings/:key 校验用） */
-export const SETTING_KEYS = ["layout", "theme", "genProviders", "matting", "promptEnhancers"] as const;
+export const SETTING_KEYS = ["layout", "theme", "lang", "genProviders", "matting", "promptEnhancers"] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 export interface WSMessage<T = unknown> {

@@ -1,10 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, CircleAlert, Info } from "lucide-react";
 import { dismissNotice, settleConfirm, useNoticeState } from "../notice";
+import { useT } from "../i18n";
 
 /** 全局通知条 + 确认弹窗（挂载在 App 根部；像素风，替代浏览器默认弹窗） */
 export default function AppModals() {
   const { notices, confirm } = useNoticeState();
+  const t = useT();
 
   return (
     <>
@@ -50,7 +52,7 @@ export default function AppModals() {
               </div>
               <div className="modal-actions">
                 <button type="button" className="px-btn" onClick={() => settleConfirm(false)}>
-                  取消
+                  {t("取消")}
                 </button>
                 <motion.button
                   type="button"
@@ -62,7 +64,7 @@ export default function AppModals() {
                     if (e.key === "Enter") settleConfirm(true);
                   }}
                 >
-                  确定
+                  {t("确定")}
                 </motion.button>
               </div>
             </motion.div>

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Crop, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialImageUrl, type Material, type Project } from "../api";
+import { getLocale, useT } from "../i18n";
 import { notify } from "../notice";
 import { useServerConfig } from "../config";
 import IconBtn from "./IconBtn";
@@ -19,6 +20,7 @@ interface Props {
 
 /** 素材详情：原图/抠图对比滑杆 + 抠图/还原/导入/删除 */
 export default function MaterialModal({ material: m, v, onClose, onChanged, onToast }: Props) {
+  const t = useT();
   const [pos, setPos] = useState(55);
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -59,14 +61,14 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const doMatting = () =>
     run(async () => {
       await api.matteMaterial(m.id);
-      onToast("抠图任务已加入队列");
+      onToast(t("抠图任务已加入队列"));
     });
 
   const doUnmatting = () =>
     run(async () => {
       await api.unmatteMaterial(m.id);
       onChanged();
-      onToast("已还原为原图");
+      onToast(t("已还原为原图"));
     });
 
   // 打开剪裁：取当前显示图对应槽位（processed 优先），fetch 成 blob 进剪裁工具
@@ -74,7 +76,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
     run(async () => {
       const slot = m.processed_path ? "processed" : "raw";
       const res = await fetch(materialImageUrl(m.id, v, slot));
-      if (!res.ok) throw new Error("读取素材图片失败");
+      if (!res.ok) throw new Error(t("读取素材图片失败"));
       setCrop({ blob: await res.blob(), slot });
     });
 
@@ -84,20 +86,20 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       await api.replaceMaterialImage(m.id, blob, crop.slot);
       setCrop(null);
       onChanged();
-      onToast("剪裁完成");
+      onToast(t("剪裁完成"));
     });
 
   const doDelete = () =>
     run(async () => {
       await api.batchDeleteMaterials([m.id]);
       onChanged();
-      onToast("已删除素材");
+      onToast(t("已删除素材"));
       onClose();
     });
 
   const openImport = () => {
     if (!showImport && projects === null) {
-      api.listProjects().then(setProjects).catch((e) => notify(`加载项目失败: ${e.message}`));
+      api.listProjects().then(setProjects).catch((e) => notify(t("加载项目失败: {msg}", { msg: e.message })));
     }
     setShowImport((s) => !s);
   };
@@ -105,7 +107,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const doImport = (projectId: string) =>
     run(async () => {
       const r = await api.importMaterial(m.id, projectId, count);
-      onToast(`已导入 ${r.count} 帧到项目`);
+      onToast(t("已导入 {count} 帧到项目", { count: r.count }));
       setShowImport(false);
     });
 
@@ -122,7 +124,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       >
         <div className="form-inline">
           <h2 style={{ flex: 1 }}>{m.name}</h2>
-          <IconBtn onClick={onClose} title="关闭">
+          <IconBtn onClick={onClose} title={t("关闭")}>
             <X size={16} />
           </IconBtn>
         </div>
@@ -139,14 +141,14 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             if (e.buttons & 1) updatePos(e);
           }}
         >
-          <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt="原图" draggable={false} />
+          <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={t("原图")} draggable={false} />
           {m.processed_path ? (
             <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-              <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt="抠图后" draggable={false} />
+              <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("抠图后")} draggable={false} />
             </div>
           ) : (
             <div className="cmp-clip cmp-placeholder" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-              <span>未抠图</span>
+              <span>{t("未抠图")}</span>
             </div>
           )}
           <div className="cmp-divider" style={{ left: `${pos}%` }}>
@@ -154,21 +156,21 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               <MoveHorizontal size={12} />
             </span>
           </div>
-          <span className="cmp-tag left">原图</span>
-          <span className="cmp-tag right">{m.processed_path ? "抠图后" : "未抠图"}</span>
+          <span className="cmp-tag left">{t("原图")}</span>
+          <span className="cmp-tag right">{m.processed_path ? t("抠图后") : t("未抠图")}</span>
         </div>
 
         <div className="mat-meta">
-          <span>来源 {m.source}</span>
-          <span>{m.status === "matted" ? "已抠图" : "原图"}</span>
-          <span>{new Date(m.created_at).toLocaleString("zh-CN")}</span>
+          <span>{t("来源")} {m.source}</span>
+          <span>{m.status === "matted" ? t("已抠图") : t("原图")}</span>
+          <span>{new Date(m.created_at).toLocaleString(getLocale())}</span>
           <span className={`engine-status ${engineAvailable ? "ok" : "bad"}`}>
             <span className="dot" />
             {engine == null
-              ? "引擎检测中…"
+              ? t("引擎检测中…")
               : engineAvailable
-                ? `引擎: rembg/${cfg!.matting.model}`
-                : "未安装抠图引擎，抠图将仅复制原图（scripts/setup_matting.sh，Windows 用 .ps1）"}
+                ? t("引擎: rembg/{model}", { model: cfg!.matting.model })
+                : t("未安装抠图引擎，抠图将仅复制原图（scripts/setup_matting.sh，Windows 用 .ps1）")}
           </span>
           {prompt && <span className="mat-prompt">prompt: {prompt}</span>}
         </div>
@@ -181,52 +183,52 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             disabled={busy}
             onClick={doMatting}
           >
-            <Wand2 size={14} /> {m.status === "matted" ? "重新抠图" : "执行抠图"}
+            <Wand2 size={14} /> {m.status === "matted" ? t("重新抠图") : t("执行抠图")}
           </motion.button>
           {m.status === "matted" && (
             <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={doUnmatting}>
-              <Undo2 size={14} /> 还原原图
+              <Undo2 size={14} /> {t("还原原图")}
             </motion.button>
           )}
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
-            <Crop size={14} /> 剪裁
+            <Crop size={14} /> {t("剪裁")}
           </motion.button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.95 }}
             className="px-btn"
             disabled={busy}
-            title="多宫格精灵图按行×列逐格切成独立素材"
+            title={t("多宫格精灵图按行×列逐格切成独立素材")}
             onClick={() => setShowSplit(true)}
           >
-            <Grid3x3 size={14} /> 网格切分
+            <Grid3x3 size={14} /> {t("网格切分")}
           </motion.button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.95 }}
             className="px-btn"
             disabled={busy}
-            title="以当前素材为引用图，按动作预设（待机/走路/奔跑…）逐动作生成帧序列素材"
+            title={t("以当前素材为引用图，按动作预设（待机/走路/奔跑…）逐动作生成帧序列素材")}
             onClick={() => setShowActions(true)}
           >
-            <PersonStanding size={14} /> 多动作生成
+            <PersonStanding size={14} /> {t("多动作生成")}
           </motion.button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy} onClick={openImport}>
-            <Send size={14} /> 导入到项目
+            <Send size={14} /> {t("导入到项目")}
           </motion.button>
           <div style={{ flex: 1 }} />
           {confirmingDelete ? (
             <span className="batch-confirm">
-              确认删除？
-              <IconBtn className="danger" title="确认删除" disabled={busy} onClick={doDelete}>
+              {t("确认删除？")}
+              <IconBtn className="danger" title={t("确认删除")} disabled={busy} onClick={doDelete}>
                 <Check size={14} />
               </IconBtn>
-              <IconBtn title="放弃" disabled={busy} onClick={() => setConfirmingDelete(false)}>
+              <IconBtn title={t("放弃")} disabled={busy} onClick={() => setConfirmingDelete(false)}>
                 <X size={14} />
               </IconBtn>
             </span>
           ) : (
-            <IconBtn className="danger" title="删除素材" disabled={busy} onClick={() => setConfirmingDelete(true)}>
+            <IconBtn className="danger" title={t("删除素材")} disabled={busy} onClick={() => setConfirmingDelete(true)}>
               <Trash2 size={15} />
             </IconBtn>
           )}
@@ -236,7 +238,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           <div className="mat-import">
             <div className="form-inline">
               <label className="px-check">
-                复制帧数
+                {t("复制帧数")}
                 <input
                   className="px-input num"
                   type="number"
@@ -248,15 +250,15 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               </label>
             </div>
             {projects === null ? (
-              <div className="empty">加载项目中…</div>
+              <div className="empty">{t("加载项目中…")}</div>
             ) : projects.length === 0 ? (
-              <div className="empty">还没有项目，请先到「项目」页新建</div>
+              <div className="empty">{t("还没有项目，请先到「项目」页新建")}</div>
             ) : (
               <div className="picker-list">
                 {projects.map((p) => (
                   <button key={p.id} type="button" className="picker-row" disabled={busy} onClick={() => doImport(p.id)}>
                     <span className="picker-name">{p.name}</span>
-                    <span className="picker-meta">{p.frame_count} 帧</span>
+                    <span className="picker-meta">{t("{count} 帧", { count: p.frame_count ?? 0 })}</span>
                   </button>
                 ))}
               </div>
@@ -270,7 +272,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             <CropModal
               image={crop.blob}
               title={m.name}
-              subtitle={`作用于：${crop.slot === "processed" ? "抠图后" : "原图"}`}
+              subtitle={t("作用于：{slot}", { slot: crop.slot === "processed" ? t("抠图后") : t("原图") })}
               onConfirm={doCrop}
               onClose={() => setCrop(null)}
             />

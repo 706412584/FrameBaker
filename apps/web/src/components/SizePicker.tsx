@@ -1,5 +1,6 @@
 import { GEN_SIZE_PRESETS } from "@framebaker/shared";
 import { useServerConfig } from "../config";
+import { useT } from "../i18n";
 import PxSelect from "./PxSelect";
 
 interface Props {
@@ -13,17 +14,18 @@ interface Props {
  * 空值 = 用 provider 在设置页配的 apiSize；CLI 无尺寸概念，不渲染
  */
 export default function SizePicker({ providerId, value, onChange }: Props) {
+  const t = useT();
   const cfg = useServerConfig();
   const providers = cfg?.gen.providers ?? [];
   const provider = providers.find((p) => p.id === providerId) ?? providers.find((p) => p.configured) ?? providers[0];
   if (!provider || provider.type === "cli") return null;
-  const options = GEN_SIZE_PRESETS[provider.type];
+  const options = GEN_SIZE_PRESETS[provider.type].map((o) => ({ ...o, label: t(o.label) }));
   // 切换 provider 类型后旧值可能不在新档位里，按空（默认）处理
   const current = options.some((o) => o.value === value) ? value : "";
 
   return (
     <div className="form-row">
-      <label>尺寸（留默认 = 用 provider 在「设置」页配的尺寸）</label>
+      <label>{t("尺寸（留默认 = 用 provider 在「设置」页配的尺寸）")}</label>
       <PxSelect value={current} options={options} onChange={onChange} />
     </div>
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Crop, Grid3x3, Layers, Maximize, Minus, Plus, Scan, X } from "lucide-react";
+import { useT } from "../i18n";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
 import { notify } from "../notice";
 import type { CropRect } from "../imageops/ops";
@@ -34,8 +35,8 @@ type DragMode =
 const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 
 /** 宽高比锁定选项（null = 自由） */
-const RATIOS: { label: string; value: number | null }[] = [
-  { label: "自由", value: null },
+const RATIO_VALUES: { labelKey?: string; label: string; value: number | null }[] = [
+  { labelKey: "自由", label: "自由", value: null },
   { label: "1:1", value: 1 },
   { label: "4:3", value: 4 / 3 },
   { label: "16:9", value: 16 / 9 },
@@ -68,14 +69,19 @@ function clampRect(r: CropRect, imgW: number, imgH: number): CropRect {
 }
 
 /** 像素图剪裁工具：整数像素框选 + 缩放/网格/自动透明边，重活（扫描/编码）走 imageops worker */
-export default function CropModal({ image, title = "剪裁图片", subtitle, onConfirm, onSkip, onConfirmAll, onTrimAll, remaining = 0, onClose }: Props) {
+export default function CropModal({ image, title, subtitle, onConfirm, onSkip, onConfirmAll, onTrimAll, remaining = 0, onClose }: Props) {
+  const t = useT();
+  const ratios = useMemo(
+    () => RATIO_VALUES.map((r) => ({ ...r, label: r.labelKey ? t(r.labelKey) : r.label })),
+    [t]
+  );
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [rect, setRect] = useState<CropRect | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showGrid, setShowGrid] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [busyText, setBusyText] = useState("剪裁中…");
+  const [busyText, setBusyText] = useState("");
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -141,14 +147,14 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
         }
         if (alive) setRect(bounds ?? { x: 0, y: 0, w: b.width, h: b.height });
       } catch (e) {
-        if (alive) notify(`图片解码失败: ${(e as Error).message}`);
+        if (alive) notify(t("图片解码失败: {msg}", { msg: (e as Error).message }));
       }
     })();
     return () => {
       alive = false;
       bmp?.close();
     };
-  }, [image, fitView]);
+  }, [image, fitView, t]);
 
   // ---- 画布尺寸跟随容器（ResizeObserver），初始适配视图 ----
   useEffect(() => {
@@ -434,7 +440,7 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
       const bounds = await findOpaqueBounds(image);
       if (bitmap) setRect(bounds ?? { x: 0, y: 0, w: bitmap.width, h: bitmap.height });
     } catch (e) {
-      notify(`自动框选失败: ${(e as Error).message}`);
+      notify(t("自动框选失败: {msg}", { msg: (e as Error).message }));
     }
   };
 
@@ -467,13 +473,13 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
 
   const doConfirm = async () => {
     if (!rect || busy) return;
-    setBusyText("剪裁中…");
+    setBusyText(t("剪裁中…"));
     setBusy(true);
     try {
       const blob = await cropImage(image, rect);
       await onConfirm(blob);
     } catch (e) {
-      notify(`剪裁失败: ${(e as Error).message}`);
+      notify(t("剪裁失败: {msg}", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -482,7 +488,7 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
   /** 「应用到剩余 N 张」：把当前框交给队列批量处理（hook 内逐张求交集），结束后队列关闭 */
   const doConfirmAll = async () => {
     if (!rect || busy || !onConfirmAll) return;
-    setBusyText("批量剪裁中…");
+    setBusyText(t("批量剪裁中…"));
     setBusy(true);
     try {
       await onConfirmAll(rect);
@@ -494,7 +500,7 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
   /** 「剩余全部 trim 透明边」：无需当前框，直接交给队列批量处理 */
   const doTrimAll = async () => {
     if (busy || !onTrimAll) return;
-    setBusyText("批量剪裁中…");
+    setBusyText(t("批量剪裁中…"));
     setBusy(true);
     try {
       await onTrimAll();
@@ -566,10 +572,10 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
       >
         <div className="form-inline">
           <h2 style={{ flex: 1 }}>
-            {title}
+            {title ?? t("剪裁图片")}
             {subtitle && <span className="crop-sub"> · {subtitle}</span>}
           </h2>
-          <IconBtn onClick={onClose} title="关闭">
+          <IconBtn onClick={onClose} title={t("关闭")}>
             <X size={16} />
           </IconBtn>
         </div>
@@ -586,41 +592,43 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
 
         <div className="crop-toolbar">
           <span className="crop-nums">
-            X {num(rect?.x ?? 0, (n) => patchRect({ x: n }), imgW - 1)}Y {num(rect?.y ?? 0, (n) => patchRect({ y: n }), imgH - 1)}宽{" "}
-            {num(rect?.w ?? 0, (n) => patchRect({ w: n }), imgW)}高 {num(rect?.h ?? 0, (n) => patchRect({ h: n }), imgH)}
+            X {num(rect?.x ?? 0, (n) => patchRect({ x: n }), imgW - 1)}Y {num(rect?.y ?? 0, (n) => patchRect({ y: n }), imgH - 1)}
+            {t("宽")}{" "}
+            {num(rect?.w ?? 0, (n) => patchRect({ w: n }), imgW)}
+            {t("高")} {num(rect?.h ?? 0, (n) => patchRect({ h: n }), imgH)}
           </span>
           <span className="crop-size">
-            图像 {imgW}×{imgH}
+            {t("图像 {w}×{h}", { w: imgW, h: imgH })}
           </span>
         </div>
 
         <div className="crop-toolbar">
-          <IconBtn title="缩小" onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))}>
+          <IconBtn title={t("缩小")} onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))}>
             <Minus size={14} />
           </IconBtn>
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <IconBtn title="放大" onClick={() => setZoom((z) => Math.min(64, z * 1.25))}>
+          <IconBtn title={t("放大")} onClick={() => setZoom((z) => Math.min(64, z * 1.25))}>
             <Plus size={14} />
           </IconBtn>
-          <IconBtn title="适应窗口" onClick={() => bitmap && fitView(canvasSize.w, canvasSize.h, imgW, imgH)}>
+          <IconBtn title={t("适应窗口")} onClick={() => bitmap && fitView(canvasSize.w, canvasSize.h, imgW, imgH)}>
             <Maximize size={14} />
           </IconBtn>
-          <IconBtn className={showGrid ? "on" : ""} title="像素网格" onClick={() => setShowGrid((s) => !s)}>
+          <IconBtn className={showGrid ? "on" : ""} title={t("像素网格")} onClick={() => setShowGrid((s) => !s)}>
             <Grid3x3 size={14} />
           </IconBtn>
           <span className="tb-sep" />
-          <IconBtn title="自动框选非透明区域" onClick={resetBounds}>
+          <IconBtn title={t("自动框选非透明区域")} onClick={resetBounds}>
             <Scan size={14} />
           </IconBtn>
-          <IconBtn title="全图" onClick={fullImage}>
+          <IconBtn title={t("全图")} onClick={fullImage}>
             <Crop size={14} />
           </IconBtn>
           <span className="tb-sep" />
-          {RATIOS.map((r) => (
+          {ratios.map((r) => (
             <IconBtn
-              key={r.label}
+              key={String(r.value ?? "free")}
               className={ratio === r.value ? "on" : ""}
-              title={`宽高比锁定：${r.label}`}
+              title={t("宽高比锁定：{label}", { label: r.label })}
               style={{ width: "auto", padding: "0 6px", fontSize: 11 }}
               onClick={() => changeRatio(r.value)}
             >
@@ -631,34 +639,34 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
           {SIZE_PRESETS.map((s) => (
             <IconBtn
               key={s}
-              title={`预设 ${s}×${s}（居中）`}
+              title={t("预设 {s}×{s}（居中）", { s })}
               style={{ width: "auto", padding: "0 6px", fontSize: 11 }}
               onClick={() => applyPreset(s)}
             >
               {s}
             </IconBtn>
           ))}
-          <span className="crop-hint">拖动框选 · 滚轮缩放 · Alt/中键平移 · 方向键微调</span>
+          <span className="crop-hint">{t("拖动框选 · 滚轮缩放 · Alt/中键平移 · 方向键微调")}</span>
         </div>
 
         <div className="modal-actions">
           {onSkip && (
             <button type="button" className="px-btn" disabled={busy} onClick={onSkip}>
-              跳过本张
+              {t("跳过本张")}
             </button>
           )}
           {onTrimAll && remaining > 0 && (
             <button type="button" className="px-btn" disabled={busy} onClick={doTrimAll}>
-              <Scan size={14} /> 剩余 {remaining} 张 trim 透明边
+              <Scan size={14} /> {t("剩余 {remaining} 张 trim 透明边", { remaining })}
             </button>
           )}
           {onConfirmAll && remaining > 0 && (
             <button type="button" className="px-btn" disabled={!rect || busy} onClick={doConfirmAll}>
-              <Layers size={14} /> 应用到剩余 {remaining} 张
+              <Layers size={14} /> {t("应用到剩余 {remaining} 张", { remaining })}
             </button>
           )}
           <button type="button" className="px-btn" disabled={busy} onClick={onClose}>
-            取消
+            {t("取消")}
           </button>
           <motion.button
             type="button"
@@ -667,7 +675,8 @@ export default function CropModal({ image, title = "剪裁图片", subtitle, onC
             disabled={!rect || busy}
             onClick={doConfirm}
           >
-            <Crop size={14} /> {busy ? busyText : `确认剪裁 ${rect ? `${rect.w}×${rect.h}` : ""}`}
+            <Crop size={14} />{" "}
+            {busy ? busyText : rect ? t("确认剪裁 {w}×{h}", { w: rect.w, h: rect.h }) : t("确认剪裁")}
           </motion.button>
         </div>
       </motion.div>

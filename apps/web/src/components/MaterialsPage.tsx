@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, Package, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialImageUrl, wsClient, type Material } from "../api";
+import { getLocale, useT } from "../i18n";
 import { notify } from "../notice";
 import { themedSourceColor, useTheme } from "../theme";
 import MaterialImportModal from "./MaterialImportModal";
@@ -13,6 +14,7 @@ import IconBtn from "./IconBtn";
 const isMac = /macintosh|mac os/i.test(navigator.userAgent);
 
 export default function MaterialsPage() {
+  const t = useT();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
@@ -96,9 +98,9 @@ export default function MaterialsPage() {
       setSelectedIds(new Set());
       setConfirmingDelete(false);
       await load();
-      toast(`已删除 ${r.deleted} 个素材`);
+      toast(t("已删除 {count} 个素材", { count: r.deleted }));
     } catch (e) {
-      notify(`删除失败: ${(e as Error).message}`);
+      notify(t("删除失败: {msg}", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -110,9 +112,9 @@ export default function MaterialsPage() {
     setBusy(true);
     try {
       const r = await api.batchMatteMaterials(ids);
-      toast(`已加入 ${r.count} 个抠图任务`);
+      toast(t("已加入 {count} 个抠图任务", { count: r.count }));
     } catch (e) {
-      notify(`抠图失败: ${(e as Error).message}`);
+      notify(t("抠图失败: {msg}", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -126,9 +128,9 @@ export default function MaterialsPage() {
       const r = await api.batchImportMaterials(ids, projectId);
       setShowPicker(false);
       setSelectedIds(new Set());
-      toast(`已导入 ${r.count} 个素材到项目`);
+      toast(t("已导入 {count} 个素材到项目", { count: r.count }));
     } catch (e) {
-      notify(`导入失败: ${(e as Error).message}`);
+      notify(t("导入失败: {msg}", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -140,11 +142,13 @@ export default function MaterialsPage() {
     <div className="page">
       <header className="home-header">
         <h1>
-          <Package size={28} /> 素材库
+          <Package size={28} /> {t("素材库")}
         </h1>
         <p className="subtitle">
-          {materials.length} 个素材 · 生成 / 上传 → 抠图 → 对比确认 → 导入项目 · {isMac ? "Cmd" : "Ctrl"}+点击 多选 ·
-          Shift+点击 范围选
+          {t("{count} 个素材 · 生成 / 上传 → 抠图 → 对比确认 → 导入项目 · {mod}+点击 多选 · Shift+点击 范围选", {
+            count: materials.length,
+            mod: isMac ? "Cmd" : "Ctrl",
+          })}
         </p>
         <div className="mat-actions">
           <motion.button
@@ -154,7 +158,7 @@ export default function MaterialsPage() {
             className="px-btn"
             onClick={() => setImportTab("upload")}
           >
-            <Upload size={16} /> 上传素材
+            <Upload size={16} /> {t("上传素材")}
           </motion.button>
           <motion.button
             type="button"
@@ -163,7 +167,7 @@ export default function MaterialsPage() {
             className="px-btn accent"
             onClick={() => setImportTab("cli")}
           >
-            <Sparkles size={16} /> AI 生成
+            <Sparkles size={16} /> {t("AI 生成")}
           </motion.button>
         </div>
       </header>
@@ -171,7 +175,7 @@ export default function MaterialsPage() {
       {materials.length === 0 ? (
         <div className="empty">
           <Package size={32} />
-          <p>素材库为空，先上传或 AI 生成一些素材吧</p>
+          <p>{t("素材库为空，先上传或 AI 生成一些素材吧")}</p>
         </div>
       ) : (
         <div className="project-grid">
@@ -189,7 +193,7 @@ export default function MaterialsPage() {
                 <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
                 <span
                   className={`mat-check ${selectedIds.has(m.id) ? "on" : ""}`}
-                  title="选择"
+                  title={t("选择")}
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleOne(m.id);
@@ -205,13 +209,13 @@ export default function MaterialsPage() {
                 </span>
                 <span
                   className={`mat-dot ${m.status}`}
-                  title={m.status === "matted" ? "已抠图" : "原图"}
+                  title={m.status === "matted" ? t("已抠图") : t("原图")}
                 />
               </div>
               <div className="info">
                 <div className="name">{m.name}</div>
                 <div className="meta">
-                  {m.status === "matted" ? "已抠图" : "原图"} · {new Date(m.created_at).toLocaleString("zh-CN")}
+                  {m.status === "matted" ? t("已抠图") : t("原图")} · {new Date(m.created_at).toLocaleString(getLocale())}
                 </div>
               </div>
             </motion.div>
@@ -230,31 +234,31 @@ export default function MaterialsPage() {
               exit={{ opacity: 0, y: -14 }}
               transition={{ duration: 0.15 }}
             >
-              <span className="batch-count">已选 {selectedIds.size} 个素材</span>
+              <span className="batch-count">{t("已选 {count} 个素材", { count: selectedIds.size })}</span>
               <span className="tb-sep" />
               {confirmingDelete ? (
                 <span className="batch-confirm">
-                  确认删除？
-                  <IconBtn className="danger" title="确认删除" disabled={busy} onClick={batchDelete}>
+                  {t("确认删除？")}
+                  <IconBtn className="danger" title={t("确认删除")} disabled={busy} onClick={batchDelete}>
                     <Check size={14} />
                   </IconBtn>
-                  <IconBtn title="放弃删除" disabled={busy} onClick={() => setConfirmingDelete(false)}>
+                  <IconBtn title={t("放弃删除")} disabled={busy} onClick={() => setConfirmingDelete(false)}>
                     <X size={14} />
                   </IconBtn>
                 </span>
               ) : (
-                <IconBtn className="danger" title="批量删除" disabled={busy} onClick={() => setConfirmingDelete(true)}>
+                <IconBtn className="danger" title={t("批量删除")} disabled={busy} onClick={() => setConfirmingDelete(true)}>
                   <Trash2 size={14} />
                 </IconBtn>
               )}
-              <IconBtn title="导入到项目" disabled={busy} onClick={() => setShowPicker(true)}>
+              <IconBtn title={t("导入到项目")} disabled={busy} onClick={() => setShowPicker(true)}>
                 <Send size={14} />
               </IconBtn>
-              <IconBtn title="批量抠图（对选中素材执行二次加工）" disabled={busy} onClick={batchMatting}>
+              <IconBtn title={t("批量抠图（对选中素材执行二次加工）")} disabled={busy} onClick={batchMatting}>
                 <Wand2 size={14} />
               </IconBtn>
               <span className="tb-sep" />
-              <IconBtn title="取消选择" disabled={busy} onClick={clearSelection}>
+              <IconBtn title={t("取消选择")} disabled={busy} onClick={clearSelection}>
                 <X size={14} />
               </IconBtn>
             </motion.div>
@@ -292,7 +296,7 @@ export default function MaterialsPage() {
 
       <AnimatePresence>
         {showPicker && (
-          <ProjectPickerModal title="导入到项目" onPick={batchImport} onClose={() => setShowPicker(false)} />
+          <ProjectPickerModal title={t("导入到项目")} onPick={batchImport} onClose={() => setShowPicker(false)} />
         )}
       </AnimatePresence>
     </div>

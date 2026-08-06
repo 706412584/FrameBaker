@@ -4,6 +4,7 @@ import { PersonStanding, X } from "lucide-react";
 import { ACTION_PRESETS } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { useServerConfig } from "../config";
+import { useT } from "../i18n";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
@@ -23,9 +24,10 @@ interface Props {
  * 产出素材按「素材名_动作 #i」命名入库，可再抠图/切分/导入项目
  */
 export default function ActionGenModal({ material: m, v, onClose, onToast }: Props) {
+  const t = useT();
   const slot = m.processed_path ? "processed" : "raw";
   // 去掉拆帧/切分遗留的「 #n」序号作为命名基准（与 GridSplitModal 同款处理）
-  const base = m.name.replace(/\s*#\d+$/, "").trim() || "素材";
+  const base = m.name.replace(/\s*#\d+$/, "").trim() || t("素材");
   const [selected, setSelected] = useState<Set<string>>(() => new Set(["idle", "walk"]));
   const [count, setCount] = useState(4);
   const [extra, setExtra] = useState("");
@@ -70,14 +72,19 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
       }
     }
     if (ok === 0) {
-      notify(`提交失败: ${firstErr ?? "未知错误"}`);
+      notify(t("提交失败: {msg}", { msg: firstErr ?? t("未知错误") }));
       setSubmitting(false);
       return;
     }
     onToast(
       firstErr
-        ? `已入队 ${ok}/${actions.length} 个动作（共 ${ok * count} 帧），部分失败: ${firstErr}`
-        : `已入队 ${ok} 个动作共 ${ok * count} 帧，进度见右侧任务面板`
+        ? t("已入队 {ok}/{total} 个动作（共 {frames} 帧），部分失败: {msg}", {
+            ok,
+            total: actions.length,
+            frames: ok * count,
+            msg: firstErr,
+          })
+        : t("已入队 {ok} 个动作共 {frames} 帧，进度见右侧任务面板", { ok, frames: ok * count })
     );
     onClose();
   };
@@ -92,22 +99,25 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         onClick={(e) => e.stopPropagation()}
       >
         <div className="form-inline">
-          <h2 style={{ flex: 1 }}>多动作生成</h2>
-          <IconBtn onClick={onClose} title="关闭">
+          <h2 style={{ flex: 1 }}>{t("多动作生成")}</h2>
+          <IconBtn onClick={onClose} title={t("关闭")}>
             <X size={16} />
           </IconBtn>
         </div>
 
         <div className="hint">
-          以「{m.name}」为引用图（{slot === "processed" ? "抠图后" : "原图"}），逐动作生成帧序列；产出素材按「{base}
-          _动作 #i」命名入库
+          {t("以「{name}」为引用图（{slot}），逐动作生成帧序列；产出素材按「{base}_动作 #i」命名入库", {
+            name: m.name,
+            slot: slot === "processed" ? t("抠图后") : t("原图"),
+            base,
+          })}
         </div>
 
         {/* 参考图 + 动作预设多选 */}
         <div className="ag-main">
           <div className="ag-ref">
             <img src={materialImageUrl(m.id, v, slot)} alt={m.name} draggable={false} />
-            <span className="ag-ref-tag">参考图</span>
+            <span className="ag-ref-tag">{t("参考图")}</span>
           </div>
           <div className="ag-actions">
             {ACTION_PRESETS.map((a) => (
@@ -119,26 +129,30 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 title={a.prompt}
                 onClick={() => toggle(a.id)}
               >
-                {a.label}
+                {t(a.label)}
               </button>
             ))}
           </div>
         </div>
 
         <div className="form-row">
-          <label>附加描述（可空，拼接到每个动作提示词之后）</label>
+          <label>{t("附加描述（可空，拼接到每个动作提示词之后）")}</label>
           <input
             className="px-input"
             value={extra}
             disabled={submitting}
-            placeholder="例如：holding a sword, facing right, pixel art"
+            placeholder={t("例如：holding a sword, facing right, pixel art")}
             onChange={(e) => setExtra(e.target.value)}
           />
         </div>
 
         <div className="form-row">
           <label>
-            每动作帧数：{count}（{selected.size} 个动作 × {count} 帧 = {selected.size * count} 张）
+            {t("每动作帧数：{count}（{actions} 个动作 × {count} 帧 = {total} 张）", {
+              count,
+              actions: selected.size,
+              total: selected.size * count,
+            })}
           </label>
           <input
             type="range"
@@ -162,7 +176,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
             disabled={selected.size === 0 || submitting}
             onClick={submit}
           >
-            <PersonStanding size={14} /> {submitting ? "提交中…" : `生成 ${selected.size || ""} 个动作`}
+            <PersonStanding size={14} /> {submitting ? t("提交中…") : t("生成 {n} 个动作", { n: selected.size || "" })}
           </motion.button>
         </div>
       </motion.div>

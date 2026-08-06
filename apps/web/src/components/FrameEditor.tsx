@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Texture, type FederatedPointerEvent } from "pixi.js";
 import { frameImageUrl, type Frame, type FramePatch } from "../api";
+import { useT } from "../i18n";
 import { canvasColors, useTheme } from "../theme";
 
 interface Props {
@@ -36,6 +37,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   const pixi = useRef<PixiCtx | null>(null);
   const [ready, setReady] = useState(false);
   const theme = useTheme();
+  const t = useT();
 
   // 供 Pixi 事件回调读取最新值
   const frameRef = useRef<Frame | null>(null);
@@ -262,7 +264,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
 
   return (
     <div className="pixi-wrap" ref={wrapRef}>
-      {!frame && <div className="canvas-empty">暂无帧，点击右上角「导入素材」开始</div>}
+      {!frame && <div className="canvas-empty">{t("暂无帧，点击右上角「导入素材」开始")}</div>}
     </div>
   );
 }

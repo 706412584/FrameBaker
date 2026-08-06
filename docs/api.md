@@ -264,13 +264,13 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 | `project_deleted` | 删除项目 |
 | `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
 | `materials_changed` | 素材上传 / 生成 / 批量删除 |
-| `settings_changed` | 设置写入（layout / theme / genProvider / matting） |
+| `settings_changed` | 设置写入（layout / theme / lang / genProvider / matting） |
 
 前端建议：收到 `frame_updated` / `frames_reordered` / `frames_changed` / `job_done` 后重拉帧列表，收到 `material_updated` / `materials_changed` 后重拉素材列表；断线 3s 重连。
 
 ## 界面偏好 /api/settings
 
-布局（编辑器面板尺寸）、主题模式、生成 provider、抠图配置等持久化在服务端 `settings` 表（SQLite），换浏览器/重启不丢；主题前端以 localStorage 为首屏即时缓存，服务端不可达时静默降级。
+布局（编辑器面板尺寸）、主题模式、界面语言、生成 provider、抠图配置等持久化在服务端 `settings` 表（SQLite），换浏览器/重启不丢；主题与语言前端以 localStorage 为首屏即时缓存，服务端不可达时静默降级。
 
 ### GET /api/settings
 
@@ -280,6 +280,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 {
   "layout": { "sidebarW": 260, "timelineH": 160 },
   "theme": "dark",
+  "lang": "zh",
   "genProviders": [
     {
       "id": "…", "name": "OpenAI", "type": "api",
@@ -295,13 +296,13 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 ### PUT /api/settings/:key
 
 ```json
-// 请求（key 白名单：layout、theme、genProviders、matting；其他 key 返回 400）
+// 请求（key 白名单：layout、theme、lang、genProviders、matting、promptEnhancers；其他 key 返回 400）
 { "value": { "sidebarW": 260, "timelineH": 160 } }
 // 响应
 { "ok": true }
 ```
 
-`theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。写入后广播 `settings_changed` `{ key }`。
+`theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。`lang` 的合法值：`"zh"` / `"en"`。写入后广播 `settings_changed` `{ key }`。
 
 `genProviders`：生成 provider 列表（CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"` | `"dashscope"` | `"gemini"` | `"minimax"`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空；api 为 `1024x1024` 形式，dashscope 为 `2048*2048` 星号形式，gemini/minimax 为宽高比如 `16:9`）。**CLI 为结构化字段**（免手写模板）：`cliBin`（命令，PATH 名或绝对路径）/ `cliPromptArg`（prompt 参数名，留空=位置参数）/ `cliOutputArg`（输出参数名）/ `cliModelArg`（模型参数名，留空不下发）/ `cliReferenceArg`（引用图参数名，留空=不支持引用图）/ `cliExtraArgs`（原样追加的固定参数）。执行 argv = `[cliBin, cliPromptArg?, prompt, cliOutputArg?, output, cliModelArg?+model, cliReferenceArg?+ref, ...extra]`，不经 shell。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底（走遗留模板占位符路径）。
 

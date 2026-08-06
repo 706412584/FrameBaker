@@ -1,5 +1,6 @@
 import type { GenProviderInfo } from "@framebaker/shared";
 import { useServerConfig } from "../config";
+import { useT } from "../i18n";
 import PxSelect from "./PxSelect";
 
 interface Props {
@@ -33,14 +34,15 @@ const TYPE_LABEL: Record<GenProviderInfo["type"], string> = {
 
 /** 生成弹窗共用：provider 选择（设置页可配多个，CLI/API 共存）+ 生成时单独选模型 */
 export default function ProviderModelPicker({ providerId, model, onProviderChange, onModelChange, videoOnly }: Props) {
+  const t = useT();
   const cfg = useServerConfig();
   const providers = (cfg?.gen.providers ?? []).filter((p) => (videoOnly ? p.video : true));
 
   if (cfg && providers.length === 0) {
     return videoOnly ? (
-      <div className="hint warn">无可用的视频生成 provider（支持：CLI / 百炼 / MiniMax），请到「设置」页添加</div>
+      <div className="hint warn">{t("无可用的视频生成 provider（支持：CLI / 百炼 / MiniMax），请到「设置」页添加")}</div>
     ) : (
-      <div className="hint warn">未配置生成方式：请到「设置」页添加生成 provider（CLI / API 可配多个共存）</div>
+      <div className="hint warn">{t("未配置生成方式：请到「设置」页添加生成 provider（CLI / API 可配多个共存）")}</div>
     );
   }
   const provider =
@@ -50,13 +52,13 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
 
   return (
     <div className="form-row">
-      <label>生成 Provider / 模型（在「设置」页管理）</label>
+      <label>{t("生成 Provider / 模型（在「设置」页管理）")}</label>
       <div className="form-inline">
         <PxSelect
           value={provider.id}
           options={providers.map((p) => ({
             value: p.id,
-            label: `${p.name}（${TYPE_LABEL[p.type]}${p.configured ? "" : "·未配齐"}）`,
+            label: `${p.name}（${t(TYPE_LABEL[p.type])}${p.configured ? "" : t("·未配齐")}）`,
             disabled: !p.configured,
           }))}
           onChange={(id) => {
@@ -70,7 +72,7 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
           ) : (
             <input
               className="px-input"
-              placeholder="模型名（必填）"
+              placeholder={t("模型名（必填）")}
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
             />
@@ -78,7 +80,7 @@ export default function ProviderModelPicker({ providerId, model, onProviderChang
         ) : (
           <input
             className="px-input"
-            placeholder="模型（按「模型参数名」下发，可空）"
+            placeholder={t("模型（按「模型参数名」下发，可空）")}
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
           />

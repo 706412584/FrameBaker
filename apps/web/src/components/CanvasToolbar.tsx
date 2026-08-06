@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Crosshair, Crop, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
 import type { Frame, FramePatch } from "../api";
+import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 
 interface Props {
@@ -29,7 +30,6 @@ interface TransformStepperProps {
   onReset: () => void;
 }
 
-const EDIT_ONLY_HINT = "编辑模式下可用";
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const round = (value: number, digits = 3) => {
   const factor = 10 ** digits;
@@ -43,16 +43,17 @@ function normalizeRotation(value: number) {
 
 /** 紧凑的变换步进器；点击数值可复位该属性 */
 function TransformStepper({ label, value, disabled, onMinus, onPlus, onReset }: TransformStepperProps) {
+  const t = useT();
   return (
     <span className="transform-stepper">
-      <span className="transform-name">{label}</span>
-      <IconBtn disabled={disabled} onClick={onMinus} title={`${label}减少`}>
+      <span className="transform-name">{t(label)}</span>
+      <IconBtn disabled={disabled} onClick={onMinus} title={t("{label}减少", { label: t(label) })}>
         <Minus size={12} />
       </IconBtn>
-      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={`复位${label}`}>
+      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={t("复位{label}", { label: t(label) })}>
         {value}
       </button>
-      <IconBtn disabled={disabled} onClick={onPlus} title={`${label}增加`}>
+      <IconBtn disabled={disabled} onClick={onPlus} title={t("{label}增加", { label: t(label) })}>
         <Plus size={12} />
       </IconBtn>
     </span>
@@ -74,9 +75,11 @@ export default function CanvasToolbar({
   onCrop,
   onPatch,
 }: Props) {
+  const t = useT();
   const fileRef = useRef<HTMLInputElement>(null);
   const editMode = mode === "edit";
-  const editOnly = (title: string) => (editMode ? title : `${title}（${EDIT_ONLY_HINT}）`);
+  const editOnly = (key: string) =>
+    editMode ? t(key) : t("{title}（{hint}）", { title: t(key), hint: t("编辑模式下可用") });
 
   return (
     <div className="toolbar pixel-bar">
@@ -98,13 +101,13 @@ export default function CanvasToolbar({
       </IconBtn>
       <span className="tb-sep" />
       {/* 视图缩放：编辑/播放都作用于常驻的 Pixi viewport */}
-      <IconBtn onClick={() => onZoomBy(1 / 1.25)} title="缩小">
+      <IconBtn onClick={() => onZoomBy(1 / 1.25)} title={t("缩小")}>
         <ZoomOut size={15} />
       </IconBtn>
-      <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset} title="复位 100%">
+      <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset} title={t("复位 100%")}>
         {Math.round(zoom * 100)}%
       </button>
-      <IconBtn onClick={() => onZoomBy(1.25)} title="放大">
+      <IconBtn onClick={() => onZoomBy(1.25)} title={t("放大")}>
         <ZoomIn size={15} />
       </IconBtn>
       <span className="tb-sep" />

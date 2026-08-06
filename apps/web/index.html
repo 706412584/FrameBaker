@@ -20,6 +20,14 @@
         }
         document.documentElement.dataset.theme = t;
       })();
+      // 首屏前预读界面语言（与 src/i18n.ts 的 LANG_KEY 保持一致），默认中文
+      (function () {
+        var l = null;
+        try {
+          l = localStorage.getItem("framebaker-lang");
+        } catch (e) {}
+        document.documentElement.lang = l === "en" ? "en" : "zh-CN";
+      })();
     </script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>

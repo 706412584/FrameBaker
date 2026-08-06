@@ -4,6 +4,7 @@ import { Grid3x3, X } from "lucide-react";
 import { api, materialImageUrl, type Material } from "../api";
 import { cropImage } from "../imageops/client";
 import { notify } from "../notice";
+import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
 
@@ -28,6 +29,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const [autoMatting, setAutoMatting] = useState(true); // 默认勾选抠图去背
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
+  const t = useT();
 
   const total = rows * cols;
 
@@ -38,20 +40,20 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     let fail = 0;
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
-      if (!res.ok) throw new Error("读取素材图片失败");
+      if (!res.ok) throw new Error(t("读取素材图片失败"));
       const blob = await res.blob();
       const bitmap = await createImageBitmap(blob);
       const W = bitmap.width;
       const H = bitmap.height;
       bitmap.close();
-      if (W < cols || H < rows) throw new Error(`图片 ${W}×${H} 小于网格 ${cols}×${rows}`);
+      if (W < cols || H < rows) throw new Error(t("图片 {w}×{h} 小于网格 {cols}×{rows}", { w: W, h: H, cols, rows }));
       const cw = Math.floor(W / cols);
       const ch = Math.floor(H / rows);
-      const base = m.name.replace(/\s*#\d+$/, "").trim() || "素材";
+      const base = m.name.replace(/\s*#\d+$/, "").trim() || t("素材");
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const i = r * cols + c + 1;
-          setProgress(`切分上传中 ${i}/${total}`);
+          setProgress(t("切分上传中 {i}/{total}", { i, total }));
           try {
             // 等分整数像素，右/下边缘吃掉余数
             const w = c === cols - 1 ? W - cw * c : cw;
@@ -68,10 +70,10 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         }
       }
       onDone();
-      onToast(fail ? `切分完成：成功 ${ok} / 失败 ${fail}` : `已切出 ${ok} 个素材`);
+      onToast(fail ? t("切分完成：成功 {ok} / 失败 {fail}", { ok, fail }) : t("已切出 {ok} 个素材", { ok }));
       onClose();
     } catch (e) {
-      notify(`切分失败: ${(e as Error).message}`);
+      notify(t("切分失败: {msg}", { msg: (e as Error).message }));
       setBusy(false);
       setProgress("");
     }
@@ -87,13 +89,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         onClick={(e) => e.stopPropagation()}
       >
         <div className="form-inline">
-          <h2 style={{ flex: 1 }}>网格切分</h2>
-          <IconBtn onClick={onClose} title="关闭">
+          <h2 style={{ flex: 1 }}>{t("网格切分")}</h2>
+          <IconBtn onClick={onClose} title={t("关闭")}>
             <X size={16} />
           </IconBtn>
         </div>
 
-        <div className="hint">作用于：{slot === "processed" ? "抠图后" : "原图"} · 逐格切成独立素材，原素材保留</div>
+        <div className="hint">
+          {t("作用于：{target} · 逐格切成独立素材，原素材保留", { target: slot === "processed" ? t("抠图后") : t("原图") })}
+        </div>
 
         {/* 网格线预览：行列实时可调 */}
         <div className="gs-wrap">
@@ -108,7 +112,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
 
         <div className="form-inline">
           <label className="px-check">
-            列数
+            {t("列数")}
             <input
               className="px-input num"
               type="number"
@@ -120,7 +124,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             />
           </label>
           <label className="px-check">
-            行数
+            {t("行数")}
             <input
               className="px-input num"
               type="number"
@@ -131,7 +135,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
               onChange={(e) => setRows(clampCell(Number(e.target.value)))}
             />
           </label>
-          <span className="gs-total">共 {total} 格</span>
+          <span className="gs-total">{t("共 {total} 格", { total })}</span>
         </div>
 
         <MattingOption checked={autoMatting} onChange={setAutoMatting} />
@@ -144,7 +148,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             disabled={busy}
             onClick={split}
           >
-            <Grid3x3 size={14} /> {busy ? progress || "切分中…" : `切成 ${total} 个素材`}
+            <Grid3x3 size={14} /> {busy ? progress || t("切分中…") : t("切成 {total} 个素材", { total })}
           </motion.button>
         </div>
       </motion.div>

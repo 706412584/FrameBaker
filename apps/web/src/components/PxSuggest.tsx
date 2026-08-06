@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useT } from "../i18n";
 
 interface Props {
   value: string;
@@ -15,6 +16,7 @@ interface Props {
  * 输入时按子串过滤建议；聚焦/点箭头展开全部（不按当前值过滤）；蒙层点击 / Esc 关闭；点建议项回填
  */
 export default function PxSuggest({ value, suggestions, onChange, placeholder, className = "" }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // 过滤词：仅输入时跟随键入内容；聚焦/点箭头展开时清空（否则已有值会把建议过滤光）
   const [query, setQuery] = useState("");
@@ -53,7 +55,7 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
       <button
         type="button"
         className="px-suggest-toggle"
-        title="展开建议"
+        title={t("展开建议")}
         tabIndex={-1}
         onClick={() => {
           setQuery("");

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CheckCircle2, Clock, ListTodo, X, XCircle } from "lucide-react";
 import { api, wsClient, type Job } from "../api";
+import { useT } from "../i18n";
 
 const TYPE_LABEL: Record<Job["type"], string> = {
   extract_frames: "拆帧",
@@ -19,13 +20,14 @@ const isActive = (j: Job) => j.status === "queued" || j.status === "running";
  * 完成的短暂停留后消失；失败的常驻，可手动关闭。无任务时不渲染。
  */
 export default function JobPanel() {
+  const t = useT();
   const [jobs, setJobs] = useState<Job[]>([]);
   const timers = useRef(new Map<string, number>());
 
   const dismiss = (id: string) => {
-    const t = timers.current.get(id);
-    if (t) {
-      clearTimeout(t);
+    const timer = timers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
       timers.current.delete(id);
     }
     setJobs((prev) => prev.filter((j) => j.id !== id));
@@ -68,7 +70,7 @@ export default function JobPanel() {
     const timerMap = timers.current;
     return () => {
       unsub();
-      timerMap.forEach((t) => clearTimeout(t));
+      timerMap.forEach((timer) => clearTimeout(timer));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -80,10 +82,10 @@ export default function JobPanel() {
     .join(",");
   useEffect(() => {
     if (!activeKey) return;
-    const t = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       activeKey.split(",").forEach((id) => void fetchOne(id));
     }, 3000);
-    return () => window.clearInterval(t);
+    return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
 
@@ -94,8 +96,10 @@ export default function JobPanel() {
     <div className="job-panel pixel-panel">
       <div className="job-panel-head">
         <ListTodo size={13} />
-        <span>任务队列</span>
-        <span className="count">{activeCount > 0 ? `${activeCount} 进行中` : "全部完成"}</span>
+        <span>{t("任务队列")}</span>
+        <span className="count">
+          {activeCount > 0 ? t("{n} 进行中", { n: activeCount }) : t("全部完成")}
+        </span>
       </div>
       <AnimatePresence initial={false}>
         {jobs.map((j) => (
@@ -114,16 +118,16 @@ export default function JobPanel() {
               ) : (
                 <Clock size={13} className="wait" />
               )}
-              <span className="kind">{TYPE_LABEL[j.type] ?? j.type}</span>
+              <span className="kind">{t(TYPE_LABEL[j.type] ?? j.type)}</span>
               <span className="prog" title={j.error ?? j.progress ?? undefined}>
                 {j.status === "done"
-                  ? "完成"
+                  ? t("完成")
                   : j.status === "error"
-                    ? "失败"
-                    : (j.progress ?? (j.status === "queued" ? "排队中" : "处理中"))}
+                    ? t("失败")
+                    : (j.progress ?? (j.status === "queued" ? t("排队中") : t("处理中")))}
               </span>
               {(j.status === "done" || j.status === "error") && (
-                <button type="button" className="dismiss" title="移除" onClick={() => dismiss(j.id)}>
+                <button type="button" className="dismiss" title={t("移除")} onClick={() => dismiss(j.id)}>
                   <X size={12} />
                 </button>
               )}

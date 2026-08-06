@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Star } from "lucide-react";
 import { frameImageUrl, type Frame } from "../api";
+import { useT } from "../i18n";
 import type { FrameClickMods } from "./Editor";
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
 /** 底部时间轴：原生 HTML5 DnD 拖拽换序 + 多选点击 + 右键菜单 */
 export default function Timeline({ frames, activeId, selectedIds, v, height, onFrameClick, onReorder, onContextMenu }: Props) {
   const dragFrom = useRef<number | null>(null);
+  const t = useT();
 
   return (
     <footer className="timeline pixel-bar" style={height ? { height } : undefined}>
@@ -54,7 +56,7 @@ export default function Timeline({ frames, activeId, selectedIds, v, height, onF
           {f.duration > 1 && <span className="tl-dur">×{f.duration}</span>}
         </div>
       ))}
-      {frames.length === 0 && <span className="tl-empty">时间轴为空 —— 先导入素材</span>}
+      {frames.length === 0 && <span className="tl-empty">{t("时间轴为空 —— 先导入素材")}</span>}
     </footer>
   );
 }
