@@ -510,6 +510,9 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               title={items[crop.cropIndex].file.name}
               onConfirm={crop.confirm}
               onSkip={crop.skip}
+              onConfirmAll={crop.applyRectToAll}
+              onTrimAll={crop.trimAll}
+              remaining={crop.total - 1}
               onClose={crop.cancel}
             />
           )}

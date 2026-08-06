@@ -388,6 +388,9 @@ export default function MaterialImportModal({ initialTab, onClose, onDone }: Pro
               title={items[crop.cropIndex].file.name}
               onConfirm={crop.confirm}
               onSkip={crop.skip}
+              onConfirmAll={crop.applyRectToAll}
+              onTrimAll={crop.trimAll}
+              remaining={crop.total - 1}
               onClose={crop.cancel}
             />
           )}
