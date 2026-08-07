@@ -16,7 +16,7 @@ import { askConfirm, notify } from "../notice";
 import { t, useT } from "../i18n";
 import PxSuggest from "./PxSuggest";
 
-/** 编辑草稿：apiModels 用逗号分隔文本编辑，保存时才拆成数组；CLI 为结构化字段（免模板） */
+/** 编辑草稿：模型按能力分栏，用逗号分隔文本编辑，保存时才拆成数组；CLI 为结构化字段（免模板） */
 interface ProviderDraft {
   id: string;
   name: string;
@@ -29,17 +29,20 @@ interface ProviderDraft {
   cliExtraArgs: string;
   apiBaseUrl: string;
   apiKey: string;
-  modelsText: string;
-  apiSize: string;
+  imageModelsText: string;
+  videoModelsText: string;
+  textModelsText: string;
+  imageSize: string;
+  videoSize: string;
 }
 
 /** 加强模型草稿（同 GenProvider 的 api 系字段，但只走 chat/completions） */
 interface EnhancerDraft {
   id: string;
   name: string;
-  apiBaseUrl: string;
-  apiKey: string;
-  apiModel: string;
+  providerId: string;
+  model: string;
+  legacy: boolean;
 }
 
 const MAT_DEFAULT: MattingSettings = { cliBin: "", cliInputArg: "", cliOutputArg: "", cliModelArg: "", model: "" };
@@ -53,7 +56,14 @@ const CLI_EMPTY = {
   cliExtraArgs: "",
 };
 
+const VIDEO_MODEL = /(?:^|[-_])(t2v|i2v|r2v|video)(?:[-_]|$)|hailuo|happyhorse|minimax-h\d/i;
+
 function toDraft(p: GenProvider): ProviderDraft {
+  const legacyModels = p.apiModels ?? [];
+  const legacyVideoModels = p.type === "api" || p.type === "gemini"
+    ? []
+    : legacyModels.filter((model) => VIDEO_MODEL.test(model));
+  const legacyImageModels = legacyModels.filter((model) => !legacyVideoModels.includes(model));
   return {
     id: p.id,
     name: p.name,
@@ -66,8 +76,11 @@ function toDraft(p: GenProvider): ProviderDraft {
     cliExtraArgs: p.cliExtraArgs,
     apiBaseUrl: p.apiBaseUrl,
     apiKey: p.apiKey,
-    modelsText: p.apiModels.join(", "),
-    apiSize: p.apiSize,
+    imageModelsText: (p.imageModels ?? legacyImageModels).join(", "),
+    videoModelsText: (p.videoModels ?? legacyVideoModels).join(", "),
+    textModelsText: (p.textModels ?? []).join(", "),
+    imageSize: p.imageSize ?? p.apiSize ?? "",
+    videoSize: p.videoSize ?? p.apiSize ?? "",
   };
 }
 
@@ -84,13 +97,15 @@ function fromDraft(d: ProviderDraft): GenProvider {
     cliExtraArgs: d.cliExtraArgs,
     apiBaseUrl: d.apiBaseUrl,
     apiKey: d.apiKey,
-    apiModels: d.modelsText
-      .split(/[,，\n]+/)
-      .map((s) => s.trim())
-      .filter(Boolean),
-    apiSize: d.apiSize,
+    imageModels: splitModelText(d.imageModelsText),
+    videoModels: splitModelText(d.videoModelsText),
+    textModels: splitModelText(d.textModelsText),
+    imageSize: d.imageSize,
+    videoSize: d.videoSize,
   };
 }
+
+const splitModelText = (text: string) => text.split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean);
 
 /** 常用厂商预设：一键带出类型 / Base URL / 模型 / 尺寸格式，只需填 key 改名 */
 const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
@@ -102,8 +117,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "api",
       apiBaseUrl: "https://api.openai.com/v1",
       apiKey: "",
-      modelsText: "gpt-image-1",
-      apiSize: "1024x1024",
+      imageModelsText: "gpt-image-1", videoModelsText: "", textModelsText: "gpt-4o-mini",
+      imageSize: "1024x1024", videoSize: "",
     },
   },
   {
@@ -114,8 +129,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "dashscope",
       apiBaseUrl: "https://token-plan.cn-beijing.maas.aliyuncs.com",
       apiKey: "",
-      modelsText: "wan2.7-image, wan2.7-image-pro, happyhorse-1.1-t2v, happyhorse-1.1-i2v, happyhorse-1.1-r2v",
-      apiSize: "2K",
+      imageModelsText: "wan2.7-image, wan2.7-image-pro", videoModelsText: "happyhorse-1.1-t2v, happyhorse-1.1-i2v, happyhorse-1.1-r2v", textModelsText: "qwen-plus",
+      imageSize: "2K", videoSize: "720P",
     },
   },
   {
@@ -126,8 +141,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "gemini",
       apiBaseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "",
-      modelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
-      apiSize: "1:1",
+      imageModelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview", videoModelsText: "", textModelsText: "",
+      imageSize: "1:1", videoSize: "",
     },
   },
   {
@@ -138,8 +153,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "minimax",
       apiBaseUrl: "https://api.minimaxi.com",
       apiKey: "",
-      modelsText: "image-01, MiniMax-Hailuo-2.3, MiniMax-H3",
-      apiSize: "1:1",
+      imageModelsText: "image-01", videoModelsText: "MiniMax-Hailuo-2.3, MiniMax-H3", textModelsText: "",
+      imageSize: "1:1", videoSize: "16:9",
     },
   },
   {
@@ -150,8 +165,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "api",
       apiBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
       apiKey: "",
-      modelsText: "doubao-seedream-4-0-250828",
-      apiSize: "",
+      imageModelsText: "doubao-seedream-4-0-250828", videoModelsText: "", textModelsText: "",
+      imageSize: "", videoSize: "",
     },
   },
   {
@@ -162,8 +177,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "cli",
       apiBaseUrl: "",
       apiKey: "",
-      modelsText: "",
-      apiSize: "",
+      imageModelsText: "", videoModelsText: "", textModelsText: "",
+      imageSize: "", videoSize: "",
     },
   },
   {
@@ -174,8 +189,8 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "api",
       apiBaseUrl: "",
       apiKey: "",
-      modelsText: "",
-      apiSize: "",
+      imageModelsText: "", videoModelsText: "", textModelsText: "",
+      imageSize: "", videoSize: "",
     },
   },
 ];
@@ -245,6 +260,7 @@ export default function SettingsPage() {
   // 「获取模型」拉取结果：models 为拉到的全量列表（可过滤点选），error 时保持手填
   const [modelLists, setModelLists] = useState<Record<string, { loading: boolean; models: string[] | null; error: string | null }>>({});
   const [modelFilters, setModelFilters] = useState<Record<string, string>>({});
+  const [modelTargets, setModelTargets] = useState<Record<string, "image" | "video" | "text">>({});
   const [doctor, setDoctor] = useState<DoctorResponse | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(false);
   const cfg = useServerConfig();
@@ -255,18 +271,16 @@ export default function SettingsPage() {
       .getSettings()
       .then((s) => {
         const list = Array.isArray(s["genProviders"]) ? (s["genProviders"] as GenProvider[]) : [];
-        setDrafts(list.map(toDraft));
+        const providerDrafts = list.map(toDraft);
+        setDrafts(providerDrafts);
         const m = s["matting"] as Partial<MattingSettings> | undefined;
         if (m && typeof m === "object") setMat({ ...MAT_DEFAULT, ...m });
         const enh = Array.isArray(s["promptEnhancers"]) ? (s["promptEnhancers"] as PromptEnhancer[]) : [];
         setEnhancers(
-          enh.map((e) => ({
-            id: e.id,
-            name: e.name,
-            apiBaseUrl: e.apiBaseUrl,
-            apiKey: e.apiKey,
-            apiModel: e.apiModel,
-          }))
+          enh.map((e) => {
+            const match = e.providerId || list.find((p) => e.apiBaseUrl && e.apiKey && p.apiBaseUrl === e.apiBaseUrl && p.apiKey === e.apiKey)?.id || "";
+            return { id: e.id, name: e.name, providerId: match, model: e.model || e.apiModel || "", legacy: !match && !!e.apiBaseUrl };
+          })
         );
       })
       .catch((e) => notify(t("msg.load_settings_failed_msg", { msg: (e as Error).message })));
@@ -332,7 +346,7 @@ export default function SettingsPage() {
         type: d.type === "cli" ? undefined : d.type,
         apiBaseUrl: d.apiBaseUrl,
         apiKey: d.apiKey,
-        apiModel: d.modelsText.split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean)[0],
+        apiModel: splitModels(d.imageModelsText)[0] ?? splitModels(d.videoModelsText)[0] ?? splitModels(d.textModelsText)[0],
       });
       setTests((prev) => ({ ...prev, [d.id]: { testing: false, result } }));
     } catch (e) {
@@ -361,9 +375,11 @@ export default function SettingsPage() {
 
   /** 点选 chip：已在列表则移除，否则追加（保留手输项） */
   const toggleModel = (d: ProviderDraft, model: string) => {
-    const list = splitModels(d.modelsText);
+    const target = modelTargets[d.id] ?? "image";
+    const field = `${target}ModelsText` as const;
+    const list = splitModels(d[field]);
     const next = list.includes(model) ? list.filter((m) => m !== model) : [...list, model];
-    patchDraft(d.id, { modelsText: next.join(", ") });
+    patchDraft(d.id, { [field]: next.join(", ") });
   };
 
   const saveMatting = async () => {
@@ -386,13 +402,13 @@ export default function SettingsPage() {
 
   const addEnhancer = () =>
     setEnhancers((prev) => [
-      { id: crypto.randomUUID(), name: t("msg.untitled_enhancer"), apiBaseUrl: "", apiKey: "", apiModel: "" },
+      { id: crypto.randomUUID(), name: t("msg.untitled_enhancer"), providerId: "", model: "", legacy: false },
       ...prev,
     ]);
 
   const persistEnhancers = async (list: EnhancerDraft[]): Promise<boolean> => {
     try {
-      await api.putSetting("promptEnhancers", list);
+      await api.putSetting("promptEnhancers", list.map(({ id, name, providerId, model }) => ({ id, name, providerId, model })));
       await refreshServerConfig();
       return true;
     } catch (e) {
@@ -426,11 +442,12 @@ export default function SettingsPage() {
     const key = `enh-${e.id}`;
     setTests((prev) => ({ ...prev, [key]: { testing: true, result: null } }));
     try {
+      const provider = drafts.find((d) => d.id === e.providerId);
       const result = await api.testProvider({
-        type: "api",
-        apiBaseUrl: e.apiBaseUrl,
-        apiKey: e.apiKey,
-        apiModel: e.apiModel,
+        type: provider?.type === "dashscope" ? "dashscope" : "api",
+        apiBaseUrl: provider?.apiBaseUrl ?? "",
+        apiKey: provider?.apiKey ?? "",
+        apiModel: e.model,
       });
       setTests((prev) => ({ ...prev, [key]: { testing: false, result } }));
     } catch (err) {
@@ -594,13 +611,13 @@ export default function SettingsPage() {
                   <div className="form-row">
                     <div className="form-inline">
                       <label className="field">
-                        <span>{t("msg.models_comma_separated_dropdown_at_gen_time")}</span>
+                        <span>{t("settings.imageModels")}</span>
                         <div className="models-fetch-row">
                           <input
                             className="px-input"
                             placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].modelsPh}
-                            value={d.modelsText}
-                            onChange={(e) => patchDraft(d.id, { modelsText: e.target.value })}
+                            value={d.imageModelsText}
+                            onChange={(e) => patchDraft(d.id, { imageModelsText: e.target.value })}
                           />
                           <button
                             type="button"
@@ -613,19 +630,27 @@ export default function SettingsPage() {
                         </div>
                       </label>
                       <label className="field">
-                        <span>{t("msg.size_optional")}</span>
+                        <span>{t("settings.imageSize")}</span>
                         <input
                           className="px-input num"
                           placeholder={t(API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh)}
-                          value={d.apiSize}
-                          onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
+                          value={d.imageSize}
+                          onChange={(e) => patchDraft(d.id, { imageSize: e.target.value })}
                         />
                       </label>
                     </div>
                   </div>
+                  <div className="form-row"><div className="form-inline">
+                    <label className="field"><span>{t("settings.videoModels")}</span><input className="px-input" disabled={d.type === "api" || d.type === "gemini"} value={d.videoModelsText} onChange={(e) => patchDraft(d.id, { videoModelsText: e.target.value })} placeholder={d.type === "api" || d.type === "gemini" ? t("settings.videoUnsupported") : "happyhorse-1.1-t2v"} /></label>
+                    <label className="field"><span>{t("settings.videoSize")}</span><input className="px-input num" disabled={d.type === "api" || d.type === "gemini"} value={d.videoSize} onChange={(e) => patchDraft(d.id, { videoSize: e.target.value })} placeholder="16:9 / 720P" /></label>
+                    <label className="field"><span>{t("settings.textModels")}</span><input className="px-input" value={d.textModelsText} onChange={(e) => patchDraft(d.id, { textModelsText: e.target.value })} placeholder="gpt-4o-mini / qwen-plus" /></label>
+                  </div></div>
                   {ml?.error && <div className="hint">{t("msg.fetch_models_failed_err_you_can_type_manually", { err: ml.error })}</div>}
                   {ml?.models && (
                     <div className="model-fetch">
+                      <select className="px-input" value={modelTargets[d.id] ?? "image"} onChange={(e) => setModelTargets((prev) => ({ ...prev, [d.id]: e.target.value as "image" | "video" | "text" }))}>
+                        <option value="image">{t("settings.classifyImage")}</option><option value="video">{t("settings.classifyVideo")}</option><option value="text">{t("settings.classifyText")}</option>
+                      </select>
                       <input
                         className="px-input model-filter"
                         placeholder={t("msg.filter_models_count_click_to_add_remove", { count: ml.models.length })}
@@ -641,7 +666,7 @@ export default function SettingsPage() {
                             return !q || m.toLowerCase().includes(q);
                           })
                           .map((m) => {
-                            const active = splitModels(d.modelsText).includes(m);
+                            const active = splitModels(d[`${modelTargets[d.id] ?? "image"}ModelsText`]).includes(m);
                             return (
                               <button
                                 key={m}
@@ -799,37 +824,19 @@ export default function SettingsPage() {
               </div>
               <div className="form-row">
                 <div className="form-inline">
-                  <label className="field">
-                    <span>Base URL</span>
-                    <input
-                      className="px-input"
-                      placeholder={t("msg.https_api_openai_com_v1_or_bailian_compatible_mode_compa")}
-                      value={e.apiBaseUrl}
-                      onChange={(e2) => patchEnhancer(e.id, { apiBaseUrl: e2.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>API Key</span>
-                    <input
-                      className="px-input"
-                      type="password"
-                      autoComplete="off"
-                      placeholder="sk-…"
-                      value={e.apiKey}
-                      onChange={(e2) => patchEnhancer(e.id, { apiKey: e2.target.value })}
-                    />
+                  <label className="field"><span>{t("settings.providerConnection")}</span>
+                    <select className="px-input" value={e.providerId} onChange={(e2) => patchEnhancer(e.id, { providerId: e2.target.value, legacy: false, model: "" })}>
+                      <option value="">{t("settings.selectConnection")}</option>
+                      {drafts.filter((d) => d.type === "api" || d.type === "dashscope").map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
                   </label>
                   <label className="field">
                     <span>{t("msg.model")}</span>
-                    <input
-                      className="px-input"
-                      placeholder="gpt-4o-mini / qwen-plus"
-                      value={e.apiModel}
-                      onChange={(e2) => patchEnhancer(e.id, { apiModel: e2.target.value })}
-                    />
+                    {splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").length ? <select className="px-input" value={e.model} onChange={(e2) => patchEnhancer(e.id, { model: e2.target.value })}><option value="">{t("settings.selectModel")}</option>{splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").map((m) => <option key={m}>{m}</option>)}</select> : <input className="px-input" placeholder="gpt-4o-mini / qwen-plus" value={e.model} onChange={(e2) => patchEnhancer(e.id, { model: e2.target.value })} />}
                   </label>
                 </div>
               </div>
+              {e.legacy && <div className="hint warn">{t("settings.legacyEnhancerSelectConnection")}</div>}
               <div className="provider-test">
                 <button type="button" className="px-btn mini" disabled={tst?.testing} onClick={() => testEnhancer(e)}>
                   <PlugZap size={12} /> {tst?.testing ? t("msg.testing") : t("msg.test_connection")}

@@ -4,6 +4,7 @@ import type { Frame, FramePatch } from "../api";
 import { normalizeFrameRotation } from "../frameGeometry";
 import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
+import Tooltip from "./Tooltip";
 
 interface Props {
   /** edit=编辑模式；preview=FrameEditor 播放模式（缩放始终控制 Pixi viewport） */
@@ -43,15 +44,21 @@ function TransformStepper({ label, value, disabled, onMinus, onPlus, onReset }: 
   return (
     <span className="transform-stepper">
       <span className="transform-name">{t(label)}</span>
-      <IconBtn disabled={disabled} onClick={onMinus} title={t("msg.decrease_label", { label: t(label) })}>
-        <Minus size={12} />
-      </IconBtn>
-      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={t("msg.reset_label", { label: t(label) })}>
-        {value}
-      </button>
-      <IconBtn disabled={disabled} onClick={onPlus} title={t("msg.increase_label", { label: t(label) })}>
-        <Plus size={12} />
-      </IconBtn>
+      <Tooltip text={t("msg.decrease_label", { label: t(label) })}>
+        <IconBtn disabled={disabled} onClick={onMinus}>
+          <Minus size={12} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={t("msg.reset_label", { label: t(label) })}>
+        <button type="button" className="transform-value" disabled={disabled} onClick={onReset}>
+          {value}
+        </button>
+      </Tooltip>
+      <Tooltip text={t("msg.increase_label", { label: t(label) })}>
+        <IconBtn disabled={disabled} onClick={onPlus}>
+          <Plus size={12} />
+        </IconBtn>
+      </Tooltip>
     </span>
   );
 }
@@ -79,33 +86,41 @@ export default function CanvasToolbar({
 
   return (
     <div className="toolbar pixel-bar">
-      <IconBtn
-        className={editMode && onion ? "on" : ""}
-        disabled={!editMode}
-        onClick={onToggleOnion}
-        title={editOnly("msg.onion_skin_red_prev_blue_next")}
-      >
-        <Eye size={15} />
-      </IconBtn>
-      <IconBtn
-        className={editMode && showGrid ? "on" : ""}
-        disabled={!editMode}
-        onClick={onToggleGrid}
-        title={editOnly("msg.grid")}
-      >
-        <Grid3x3 size={15} />
-      </IconBtn>
+      <Tooltip text={editOnly("msg.onion_skin_red_prev_blue_next")}>
+        <IconBtn
+          className={editMode && onion ? "on" : ""}
+          disabled={!editMode}
+          onClick={onToggleOnion}
+        >
+          <Eye size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={editOnly("msg.grid")}>
+        <IconBtn
+          className={editMode && showGrid ? "on" : ""}
+          disabled={!editMode}
+          onClick={onToggleGrid}
+        >
+          <Grid3x3 size={15} />
+        </IconBtn>
+      </Tooltip>
       <span className="tb-sep" />
       {/* 视图缩放：编辑/播放都作用于常驻的 Pixi viewport */}
-      <IconBtn onClick={() => onZoomBy(1 / 1.25)} title={t("msg.zoom_out")}>
-        <ZoomOut size={15} />
-      </IconBtn>
-      <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset} title={t("msg.reset_100")}>
-        {Math.round(zoom * 100)}%
-      </button>
-      <IconBtn onClick={() => onZoomBy(1.25)} title={t("msg.zoom_in")}>
-        <ZoomIn size={15} />
-      </IconBtn>
+      <Tooltip text={t("msg.zoom_out")}>
+        <IconBtn onClick={() => onZoomBy(1 / 1.25)}>
+          <ZoomOut size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={t("msg.reset_100")}>
+        <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset}>
+          {Math.round(zoom * 100)}%
+        </button>
+      </Tooltip>
+      <Tooltip text={t("msg.zoom_in")}>
+        <IconBtn onClick={() => onZoomBy(1.25)}>
+          <ZoomIn size={15} />
+        </IconBtn>
+      </Tooltip>
       <span className="tb-sep" />
       <TransformStepper
         label="transform.scale"
@@ -132,43 +147,51 @@ export default function CanvasToolbar({
         onReset={() => frame && onPatch(frame.id, { opacity: 1 })}
       />
       <span className="tb-sep" />
-      <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("msg.replace_crop_image")}>
-        <ImagePlus size={15} />
-      </IconBtn>
-      <IconBtn disabled={!editMode || !frame} onClick={() => frame && onCrop(frame.id)} title={editOnly("msg.crop_image")}>
-        <Crop size={15} />
-      </IconBtn>
-      <IconBtn
-        disabled={!editMode || !frame || frame.duration <= 1}
-        onClick={() => frame && onPatch(frame.id, { duration: Math.max(1, frame.duration - 1) })}
-        title={editOnly("msg.decrease_duration")}
-      >
-        <Minus size={15} />
-      </IconBtn>
+      <Tooltip text={editOnly("msg.replace_crop_image")}>
+        <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()}>
+          <ImagePlus size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={editOnly("msg.crop_image")}>
+        <IconBtn disabled={!editMode || !frame} onClick={() => frame && onCrop(frame.id)}>
+          <Crop size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={editOnly("msg.decrease_duration")}>
+        <IconBtn
+          disabled={!editMode || !frame || frame.duration <= 1}
+          onClick={() => frame && onPatch(frame.id, { duration: Math.max(1, frame.duration - 1) })}
+        >
+          <Minus size={15} />
+        </IconBtn>
+      </Tooltip>
       <span className="dur-label">×{editMode ? (frame?.duration ?? "-") : "-"}</span>
-      <IconBtn
-        disabled={!editMode || !frame || frame.duration >= 60}
-        onClick={() => frame && onPatch(frame.id, { duration: Math.min(60, frame.duration + 1) })}
-        title={editOnly("msg.increase_duration")}
-      >
-        <Plus size={15} />
-      </IconBtn>
-      <IconBtn
-        className={editMode && frame?.is_keyframe ? "on star" : ""}
-        disabled={!editMode || !frame}
-        onClick={() => frame && onPatch(frame.id, { is_keyframe: frame.is_keyframe ? 0 : 1 })}
-        title={editOnly("msg.keyframe")}
-      >
-        <Star size={15} />
-      </IconBtn>
+      <Tooltip text={editOnly("msg.increase_duration")}>
+        <IconBtn
+          disabled={!editMode || !frame || frame.duration >= 60}
+          onClick={() => frame && onPatch(frame.id, { duration: Math.min(60, frame.duration + 1) })}
+        >
+          <Plus size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={editOnly("msg.keyframe")}>
+        <IconBtn
+          className={editMode && frame?.is_keyframe ? "on star" : ""}
+          disabled={!editMode || !frame}
+          onClick={() => frame && onPatch(frame.id, { is_keyframe: frame.is_keyframe ? 0 : 1 })}
+        >
+          <Star size={15} />
+        </IconBtn>
+      </Tooltip>
       {/* 回中：把当前帧 offset 归零（编辑模式专用） */}
-      <IconBtn
-        disabled={!editMode || !frame || (frame.offset_x === 0 && frame.offset_y === 0)}
-        onClick={() => frame && onPatch(frame.id, { offset_x: 0, offset_y: 0 })}
-        title={editOnly("msg.center_on_canvas")}
-      >
-        <Crosshair size={15} />
-      </IconBtn>
+      <Tooltip text={editOnly("msg.center_on_canvas")}>
+        <IconBtn
+          disabled={!editMode || !frame || (frame.offset_x === 0 && frame.offset_y === 0)}
+          onClick={() => frame && onPatch(frame.id, { offset_x: 0, offset_y: 0 })}
+        >
+          <Crosshair size={15} />
+        </IconBtn>
+      </Tooltip>
       <input
         ref={fileRef}
         type="file"

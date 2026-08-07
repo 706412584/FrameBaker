@@ -340,9 +340,9 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 `theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。`lang` 的合法值：`"zh"` / `"en"`。写入后广播 `settings_changed` `{ key }`。
 
-`genProviders`：生成 provider 列表（CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，生成时按 id 选择、模型单独指定）。元素字段：`id` / `name` / `type`（`"cli"` | `"api"` | `"dashscope"` | `"gemini"` | `"minimax"`）/ `apiBaseUrl` / `apiKey` / `apiModels`（生成弹窗的模型下拉项）/ `apiSize`（可空；api 为 `1024x1024` 形式，dashscope 为 `2048*2048` 星号形式，gemini/minimax 为宽高比如 `16:9`）。**CLI 为结构化字段**（免手写模板）：`cliBin`（命令，PATH 名或绝对路径）/ `cliPromptArg`（prompt 参数名，留空=位置参数）/ `cliOutputArg`（输出参数名）/ `cliModelArg`（模型参数名，留空不下发）/ `cliReferenceArg`（引用图参数名，留空=不支持引用图）/ `cliExtraArgs`（原样追加的固定参数）。执行 argv = `[cliBin, cliPromptArg?, prompt, cliOutputArg?, output, cliModelArg?+model, cliReferenceArg?+ref, ...extra]`，不经 shell。列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底（走遗留模板占位符路径）。
+`genProviders`：生成 provider 列表。连接凭证只存一次（`apiBaseUrl` / `apiKey`），能力按 `imageModels` / `videoModels` / `textModels` 分类，图片与视频默认尺寸分别为 `imageSize` / `videoSize`。服务端仍读取旧 `apiModels` / `apiSize`：旧模型按名称迁移到图片或视频能力，旧尺寸同时作为两类尺寸 fallback；设置页只写新字段。CLI 继续使用 `cliBin`、各参数名与 `cliExtraArgs` 的结构化 argv，不经 shell；列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
 
-`promptEnhancers`：提示词加强模型列表，元素 `{ id, name, apiBaseUrl, apiKey, apiModel }`（OpenAI 兼容 chat/completions）；加强用的系统提示词服务端内置固定。
+`promptEnhancers` 元素为 `{ id, name, providerId, model }`，复用 `api` 或 `dashscope` provider 的连接凭证；旧 `{ apiBaseUrl, apiKey, apiModel }` 仍可读取运行。`POST /api/enhance-prompt` 可传 `mediaKind: "image" | "video"`，视频模式会使用动作时序、镜头与一致性导向的系统提示词。
 
 `matting`：结构化抠图命令 `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg`（均留空走 env `FRAMEBAKER_MATTING_CLI` 模板 → 自动探测）；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
 

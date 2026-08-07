@@ -78,6 +78,7 @@
   - minimax：图片 `POST {base}/v1/image_generation`（Bearer），引用图走 `subject_reference`（限一张，主体特征保持），`response_format=base64` 取 `data.image_base64[0]`；`apiSize` 映射 `aspect_ratio`。
   模型取请求 `model` 缺省列表第一项。`GET /api/config` 下发 `gen.providers` 与 `promptEnhancers` 摘要（不含 apiKey；providers 带 `video` 标记，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
 - **视频生成**（`generateFrames` 的 `mediaKind="video"`，仅 cli/dashscope/minimax）：只生成并保存 `materials/{id}/raw.mp4`（不抽帧）；抽帧走 `POST /api/materials/:id/extract`（`fps` 整段或 `timestamps` 定点，单 job）→ `extract_frames`。CLI/百炼/MiniMax 视频协议同前；轮询 5s 间隔、10 分钟超时。**图片模式下 CLI 产物若为视频同样存为视频素材**。
+- **能力分层**：provider 连接（Base URL / Key）与模型能力分离，模型按 `imageModels` / `videoModels` / `textModels` 管理，默认尺寸按 `imageSize` / `videoSize` 管理。adapter 只从目标媒体能力中选模并校验。提示词增强器通过 `providerId + model` 复用 api/dashscope 连接；旧独立凭证由运行时兼容层读取。
 - **提示词加强**（`enhance.ts`）：`POST /api/enhance-prompt` 调用设置页 `promptEnhancers` 列表里的 OpenAI 兼容 `chat/completions`（加强系统提示词内置固定，像素画方向），返回优化后文本；前端保留原文并并排展示新旧两版供选择。
 - **体检与联通测试**（`doctor.ts` + `providerAdapter.ts`）：`GET /api/doctor` 逐项检查存储可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 查命令存在；OpenAI 兼容、百炼兼容模式与 Gemini 实发模型列表请求；MiniMax 无轻量探测端点，仅校验字段）/ 每个加强模型（实发 `GET /models`）；`POST /api/provider/test` 用表单未保存的值单独测某个 API provider 或加强模型（8s 超时，401/403 判认证失败，标准模型列表时核对模型是否在列）。
 - **抠图引擎探测**（`jobs/matting.ts`，每次调用实时解析，`GET /api/config` 可查）：a. 自定义 CLI（设置页 `matting.cliBin` 结构化字段优先，否则 env `FRAMEBAKER_MATTING_CLI` 遗留模板 `{input}` `{output}` 可选 `{model}`）→ b. `<repo>/.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`；由 `scripts/setup_matting.sh` / `setup_matting.ps1` 安装：python3 venv + `pip install "rembg[cli,cpu]"`）→ c. PATH 里的 `rembg` → d. passthrough 复制并在 job.progress / 响应 warning 里提示安装。rembg 调用为 `rembg i -m <MODEL> in out`，模型名取 设置页 `matting.model` → `FRAMEBAKER_MATTING_MODEL` → 默认 u2net，模型缓存在 `storage/models`（spawn 时注入 `U2NET_HOME`）。前端上传/生成表单的「抠图去背」开关默认勾选，`GET /api/config` 驱动引擎状态显示。
@@ -111,13 +112,13 @@
   → 事务重写 idx → 广播 frames_reordered
 ```
 
-### 导出精灵表（纯前端，无服务端参与）
+### 导出精灵帧（纯前端，无服务端参与）
 
 ```
 按 idx 拉取全部 /api/frames/:id/image → createImageBitmap
   → 按 Pixi 相同的中心原点语义计算 offset / scale / rotation 后的全局包围盒
-  → canvas 统一单元格网格（列数 ceil(√n)，变换与 opacity 烘焙，imageSmoothing 关闭）
-  → 下载 <name>.spritesheet.png + .json（统一帧矩形，并记录 originX/originY）
+  → 每帧单独 canvas（统一单元格尺寸，变换与 opacity 烘焙，imageSmoothing 关闭）
+  → 逐帧下载 <name>_0001.png … + <name>.frames.json（含每帧 file/w/h/duration、originX/originY）
 ```
 
 ### 素材库（素材 → 抠图 → 导入项目）

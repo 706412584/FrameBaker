@@ -56,8 +56,8 @@ export async function downloadMaterialImages(
 }
 
 /**
- * 导出精灵表：按 Pixi 相同语义把 offset / scale / rotation / opacity 烘焙进统一尺寸单元格，
- * 再按 idx 顺序网格排列并下载 spritesheet.png + spritesheet.json。
+ * 导出精灵帧：按 Pixi 相同语义把 offset / scale / rotation / opacity 烘焙进统一尺寸单元格，
+ * 每帧单独导出一张 PNG（文件名按 idx 零填充编号），同时附带 JSON 元数据（尺寸 / 原点 / 帧时长）。
  */
 export async function exportSpritesheet(frames: Frame[], name: string) {
   if (frames.length === 0) return;
@@ -83,48 +83,51 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
     const maxY = Math.ceil(Math.max(0, ...bounds.map((b) => b.bottom)));
     const cellW = Math.max(1, maxX - minX);
     const cellH = Math.max(1, maxY - minY);
-    const cols = Math.ceil(Math.sqrt(ordered.length));
-    const rows = Math.ceil(ordered.length / cols);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = cols * cellW;
-    canvas.height = rows * cellH;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("精灵表尺寸过大，无法创建导出画布");
-    ctx.imageSmoothingEnabled = false;
+    const padLen = String(ordered.length - 1).length + 1;
 
     const meta = {
-      frames: [] as Array<{ x: number; y: number; w: number; h: number; duration: number }>,
+      frames: [] as Array<{ file: string; w: number; h: number; duration: number }>,
       meta: {
         cellWidth: cellW,
         cellHeight: cellH,
         originX: -minX,
         originY: -minY,
-        cols,
-        rows,
         count: ordered.length,
         app: "FrameBaker",
       },
     };
-    bitmaps.forEach((bitmap, i) => {
+
+    for (let i = 0; i < ordered.length; i++) {
       const frame = ordered[i];
-      const x = (i % cols) * cellW;
-      const y = Math.floor(i / cols) * cellH;
+      const bitmap = bitmaps[i];
+      const canvas = document.createElement("canvas");
+      canvas.width = cellW;
+      canvas.height = cellH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("帧尺寸过大，无法创建导出画布");
+      ctx.imageSmoothingEnabled = false;
       ctx.save();
-      ctx.translate(x - minX + frame.offset_x, y - minY + frame.offset_y);
+      ctx.translate(-minX + frame.offset_x, -minY + frame.offset_y);
       ctx.rotate(frame.rotation);
       ctx.scale(frame.scale, frame.scale);
       ctx.globalAlpha = Math.min(1, Math.max(0, frame.opacity));
       ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
       ctx.restore();
-      meta.frames.push({ x, y, w: cellW, h: cellH, duration: frame.duration });
-    });
 
-    const png = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas 导出失败"))), "image/png")
+      const png = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas 导出失败"))), "image/png")
+      );
+      const filename = `${name}_${String(i).padStart(padLen, "0")}.png`;
+      download(png, filename);
+      meta.frames.push({ file: filename, w: cellW, h: cellH, duration: frame.duration });
+      // 给浏览器一点时间接受多次 download，避免被合并拦截
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    download(
+      new Blob([JSON.stringify(meta, null, 2)], { type: "application/json" }),
+      `${name}.frames.json`
     );
-    download(png, `${name}.spritesheet.png`);
-    download(new Blob([JSON.stringify(meta, null, 2)], { type: "application/json" }), `${name}.spritesheet.json`);
   } finally {
     bitmaps.forEach((bitmap) => bitmap?.close());
   }

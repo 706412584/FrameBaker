@@ -19,16 +19,26 @@ export function getSettingJson<T>(key: string): T | null {
 const ENV_GEN_CLI = () => process.env.FRAMEBAKER_GEN_CLI?.trim() ?? "";
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
+const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter((m): m is string => typeof m === "string") : [];
+const VIDEO_MODEL = /(?:^|[-_])(t2v|i2v|r2v|video)(?:[-_]|$)|hailuo|happyhorse|minimax-h\d/i;
+
+export type RuntimeGenProvider = GenProvider & { apiModels: string[]; apiSize: string };
 
 /** 归一化一个 provider 条目（settings 里可能缺字段/类型不对） */
-function normalizeProvider(raw: unknown): GenProvider | null {
+function normalizeProvider(raw: unknown): RuntimeGenProvider | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Partial<GenProvider>;
   if (typeof p.id !== "string" || !p.id) return null;
+  const type = GEN_PROVIDER_TYPES.includes(p.type as GenProviderType) ? (p.type as GenProviderType) : "cli";
+  const legacy = strings(p.apiModels);
+  const hasNewModels = Array.isArray(p.imageModels) || Array.isArray(p.videoModels) || Array.isArray(p.textModels);
+  const legacyVideo = type === "api" || type === "gemini" ? [] : legacy.filter((m) => VIDEO_MODEL.test(m));
+  const legacyImage = legacy.filter((m) => !legacyVideo.includes(m));
+  const legacySize = str(p.apiSize);
   return {
     id: p.id,
     name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.id,
-    type: GEN_PROVIDER_TYPES.includes(p.type as GenProviderType) ? (p.type as GenProviderType) : "cli",
+    type,
     cliBin: str(p.cliBin),
     cliPromptArg: str(p.cliPromptArg),
     cliOutputArg: str(p.cliOutputArg),
@@ -38,8 +48,13 @@ function normalizeProvider(raw: unknown): GenProvider | null {
     legacyTemplate: typeof p.legacyTemplate === "string" && p.legacyTemplate ? p.legacyTemplate : undefined,
     apiBaseUrl: str(p.apiBaseUrl),
     apiKey: str(p.apiKey),
-    apiModels: Array.isArray(p.apiModels) ? p.apiModels.filter((m): m is string => typeof m === "string") : [],
-    apiSize: str(p.apiSize),
+    imageModels: hasNewModels ? strings(p.imageModels) : legacyImage,
+    videoModels: hasNewModels ? strings(p.videoModels) : legacyVideo,
+    textModels: hasNewModels ? strings(p.textModels) : [],
+    imageSize: str(p.imageSize) || legacySize,
+    videoSize: str(p.videoSize) || legacySize,
+    apiModels: legacy,
+    apiSize: legacySize,
   };
 }
 
@@ -48,9 +63,9 @@ function normalizeProvider(raw: unknown): GenProvider | null {
  * 列表为空且 env FRAMEBAKER_GEN_CLI 有值时，合成一个 id="env" 的 CLI provider 兜底
  * （env 走遗留模板路径：{prompt} {output} {index} {reference} {model} 占位符）
  */
-export function getGenProviders(): GenProvider[] {
+export function getGenProviders(): RuntimeGenProvider[] {
   const saved = getSettingJson<unknown[]>("genProviders");
-  const list = Array.isArray(saved) ? saved.map(normalizeProvider).filter((p): p is GenProvider => p !== null) : [];
+  const list = Array.isArray(saved) ? saved.map(normalizeProvider).filter((p): p is RuntimeGenProvider => p !== null) : [];
   if (list.length === 0 && ENV_GEN_CLI()) {
     return [
       {
@@ -66,8 +81,7 @@ export function getGenProviders(): GenProvider[] {
         legacyTemplate: ENV_GEN_CLI(),
         apiBaseUrl: "",
         apiKey: "",
-        apiModels: [],
-        apiSize: "",
+        imageModels: [], videoModels: [], textModels: [], imageSize: "", videoSize: "", apiModels: [], apiSize: "",
       },
     ];
   }
@@ -115,9 +129,11 @@ function normalizeEnhancer(raw: unknown): PromptEnhancer | null {
   return {
     id: e.id,
     name: typeof e.name === "string" && e.name.trim() ? e.name.trim() : e.id,
-    apiBaseUrl: str(e.apiBaseUrl),
-    apiKey: str(e.apiKey),
-    apiModel: str(e.apiModel),
+    providerId: str(e.providerId),
+    model: str(e.model) || str(e.apiModel),
+    apiBaseUrl: str(e.apiBaseUrl) || undefined,
+    apiKey: str(e.apiKey) || undefined,
+    apiModel: str(e.apiModel) || undefined,
   };
 }
 
@@ -128,7 +144,27 @@ export function getPromptEnhancers(): PromptEnhancer[] {
 }
 
 export function enhancerConfigured(e: PromptEnhancer): boolean {
-  return !!(e.apiBaseUrl.trim() && e.apiKey.trim() && e.apiModel.trim());
+  return resolveEnhancerRuntime(e) !== null;
+}
+
+export interface EnhancerRuntime { baseUrl: string; apiKey: string; model: string; providerType: "api" | "dashscope" }
+
+/** 窄运行时解析：新配置复用 provider；旧配置继续使用独立凭证。 */
+export function resolveEnhancerRuntime(e: PromptEnhancer): EnhancerRuntime | null {
+  if (e.providerId) {
+    const p = getGenProviders().find((item) => item.id === e.providerId);
+    if (!p || (p.type !== "api" && p.type !== "dashscope") || !providerConfigured(p) || !e.model.trim()) return null;
+    const root = p.type === "dashscope" ? `${normalizeDashscopeRoot(p.apiBaseUrl)}/compatible-mode/v1` : p.apiBaseUrl.trim().replace(/\/+$/, "");
+    return { baseUrl: root, apiKey: p.apiKey.trim(), model: e.model.trim(), providerType: p.type };
+  }
+  const baseUrl = e.apiBaseUrl?.trim().replace(/\/+$/, "") ?? "";
+  const apiKey = e.apiKey?.trim() ?? "";
+  const model = (e.apiModel || e.model).trim();
+  return baseUrl && apiKey && model ? { baseUrl, apiKey, model, providerType: "api" } : null;
+}
+
+function normalizeDashscopeRoot(url: string): string {
+  return url.trim().replace(/\/+$/, "").replace(/\/compatible-mode\/v1$/i, "").replace(/\/api\/v1$/i, "");
 }
 
 /** 解析本次加强使用的模型：按 id 找，缺省第一个配置齐备的 */

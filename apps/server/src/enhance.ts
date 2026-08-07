@@ -1,14 +1,17 @@
 import { ENHANCE_STYLES, type EnhancePromptRequest, type EnhancePromptResponse } from "@framebaker/shared";
-import { enhancerConfigured, resolveEnhancer } from "./provider";
+import { resolveEnhancer, resolveEnhancerRuntime } from "./provider";
 
 // 加强用的系统提示词由这里按风格组装，用户无需手写任何模板
 
 /** 按所选风格组装系统提示词（未知 style 回退 pixel） */
-function buildSystem(style?: string): string {
+function buildSystem(style?: string, mediaKind: "image" | "video" = "image"): string {
   const s = ENHANCE_STYLES.find((x) => x.id === style) ?? ENHANCE_STYLES[0];
-  return `你是游戏美术提示词专家。把用户简短的画面描述改写成适合图像生成模型的英文提示词。要求：
+  const focus = mediaKind === "video"
+    ? "补充动作的起承转合与时间顺序、镜头运动、节奏和角色一致性；要求运动连续，避免闪烁、跳变、形体漂移"
+    : "补充主体外观细节、动作姿态、构图、视角、背景、配色与氛围；适合抠图时可加 plain solid background / isolated subject";
+  return `你是游戏美术提示词专家。把用户简短的画面描述改写成适合${mediaKind === "video" ? "视频" : "图像"}生成模型的英文提示词。要求：
 - 严格保留用户原意（主体、动作、数量），只做丰富与具象化
-- 风格方向：${s.directive}；另补充主体外观细节、动作姿态、视角、配色与氛围；适合抠图时可加 plain solid background / isolated subject
+- 风格方向：${s.directive}；${focus}
 - 只输出改写后的提示词本身：单行英文，不要解释、不要引号、不要任何前缀`;
 }
 
@@ -18,23 +21,23 @@ export async function enhancePrompt(req: EnhancePromptRequest): Promise<EnhanceP
   if (!prompt) throw new Error("提示词不能为空");
   const enhancer = resolveEnhancer(req.enhancerId);
   if (!enhancer) throw new Error("未配置提示词加强模型：请到「设置」页添加");
-  if (!enhancerConfigured(enhancer)) {
+  const runtime = resolveEnhancerRuntime(enhancer);
+  if (!runtime) {
     throw new Error(`加强模型「${enhancer.name}」配置不完整（Base URL / API Key / 模型）`);
   }
 
-  const base = enhancer.apiBaseUrl.trim().replace(/\/+$/, "");
   let res: Response;
   try {
-    res = await fetch(`${base}/chat/completions`, {
+    res = await fetch(`${runtime.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${enhancer.apiKey.trim()}`,
+        Authorization: `Bearer ${runtime.apiKey}`,
       },
       body: JSON.stringify({
-        model: enhancer.apiModel.trim(),
+        model: runtime.model,
         messages: [
-          { role: "system", content: buildSystem(req.style) },
+          { role: "system", content: buildSystem(req.style, req.mediaKind) },
           { role: "user", content: prompt },
         ],
         stream: false,

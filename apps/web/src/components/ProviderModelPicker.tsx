@@ -1,5 +1,5 @@
 import type { GenProviderInfo } from "@framebaker/shared";
-import { isLikelyImageOnlyModel, pickPreferredVideoModel } from "@framebaker/shared";
+import { pickPreferredVideoModel } from "@framebaker/shared";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
 import PxSelect from "./PxSelect";
@@ -22,13 +22,16 @@ export function resolveProviderSelection(
   model: string,
   opts?: { videoOnly?: boolean; preferI2v?: boolean }
 ): { providerId?: string; model?: string } {
-  const p = providers.find((x) => x.id === providerId) ?? providers.find((x) => x.configured) ?? providers[0];
+  const eligible = providers.filter((p) => opts?.videoOnly
+    ? p.type === "cli" || (p.video && p.videoModels.length > 0)
+    : p.type === "cli" || p.imageModels.length > 0 || p.type === "api");
+  const p = eligible.find((x) => x.id === providerId) ?? eligible.find((x) => x.configured) ?? eligible[0];
   if (!p) return {};
   let m = model.trim();
   if (!m && p.type !== "cli") {
-    m = opts?.videoOnly ? pickPreferredVideoModel(p.models, { preferI2v: opts.preferI2v }) : (p.models[0] ?? "");
-  } else if (m && opts?.videoOnly && isLikelyImageOnlyModel(m) && p.models.length > 0) {
-    m = pickPreferredVideoModel(p.models, { preferI2v: opts.preferI2v });
+    m = opts?.videoOnly ? pickPreferredVideoModel(p.videoModels, { preferI2v: opts.preferI2v }) : (p.imageModels[0] ?? "");
+  } else if (m && !((opts?.videoOnly ? p.videoModels : p.imageModels).includes(m)) && (opts?.videoOnly ? p.videoModels : p.imageModels).length > 0) {
+    m = opts?.videoOnly ? pickPreferredVideoModel(p.videoModels, { preferI2v: opts.preferI2v }) : p.imageModels[0];
   }
   return { providerId: p.id, model: m || undefined };
 }
@@ -52,7 +55,9 @@ export default function ProviderModelPicker({
 }: Props) {
   const t = useT();
   const cfg = useServerConfig();
-  const providers = (cfg?.gen.providers ?? []).filter((p) => (videoOnly ? p.video : true));
+  const providers = (cfg?.gen.providers ?? []).filter((p) => videoOnly
+    ? p.type === "cli" || (p.video && p.videoModels.length > 0)
+    : p.type === "cli" || p.imageModels.length > 0 || p.type === "api");
 
   if (cfg && providers.length === 0) {
     return videoOnly ? (
@@ -67,13 +72,13 @@ export default function ProviderModelPicker({
   const defaultModel =
     provider.type !== "cli"
       ? videoOnly
-        ? pickPreferredVideoModel(provider.models, { preferI2v })
-        : provider.models[0] || ""
+        ? pickPreferredVideoModel(provider.videoModels, { preferI2v })
+        : provider.imageModels[0] || ""
       : "";
   // 视频模式若当前仍停在图模，自动改用列表里的视频模型
   const effectiveModel =
     provider.type !== "cli"
-      ? model && !(videoOnly && isLikelyImageOnlyModel(model))
+      ? model && ((videoOnly ? provider.videoModels : provider.imageModels).length === 0 || (videoOnly ? provider.videoModels : provider.imageModels).includes(model))
         ? model
         : defaultModel
       : model;
@@ -95,8 +100,8 @@ export default function ProviderModelPicker({
           }}
         />
         {provider.type !== "cli" ? (
-          provider.models.length > 0 ? (
-            <PxSelect value={effectiveModel} options={provider.models.map((m) => ({ value: m, label: m }))} onChange={onModelChange} />
+          (videoOnly ? provider.videoModels : provider.imageModels).length > 0 ? (
+            <PxSelect value={effectiveModel} options={(videoOnly ? provider.videoModels : provider.imageModels).map((m) => ({ value: m, label: m }))} onChange={onModelChange} />
           ) : (
             <input
               className="px-input"

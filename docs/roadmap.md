@@ -13,7 +13,7 @@
 - 帧操作：替换图片、时长 ±、关键帧标记、复制、删除
 - 时间轴：HTML5 拖拽换序（乐观更新 + 服务端事务重写 idx）
 - 播放预览：fps 控件 + 每帧 duration
-- 导出精灵表：纯前端 canvas 拼网格，PNG + JSON
+- 导出精灵帧：纯前端逐帧 canvas 烘焙变换，每帧单独 PNG + JSON 元数据
 - 实时同步：WS 广播（任务/帧/素材变更），断线重连
 - 基础设施：Bun workspaces monorepo、@framebaker/shared 共享类型、storage 路径与 cwd 无关
 - 主题：Cassette Futurism 双主题（深 Magnetic Night / 浅 Beige Terminal），三态切换（跟随系统/浅色/深色），localStorage 持久化，无记录时跟随系统并实时响应系统变化
@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | P0 | 任务队列持久化 | 现状：队列与负载在内存，重启后 queued/running 任务丢失。方案：启动时扫描 jobs 表恢复，或将负载序列化进 jobs 表 |
 | P1 | 非 PNG 单图转换 | 现状：单图导入按字节直接落盘为 .png 命名。方案：非 PNG 时过一道 `ffmpeg -i in out.png` |
-| P1 | 导出精灵表 trim | 裁掉透明边缘，JSON 记录 sourceSize/offset，减小体积 |
+| P1 | 导出精灵帧 trim | 裁掉透明边缘，JSON 记录 sourceSize/offset，减小体积 |
 | P1 | 旋转/缩放/透明度编辑 UI | 字段与 PATCH 已就绪，画布工具栏只暴露了 offset 拖拽 |
 | P2 | GIF 帧延迟保留 | 现状：拆帧忽略各帧延迟、等长处理。方案：用 ffprobe/identify 读延迟写入 duration |
 | P2 | AI 插帧 | 相邻关键帧间生成过渡帧（可复用 FRAMEBAKER_GEN_CLI 通道或新增插帧 CLI 环境变量） |

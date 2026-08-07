@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GenProvider } from "@framebaker/shared";
+type RuntimeProvider = GenProvider & { apiSize: string };
 import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
 import { JobCancelledError } from "./run";
 
@@ -59,7 +60,7 @@ async function readError(res: Response, which: string): Promise<Error> {
  *   edits 需模型支持（gpt-image 系列、dall-e-2 支持；dall-e-3 不支持，此时 API 报错会写入 job error）
  */
 async function generateViaOpenAI(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -113,7 +114,7 @@ interface DashscopeResponse {
  * size 可为 1K/2K/4K 或星号格式（如 2048*2048），由 provider 配置原样透传
  */
 async function generateViaDashscope(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -167,7 +168,7 @@ interface GeminiResponse {
  * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应取 candidates[0].content.parts 首个 inlineData.data
  */
 async function generateViaGemini(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -219,7 +220,7 @@ interface MinimaxResponse {
  * prompt 官方限制小于 1500 字符，超长截断
  */
 async function generateViaMinimax(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -268,7 +269,7 @@ async function generateViaMinimax(
  * sizeOverride 非空时覆盖 provider 的 apiSize（生成弹窗的尺寸选择）
  */
 export async function generateViaApi(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   _index: number,
@@ -355,7 +356,7 @@ async function retrieveMinimaxFileUrl(
  * 再 GET {base}/v1/files/retrieve?file_id=… 取 download_url
  */
 async function generateVideoViaMinimaxV1(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -429,7 +430,7 @@ async function generateVideoViaMinimaxV1(
  * 成功直接取 task.content.url 下载
  */
 async function generateVideoViaMinimaxV2(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -487,7 +488,7 @@ async function generateVideoViaMinimaxV2(
 
 /** MiniMax 视频入口：按模型名分发 v1（Hailuo/T2V）或 v2（H3） */
 async function generateVideoViaMinimax(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -510,7 +511,7 @@ async function generateVideoViaMinimax(
  * 轮询 GET {base}/api/v1/tasks/{task_id} → output.video_url
  */
 async function generateVideoViaDashscope(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
@@ -609,7 +610,7 @@ async function generateVideoViaDashscope(
  * sizeOverride：生成弹窗选择的比例/分辨率，非空时覆盖 provider.apiSize
  */
 export async function generateVideoViaApi(
-  cfg: GenProvider,
+  cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,

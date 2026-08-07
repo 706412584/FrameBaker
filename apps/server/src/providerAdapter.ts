@@ -31,11 +31,16 @@ export function createProviderAdapter(
   const provider = resolveGenProvider(req.providerId);
   if (!provider) throw new Error("未配置生成方式：请到「设置」页添加生成 provider（CLI 或各厂商 API，可配多个共存）");
   if (!providerConfigured(provider)) throw new Error(`生成 provider「${provider.name}」配置不完整，请到「设置」页补齐`);
-  const model = req.model?.trim() || provider.apiModels[0] || "";
+  const capabilityModels = req.mediaKind === "video" ? provider.videoModels : provider.imageModels;
+  const model = req.model?.trim() || capabilityModels[0] || "";
   if (provider.type !== "cli" && !model)
     throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   if (req.mediaKind === "video" && !PROVIDER_VIDEO_SUPPORT[provider.type])
     throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
+  if (req.mediaKind === "video" && provider.type !== "cli" && provider.videoModels.length === 0)
+    throw new Error(`provider「${provider.name}」未配置视频模型`);
+  if (provider.type !== "cli" && req.model?.trim() && capabilityModels.length > 0 && !capabilityModels.includes(req.model.trim()))
+    throw new Error(`模型「${req.model.trim()}」不属于 provider「${provider.name}」的当前${req.mediaKind === "video" ? "视频" : "图片"}能力列表`);
 
   const buildArgv = (output: string, index: number): string[] => {
     if (provider.legacyTemplate) {
@@ -69,9 +74,9 @@ export function createProviderAdapter(
     produce(output, index) {
       if (provider.type === "cli") return runCmd(buildArgv(output, index), undefined, signal);
       if (req.mediaKind === "video") {
-        return generateVideoViaApi(provider, req.prompt, model, output, progress, signal, req.referencePath, req.size);
+        return generateVideoViaApi({ ...provider, apiSize: provider.videoSize }, req.prompt, model, output, progress, signal, req.referencePath, req.size);
       }
-      return generateViaApi(provider, req.prompt, model, index, output, req.referencePath, req.size, signal);
+      return generateViaApi({ ...provider, apiSize: provider.imageSize }, req.prompt, model, index, output, req.referencePath, req.size, signal);
     },
   };
 }
@@ -106,7 +111,8 @@ export function checkVideoSupport(opts: { mediaKind?: "image" | "video"; provide
   if (opts.mediaKind !== "video") return null;
   const provider = resolveGenProvider(opts.providerId);
   if (!provider) return "生成 provider 不存在或未配置，请到设置页添加";
-  return PROVIDER_VIDEO_SUPPORT[provider.type] ? null : `provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`;
+  if (!PROVIDER_VIDEO_SUPPORT[provider.type]) return `provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`;
+  return provider.type !== "cli" && provider.videoModels.length === 0 ? `provider「${provider.name}」未配置视频模型` : null;
 }
 
 export async function probeProviderModels(type: "api" | "dashscope" | "gemini" | "minimax", base: string, apiKey: string): Promise<

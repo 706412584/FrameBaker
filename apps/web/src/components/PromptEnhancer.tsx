@@ -13,6 +13,7 @@ interface Props {
   placeholder?: string;
   value: string;
   onChange: (v: string) => void;
+  mediaKind?: "image" | "video";
 }
 
 interface EnhanceResult {
@@ -26,7 +27,7 @@ interface EnhanceResult {
  * 提示词输入行 + 「优化提示词」：调用设置页配置的加强模型，
  * 原/优化后提示词并排展示，由用户点按钮决定用哪版（原文永不覆盖）
  */
-export default function PromptEnhancer({ label, placeholder, value, onChange }: Props) {
+export default function PromptEnhancer({ label, placeholder, value, onChange, mediaKind = "image" }: Props) {
   const t = useT();
   const cfg = useServerConfig();
   const enhancers = cfg?.promptEnhancers ?? [];
@@ -43,7 +44,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange }: 
     }
     setBusy(true);
     try {
-      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style);
+      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style, mediaKind);
       // original 快照保留发起时的原文，之后用户怎么改输入框都不影响对比
       setResult({
         original: value.trim(),

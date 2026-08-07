@@ -13,6 +13,8 @@ const TYPE_LABEL: Record<Job["type"], string> = {
 
 const DONE_TTL = 6000; // 完成/取消任务停留 6s 后自动移除
 const MAX_ITEMS = 20;
+const POS_KEY = "framebaker-jobpanel-pos";
+const PANEL_W = 264;
 
 const isActive = (j: Job) => j.status === "queued" || j.status === "running";
 const isTransient = (j: Job) => j.status === "done" || j.status === "cancelled";
@@ -26,6 +28,71 @@ export default function JobPanel() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const timers = useRef(new Map<string, number>());
+
+  // —— 拖拽移动面板 ——
+  // pos 为 null 时沿用 CSS 默认（右上角）；拖拽后存 left/top 并持久化
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem(POS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (typeof p.left === "number" && typeof p.top === "number") return p;
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  });
+  const panelRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    // 只响应主键，且不拦截头部内按钮的点击
+    if (e.button !== 0) return;
+    const el = panelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    drag.current = { sx: e.clientX, sy: e.clientY, ox: rect.left, oy: rect.top };
+    setDragging(true);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const d = drag.current;
+      if (!d) return;
+      const left = d.ox + (e.clientX - d.sx);
+      const top = d.oy + (e.clientY - d.sy);
+      const maxX = window.innerWidth - PANEL_W;
+      const maxY = window.innerHeight - 40; // 至少留头部可见
+      setPos({
+        left: Math.max(0, Math.min(left, maxX)),
+        top: Math.max(0, Math.min(top, maxY)),
+      });
+    };
+    const onUp = () => {
+      drag.current = null;
+      setDragging(false);
+      setPos((cur) => {
+        if (cur) {
+          try {
+            localStorage.setItem(POS_KEY, JSON.stringify(cur));
+          } catch {
+            /* ignore */
+          }
+        }
+        return cur;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [dragging]);
 
   const dismiss = (id: string) => {
     const timer = timers.current.get(id);
@@ -112,8 +179,20 @@ export default function JobPanel() {
   const activeCount = jobs.filter(isActive).length;
 
   return (
-    <div className="job-panel pixel-panel">
-      <div className="job-panel-head">
+    <div
+      ref={panelRef}
+      className="job-panel pixel-panel"
+      style={
+        pos
+          ? { left: pos.left, top: pos.top, right: "auto" }
+          : undefined
+      }
+    >
+      <div
+        className="job-panel-head"
+        onPointerDown={onPointerDown}
+        style={{ cursor: dragging ? "grabbing" : "grab" }}
+      >
         <ListTodo size={13} />
         <span>{t("msg.job_queue")}</span>
         <span className="count">

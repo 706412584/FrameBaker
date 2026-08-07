@@ -11,7 +11,7 @@ import type {
 import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
 import { STORAGE_ROOT } from "./db";
 import { bundledRembg, getMattingInfo } from "./jobs/matting";
-import { enhancerConfigured, getGenProviders, getMattingSettings, getPromptEnhancers, providerConfigured } from "./provider";
+import { enhancerConfigured, getGenProviders, getMattingSettings, getPromptEnhancers, providerConfigured, resolveEnhancerRuntime } from "./provider";
 import { listProviderModels, probeProviderModels } from "./providerAdapter";
 
 /** provider 类型展示名（doctor 标签用） */
@@ -171,13 +171,14 @@ export async function runDoctor(): Promise<DoctorResponse> {
         detail: "字段齐备（该厂商接口无轻量探测端点，未实发请求）",
       });
     } else {
-      const r = await testApiProvider({ type: p.type, apiBaseUrl: p.apiBaseUrl, apiKey: p.apiKey, apiModel: p.apiModels[0] });
+      const probeModel = p.imageModels[0] ?? p.videoModels[0] ?? p.textModels[0];
+      const r = await testApiProvider({ type: p.type, apiBaseUrl: p.apiBaseUrl, apiKey: p.apiKey, apiModel: probeModel });
       checks.push({
         id: `gen-${p.id}`,
         ok: r.ok,
         label: `生成 provider「${p.name}」（${PROVIDER_TYPE_LABEL[p.type]}）`,
         detail: r.ok
-          ? `${p.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${p.apiModels[0]}` : ""}`
+          ? `${p.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${probeModel}` : ""}`
           : (r.error ?? "连接失败"),
       });
     }
@@ -195,13 +196,14 @@ export async function runDoctor(): Promise<DoctorResponse> {
       });
       continue;
     }
-    const r = await testApiProvider({ type: "api", apiBaseUrl: e.apiBaseUrl, apiKey: e.apiKey, apiModel: e.apiModel });
+    const runtime = resolveEnhancerRuntime(e)!;
+    const r = await testApiProvider({ type: runtime.providerType, apiBaseUrl: runtime.baseUrl, apiKey: runtime.apiKey, apiModel: runtime.model });
     checks.push({
       id: `enh-${e.id}`,
       ok: r.ok,
       label: `加强模型「${e.name}」`,
       detail: r.ok
-        ? `${e.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${e.apiModel}` : ""}`
+        ? `${runtime.baseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? `，但模型列表中没有 ${runtime.model}` : ""}`
         : (r.error ?? "连接失败"),
     });
   }

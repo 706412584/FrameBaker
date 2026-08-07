@@ -27,7 +27,7 @@ export default function SizePicker({ providerId, value, onChange, forVideo }: Pr
   const presets = forVideo ? GEN_VIDEO_SIZE_PRESETS[provider.type] : GEN_SIZE_PRESETS[provider.type];
   const options = presets.map((o) => ({ ...o, label: t(o.label) }));
   const current = options.some((o) => o.value === value) ? value : "";
-  const effective = current || provider.apiSize || (forVideo ? "16:9" : "1:1");
+  const effective = current || (forVideo ? provider.videoSize : provider.imageSize) || (forVideo ? "16:9" : "1:1");
   const preview = parseSizePreview(effective);
   const scale = Math.min(PREVIEW_BOX / preview.w, PREVIEW_BOX / preview.h, 1);
   const pw = Math.max(8, Math.round(preview.w * scale));

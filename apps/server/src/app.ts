@@ -47,15 +47,18 @@ export const app = new Elysia()
           id: p.id,
           name: p.name,
           type: p.type,
-          models: p.apiModels,
+          imageModels: p.imageModels,
+          videoModels: p.videoModels,
+          textModels: p.textModels,
           configured: providerConfigured(p),
-          video: PROVIDER_VIDEO_SUPPORT[p.type],
-          apiSize: p.apiSize,
+          video: PROVIDER_VIDEO_SUPPORT[p.type] && (p.type === "cli" || p.videoModels.length > 0),
+          imageSize: p.imageSize,
+          videoSize: p.videoSize,
         })),
       },
       promptEnhancers: getPromptEnhancers()
         .filter(enhancerConfigured)
-        .map((e) => ({ id: e.id, name: e.name, model: e.apiModel })),
+        .map((e) => ({ id: e.id, name: e.name, model: e.model })),
     };
   })
   // 提示词加强：调用设置页配置的加强模型（OpenAI 兼容 chat/completions），原提示词由前端保留
@@ -73,6 +76,7 @@ export const app = new Elysia()
         enhancerId: t.Optional(t.String()),
         prompt: t.String(),
         style: t.Optional(t.String()),
+        mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
       }),
     }
   )

@@ -254,6 +254,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
               />
             </div>
             <PromptEnhancer
+              mediaKind={mediaKind}
               label={t("msg.prompt")}
               placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
               value={prompt}

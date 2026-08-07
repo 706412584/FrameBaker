@@ -395,6 +395,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               />
             </div>
             <PromptEnhancer
+              mediaKind={mediaKind}
               label={t("msg.prompt")}
               placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_knight_with_sword_walk_cycle_right")}
               value={prompt}

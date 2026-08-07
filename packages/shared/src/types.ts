@@ -75,20 +75,30 @@ export interface GenProvider {
   /** type=api：OpenAI 兼容 baseUrl；type=dashscope：DashScope 原生 baseUrl（可含工作区子域） */
   apiBaseUrl: string;
   apiKey: string;
-  /** type=api 系：可用模型列表（生成弹窗下拉选项） */
-  apiModels: string[];
-  /** 尺寸：api 如 1024x1024，dashscope 如 2048*2048（星号），gemini/minimax 如 16:9；留空则不传 */
-  apiSize: string;
+  /** 按能力分类的模型列表（新配置唯一写入字段） */
+  imageModels: string[];
+  videoModels: string[];
+  textModels: string[];
+  imageSize: string;
+  videoSize: string;
+  /** @deprecated 仅用于读取旧配置 */
+  apiModels?: string[];
+  /** @deprecated 仅用于读取旧配置 */
+  apiSize?: string;
 }
 
 /** 提示词加强模型（存 settings 表 key=promptEnhancers 的数组元素；OpenAI 兼容 chat/completions） */
 export interface PromptEnhancer {
   id: string;
   name: string;
-  /** OpenAI 兼容 baseUrl（POST {apiBaseUrl}/chat/completions） */
-  apiBaseUrl: string;
-  apiKey: string;
-  apiModel: string;
+  providerId: string;
+  model: string;
+  /** @deprecated 旧配置独立凭证兼容 */
+  apiBaseUrl?: string;
+  /** @deprecated 旧配置独立凭证兼容 */
+  apiKey?: string;
+  /** @deprecated 旧配置独立模型兼容 */
+  apiModel?: string;
 }
 
 /**
@@ -187,14 +197,16 @@ export interface GenProviderInfo {
   id: string;
   name: string;
   type: GenProviderType;
-  /** api 可用模型；cli 恒为空数组 */
-  models: string[];
+  imageModels: string[];
+  videoModels: string[];
+  textModels: string[];
   /** 关键字段是否齐备（cli=命令非空；api 系=baseUrl/key 齐全） */
   configured: boolean;
   /** 是否支持视频生成（文生视频 → 逐帧切割）：cli/dashscope/minimax 支持 */
   video: boolean;
   /** 设置页默认尺寸（弹窗空选时预览用；不下发 key） */
-  apiSize?: string;
+  imageSize?: string;
+  videoSize?: string;
 }
 
 /** 各 provider 类型是否支持视频生成（服务端 /api/config 摘要与前端弹窗过滤共用） */
@@ -393,6 +405,7 @@ export interface EnhancePromptRequest {
   prompt: string;
   /** 目标风格（ENHANCE_STYLES 的 id）；缺省/未知值按 pixel 处理 */
   style?: string;
+  mediaKind?: "image" | "video";
 }
 
 export interface EnhancePromptResponse {
