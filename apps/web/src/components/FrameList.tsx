@@ -42,8 +42,8 @@ export default function FrameList({
   const t = useT();
   return (
     <aside className="frame-list pixel-panel" style={width ? { width } : undefined}>
-      <div className="fl-title">{t("帧列表")}</div>
-      <div className="fl-hint">{t("{key}+点击 多选 · Shift+点击 范围选 · 右键 菜单", { key: isMac ? "Cmd" : "Ctrl" })}</div>
+      <div className="fl-title">{t("msg.frames")}</div>
+      <div className="fl-hint">{t("msg.key_click_multi_select_shift_click_range_right_click_men", { key: isMac ? "Cmd" : "Ctrl" })}</div>
       <div
         className="fl-scroll"
         onClick={(e) => {
@@ -71,7 +71,7 @@ export default function FrameList({
             </div>
             <div className="fl-ops">
               <IconBtn
-                title={t("复制帧")}
+                title={t("msg.duplicate_frame")}
                 onClick={(e: React.MouseEvent) => {
                   e.stopPropagation();
                   onDuplicate(f.id);
@@ -80,7 +80,7 @@ export default function FrameList({
                 <Copy size={12} />
               </IconBtn>
               <IconBtn
-                title={t("删除帧")}
+                title={t("msg.delete_frame")}
                 className="danger"
                 onClick={(e: React.MouseEvent) => {
                   e.stopPropagation();
@@ -90,7 +90,7 @@ export default function FrameList({
                 <Trash2 size={12} />
               </IconBtn>
               <IconBtn
-                title={f.is_keyframe ? t("取消关键帧") : t("标记关键帧")}
+                title={f.is_keyframe ? t("msg.unmark_keyframe") : t("msg.mark_keyframe")}
                 className={f.is_keyframe ? "star-on" : ""}
                 onClick={(e: React.MouseEvent) => {
                   e.stopPropagation();
@@ -102,7 +102,7 @@ export default function FrameList({
             </div>
           </motion.div>
         ))}
-        {frames.length === 0 && <div className="fl-empty">{t("暂无帧")}</div>}
+        {frames.length === 0 && <div className="fl-empty">{t("msg.no_frames")}</div>}
       </div>
     </aside>
   );

@@ -46,7 +46,7 @@ export default function SplitDivider({ direction, onDelta, onReset }: Props) {
       aria-orientation={direction === "col" ? "vertical" : "horizontal"}
       onPointerDown={onPointerDown}
       onDoubleClick={onReset}
-      title={t("拖动调整大小 · 双击恢复默认")}
+      title={t("msg.drag_to_resize_double_click_to_reset")}
     />
   );
 }

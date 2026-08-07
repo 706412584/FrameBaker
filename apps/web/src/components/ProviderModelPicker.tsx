@@ -36,7 +36,7 @@ export function resolveProviderSelection(
 const TYPE_LABEL: Record<GenProviderInfo["type"], string> = {
   cli: "CLI",
   api: "API",
-  dashscope: "百炼",
+  dashscope: "msg.bailian",
   gemini: "banana",
   minimax: "MiniMax",
 };
@@ -56,9 +56,9 @@ export default function ProviderModelPicker({
 
   if (cfg && providers.length === 0) {
     return videoOnly ? (
-      <div className="hint warn">{t("无可用的视频生成 provider（支持：CLI / 百炼 / MiniMax），请到「设置」页添加")}</div>
+      <div className="hint warn">{t("msg.no_video_gen_provider_cli_bailian_minimax_add_in_setting")}</div>
     ) : (
-      <div className="hint warn">{t("未配置生成方式：请到「设置」页添加生成 provider（CLI / API 可配多个共存）")}</div>
+      <div className="hint warn">{t("msg.no_gen_provider_add_cli_api_providers_in_settings")}</div>
     );
   }
   const provider =
@@ -80,13 +80,13 @@ export default function ProviderModelPicker({
 
   return (
     <div className="form-row">
-      <label>{t("生成 Provider / 模型（在「设置」页管理）")}</label>
+      <label>{t("msg.gen_provider_model_manage_in_settings")}</label>
       <div className="form-inline">
         <PxSelect
           value={provider.id}
           options={providers.map((p) => ({
             value: p.id,
-            label: `${p.name}（${t(TYPE_LABEL[p.type])}${p.configured ? "" : t("·未配齐")}）`,
+            label: `${p.name}（${t(TYPE_LABEL[p.type])}${p.configured ? "" : t("msg.incomplete")}）`,
             disabled: !p.configured,
           }))}
           onChange={(id) => {
@@ -100,7 +100,7 @@ export default function ProviderModelPicker({
           ) : (
             <input
               className="px-input"
-              placeholder={t("模型名（必填）")}
+              placeholder={t("msg.model_name_required")}
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
             />
@@ -108,7 +108,7 @@ export default function ProviderModelPicker({
         ) : (
           <input
             className="px-input"
-            placeholder={t("模型（按「模型参数名」下发，可空）")}
+            placeholder={t("msg.model_via_model_arg_name_optional")}
             value={model}
             onChange={(e) => onModelChange(e.target.value)}
           />

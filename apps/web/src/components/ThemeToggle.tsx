@@ -5,9 +5,9 @@ import { cycleThemeMode, getThemeMode, onThemeChange, type ThemeMode } from "../
 import { useT } from "../i18n";
 
 const MODE_META: Record<ThemeMode, { label: string; Icon: typeof Sun }> = {
-  system: { label: "跟随系统", Icon: Monitor },
-  light: { label: "浅色", Icon: Sun },
-  dark: { label: "深色", Icon: Moon },
+  system: { label: "theme.system", Icon: Monitor },
+  light: { label: "theme.light", Icon: Sun },
+  dark: { label: "theme.dark", Icon: Moon },
 };
 
 /** 主题切换按钮：三态循环（跟随系统 → 浅色 → 深色） */
@@ -28,7 +28,7 @@ export default function ThemeToggle() {
         cycleThemeMode();
         setMode(getThemeMode());
       }}
-      title={t("主题：{label}（点击切换）", { label: t(label) })}
+      title={t("msg.theme_label_click_to_switch", { label: t(label) })}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span

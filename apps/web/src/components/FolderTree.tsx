@@ -116,27 +116,27 @@ export default function FolderTree({
     try {
       await onRename(editingId, name);
     } catch (e) {
-      notify(t("操作失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.operation_failed_msg", { msg: (e as Error).message }));
     }
   };
 
   const handleCreate = async (parentId: string | null) => {
-    const name = t("未命名文件夹");
+    const name = t("msg.untitled_folder");
     try {
       await onCreate(name, parentId);
       if (parentId) setExpanded((prev) => new Set(prev).add(parentId));
     } catch (e) {
-      notify(t("创建失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.create_failed_msg", { msg: (e as Error).message }));
     }
   };
 
   const handleDelete = async (f: Folder) => {
-    if (!(await askConfirm(t("删除文件夹「{name}」？内容会移到上一级（不删除资源）", { name: f.name })))) return;
+    if (!(await askConfirm(t("msg.delete_folder_name_contents_move_up_resources_kept", { name: f.name })))) return;
     try {
       await onDelete(f.id);
       if (selected === f.id) onSelect("all");
     } catch (e) {
-      notify(t("删除失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.delete_failed_msg", { msg: (e as Error).message }));
     }
   };
 
@@ -155,7 +155,7 @@ export default function FolderTree({
       try {
         await onMoveFolder(folderDrag, folderId);
       } catch (err) {
-        notify(t("操作失败: {msg}", { msg: (err as Error).message }));
+        notify(t("msg.operation_failed_msg", { msg: (err as Error).message }));
       }
       return;
     }
@@ -169,25 +169,25 @@ export default function FolderTree({
     if (target.kind === "folder") {
       const items: CtxMenuItem[] = [
         {
-          label: t("新建子文件夹"),
+          label: t("msg.new_subfolder"),
           icon: <FolderPlus size={13} />,
           onClick: () => void handleCreate(target.folder.id),
         },
         {
-          label: t("重命名"),
+          label: t("msg.rename"),
           icon: <Pencil size={13} />,
           onClick: () => startRename(target.folder),
         },
       ];
       if (target.hasChildren) {
         items.push({
-          label: target.open ? t("折叠") : t("展开"),
+          label: target.open ? t("msg.collapse") : t("msg.expand"),
           icon: target.open ? <ChevronDown size={13} /> : <ChevronRight size={13} />,
           onClick: () => toggle(target.folder.id),
         });
       }
       items.push({
-        label: t("删除文件夹"),
+        label: t("msg.delete_folder"),
         icon: <Trash2 size={13} />,
         danger: true,
         onClick: () => void handleDelete(target.folder),
@@ -196,7 +196,7 @@ export default function FolderTree({
     }
     return [
       {
-        label: t("新建文件夹"),
+        label: t("msg.new_folder"),
         icon: <FolderPlus size={13} />,
         onClick: () => void handleCreate(null),
       },
@@ -232,7 +232,7 @@ export default function FolderTree({
               e.stopPropagation();
               toggle(n.id);
             }}
-            title={open ? t("折叠") : t("展开")}
+            title={open ? t("msg.collapse") : t("msg.expand")}
           >
             {n.children.length ? open ? <ChevronDown size={12} /> : <ChevronRight size={12} /> : <span className="folder-twist-sp" />}
           </button>
@@ -253,13 +253,13 @@ export default function FolderTree({
             <span className="folder-name">{n.name}</span>
           )}
           <span className="folder-acts" onClick={(e) => e.stopPropagation()}>
-            <IconBtn title={t("新建子文件夹")} onClick={() => void handleCreate(n.id)}>
+            <IconBtn title={t("msg.new_subfolder")} onClick={() => void handleCreate(n.id)}>
               <FolderPlus size={12} />
             </IconBtn>
-            <IconBtn title={t("重命名")} onClick={() => startRename(n)}>
+            <IconBtn title={t("msg.rename")} onClick={() => startRename(n)}>
               <Pencil size={12} />
             </IconBtn>
-            <IconBtn className="danger" title={t("删除文件夹")} onClick={() => void handleDelete(n)}>
+            <IconBtn className="danger" title={t("msg.delete_folder")} onClick={() => void handleDelete(n)}>
               <Trash2 size={12} />
             </IconBtn>
           </span>
@@ -272,8 +272,8 @@ export default function FolderTree({
   return (
     <aside className="folder-tree pixel-panel" onContextMenu={(e) => openCtx(e, { kind: "root" })}>
       <div className="folder-tree-head" onContextMenu={(e) => openCtx(e, { kind: "root" })}>
-        <span>{t("目录")}</span>
-        <IconBtn title={t("新建文件夹")} onClick={() => void handleCreate(null)}>
+        <span>{t("msg.folders")}</span>
+        <IconBtn title={t("msg.new_folder")} onClick={() => void handleCreate(null)}>
           <FolderPlus size={14} />
         </IconBtn>
       </div>
@@ -283,7 +283,7 @@ export default function FolderTree({
         onClick={() => onSelect("all")}
         onContextMenu={(e) => openCtx(e, { kind: "all" })}
       >
-        <span className="folder-name">{t("全部")}</span>
+        <span className="folder-name">{t("msg.all")}</span>
       </button>
       <button
         type="button"
@@ -294,7 +294,7 @@ export default function FolderTree({
         onDrop={(e) => void onDropRow(e, null)}
         onContextMenu={(e) => openCtx(e, { kind: "ungrouped" })}
       >
-        <span className="folder-name">{t("未分组")}</span>
+        <span className="folder-name">{t("msg.ungrouped")}</span>
       </button>
       <div className="folder-tree-list">{tree.map((n) => renderNode(n, 0))}</div>
       {/* kind 仅用于语义区分，避免 unused */}

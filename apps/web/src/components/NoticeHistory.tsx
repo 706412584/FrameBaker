@@ -46,7 +46,7 @@ export default function NoticeHistory() {
         whileHover={{ scale: 1.12 }}
         whileTap={{ scale: 0.85 }}
         className={`icon-btn notice-hist-btn ${open ? "on" : ""}`}
-        title={t("消息历史")}
+        title={t("msg.message_history")}
         onClick={toggle}
       >
         <Bell size={16} />
@@ -63,9 +63,9 @@ export default function NoticeHistory() {
             transition={{ duration: 0.12 }}
           >
             <div className="notice-hist-head">
-              <span>{t("消息历史")}</span>
+              <span>{t("msg.message_history")}</span>
               <IconBtn
-                title={t("清空历史")}
+                title={t("msg.clear_history")}
                 disabled={history.length === 0}
                 onClick={() => {
                   clearNoticeHistory();
@@ -75,7 +75,7 @@ export default function NoticeHistory() {
               </IconBtn>
             </div>
             {history.length === 0 ? (
-              <div className="notice-hist-empty">{t("暂无消息")}</div>
+              <div className="notice-hist-empty">{t("msg.no_messages_yet")}</div>
             ) : (
               <ul className="notice-hist-list">
                 {[...history].reverse().map((h) => (

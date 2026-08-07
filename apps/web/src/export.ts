@@ -1,4 +1,5 @@
 import { frameImageUrl, materialImageUrl, type Frame } from "./api";
+import { transformedFrameBounds } from "./frameGeometry";
 
 function download(blob: Blob, filename: string) {
   const a = document.createElement("a");
@@ -74,17 +75,7 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
     // 所有帧共享同一个局部原点；统一包围盒保证播放时 offset 与尺寸变化不会抖动
     const bounds = ordered.map((frame, i) => {
       const bitmap = bitmaps[i];
-      const scale = Math.abs(frame.scale);
-      const cos = Math.abs(Math.cos(frame.rotation));
-      const sin = Math.abs(Math.sin(frame.rotation));
-      const halfW = (bitmap.width * scale * cos + bitmap.height * scale * sin) / 2;
-      const halfH = (bitmap.width * scale * sin + bitmap.height * scale * cos) / 2;
-      return {
-        left: frame.offset_x - halfW,
-        right: frame.offset_x + halfW,
-        top: frame.offset_y - halfH,
-        bottom: frame.offset_y + halfH,
-      };
+      return transformedFrameBounds(bitmap.width, bitmap.height, frame);
     });
     const minX = Math.floor(Math.min(0, ...bounds.map((b) => b.left)));
     const maxX = Math.ceil(Math.max(0, ...bounds.map((b) => b.right)));

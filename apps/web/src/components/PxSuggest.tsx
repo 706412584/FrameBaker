@@ -55,7 +55,7 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
       <button
         type="button"
         className="px-suggest-toggle"
-        title={t("展开建议")}
+        title={t("msg.show_suggestions")}
         tabIndex={-1}
         onClick={() => {
           setQuery("");

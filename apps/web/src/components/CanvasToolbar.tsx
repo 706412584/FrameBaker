@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { Crosshair, Crop, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
 import type { Frame, FramePatch } from "../api";
+import { normalizeFrameRotation } from "../frameGeometry";
 import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 
@@ -36,24 +37,19 @@ const round = (value: number, digits = 3) => {
   return Math.round(value * factor) / factor;
 };
 
-function normalizeRotation(value: number) {
-  const turn = Math.PI * 2;
-  return clamp(round((((value + Math.PI) % turn) + turn) % turn - Math.PI, 6), -Math.PI, Math.PI);
-}
-
 /** 紧凑的变换步进器；点击数值可复位该属性 */
 function TransformStepper({ label, value, disabled, onMinus, onPlus, onReset }: TransformStepperProps) {
   const t = useT();
   return (
     <span className="transform-stepper">
       <span className="transform-name">{t(label)}</span>
-      <IconBtn disabled={disabled} onClick={onMinus} title={t("{label}减少", { label: t(label) })}>
+      <IconBtn disabled={disabled} onClick={onMinus} title={t("msg.decrease_label", { label: t(label) })}>
         <Minus size={12} />
       </IconBtn>
-      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={t("复位{label}", { label: t(label) })}>
+      <button type="button" className="transform-value" disabled={disabled} onClick={onReset} title={t("msg.reset_label", { label: t(label) })}>
         {value}
       </button>
-      <IconBtn disabled={disabled} onClick={onPlus} title={t("{label}增加", { label: t(label) })}>
+      <IconBtn disabled={disabled} onClick={onPlus} title={t("msg.increase_label", { label: t(label) })}>
         <Plus size={12} />
       </IconBtn>
     </span>
@@ -79,7 +75,7 @@ export default function CanvasToolbar({
   const fileRef = useRef<HTMLInputElement>(null);
   const editMode = mode === "edit";
   const editOnly = (key: string) =>
-    editMode ? t(key) : t("{title}（{hint}）", { title: t(key), hint: t("编辑模式下可用") });
+    editMode ? t(key) : t("msg.title_hint", { title: t(key), hint: t("msg.available_in_edit_mode") });
 
   return (
     <div className="toolbar pixel-bar">
@@ -87,7 +83,7 @@ export default function CanvasToolbar({
         className={editMode && onion ? "on" : ""}
         disabled={!editMode}
         onClick={onToggleOnion}
-        title={editOnly("洋葱皮（红=前一帧 蓝=后一帧）")}
+        title={editOnly("msg.onion_skin_red_prev_blue_next")}
       >
         <Eye size={15} />
       </IconBtn>
@@ -95,24 +91,24 @@ export default function CanvasToolbar({
         className={editMode && showGrid ? "on" : ""}
         disabled={!editMode}
         onClick={onToggleGrid}
-        title={editOnly("网格")}
+        title={editOnly("msg.grid")}
       >
         <Grid3x3 size={15} />
       </IconBtn>
       <span className="tb-sep" />
       {/* 视图缩放：编辑/播放都作用于常驻的 Pixi viewport */}
-      <IconBtn onClick={() => onZoomBy(1 / 1.25)} title={t("缩小")}>
+      <IconBtn onClick={() => onZoomBy(1 / 1.25)} title={t("msg.zoom_out")}>
         <ZoomOut size={15} />
       </IconBtn>
-      <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset} title={t("复位 100%")}>
+      <button type="button" className="zoom-label zoom-reset" onClick={onZoomReset} title={t("msg.reset_100")}>
         {Math.round(zoom * 100)}%
       </button>
-      <IconBtn onClick={() => onZoomBy(1.25)} title={t("放大")}>
+      <IconBtn onClick={() => onZoomBy(1.25)} title={t("msg.zoom_in")}>
         <ZoomIn size={15} />
       </IconBtn>
       <span className="tb-sep" />
       <TransformStepper
-        label="缩放"
+        label="transform.scale"
         value={`${Math.round((frame?.scale ?? 1) * 100)}%`}
         disabled={!editMode || !frame}
         onMinus={() => frame && onPatch(frame.id, { scale: round(clamp(frame.scale - 0.1, 0.1, 8)) })}
@@ -120,15 +116,15 @@ export default function CanvasToolbar({
         onReset={() => frame && onPatch(frame.id, { scale: 1 })}
       />
       <TransformStepper
-        label="旋转"
+        label="transform.rotation"
         value={`${Math.round(((frame?.rotation ?? 0) * 180) / Math.PI)}°`}
         disabled={!editMode || !frame}
-        onMinus={() => frame && onPatch(frame.id, { rotation: normalizeRotation(frame.rotation - Math.PI / 12) })}
-        onPlus={() => frame && onPatch(frame.id, { rotation: normalizeRotation(frame.rotation + Math.PI / 12) })}
+        onMinus={() => frame && onPatch(frame.id, { rotation: normalizeFrameRotation(frame.rotation - Math.PI / 12) })}
+        onPlus={() => frame && onPatch(frame.id, { rotation: normalizeFrameRotation(frame.rotation + Math.PI / 12) })}
         onReset={() => frame && onPatch(frame.id, { rotation: 0 })}
       />
       <TransformStepper
-        label="透明"
+        label="transform.opacity"
         value={`${Math.round((frame?.opacity ?? 1) * 100)}%`}
         disabled={!editMode || !frame}
         onMinus={() => frame && onPatch(frame.id, { opacity: round(clamp(frame.opacity - 0.1, 0, 1)) })}
@@ -136,16 +132,16 @@ export default function CanvasToolbar({
         onReset={() => frame && onPatch(frame.id, { opacity: 1 })}
       />
       <span className="tb-sep" />
-      <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("替换并剪裁图片")}>
+      <IconBtn disabled={!editMode || !frame} onClick={() => fileRef.current?.click()} title={editOnly("msg.replace_crop_image")}>
         <ImagePlus size={15} />
       </IconBtn>
-      <IconBtn disabled={!editMode || !frame} onClick={() => frame && onCrop(frame.id)} title={editOnly("剪裁图片")}>
+      <IconBtn disabled={!editMode || !frame} onClick={() => frame && onCrop(frame.id)} title={editOnly("msg.crop_image")}>
         <Crop size={15} />
       </IconBtn>
       <IconBtn
         disabled={!editMode || !frame || frame.duration <= 1}
         onClick={() => frame && onPatch(frame.id, { duration: Math.max(1, frame.duration - 1) })}
-        title={editOnly("减少帧时长")}
+        title={editOnly("msg.decrease_duration")}
       >
         <Minus size={15} />
       </IconBtn>
@@ -153,7 +149,7 @@ export default function CanvasToolbar({
       <IconBtn
         disabled={!editMode || !frame || frame.duration >= 60}
         onClick={() => frame && onPatch(frame.id, { duration: Math.min(60, frame.duration + 1) })}
-        title={editOnly("增加帧时长")}
+        title={editOnly("msg.increase_duration")}
       >
         <Plus size={15} />
       </IconBtn>
@@ -161,7 +157,7 @@ export default function CanvasToolbar({
         className={editMode && frame?.is_keyframe ? "on star" : ""}
         disabled={!editMode || !frame}
         onClick={() => frame && onPatch(frame.id, { is_keyframe: frame.is_keyframe ? 0 : 1 })}
-        title={editOnly("关键帧")}
+        title={editOnly("msg.keyframe")}
       >
         <Star size={15} />
       </IconBtn>
@@ -169,7 +165,7 @@ export default function CanvasToolbar({
       <IconBtn
         disabled={!editMode || !frame || (frame.offset_x === 0 && frame.offset_y === 0)}
         onClick={() => frame && onPatch(frame.id, { offset_x: 0, offset_y: 0 })}
-        title={editOnly("回到画布中心")}
+        title={editOnly("msg.center_on_canvas")}
       >
         <Crosshair size={15} />
       </IconBtn>

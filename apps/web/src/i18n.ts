@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { EN } from "./i18n/en";
+import { en } from "./i18n/en";
+import { zh, type MsgKey } from "./i18n/zh";
 
-// ---- 界面语言管理：zh（默认）/ en ----
-// 中文即字典 key：t("新建项目")，zh 直接返回 key，en 查 i18n/en.ts，缺失回退 key（可增量翻译）
-// 插值用 {name} 占位符：t("删除失败: {msg}", { msg })；未提供的占位符原样保留
-// 持久化双写：localStorage（首屏防闪烁即时缓存）+ 服务端 settings 表（权威），加载顺序同 theme.ts
-// 组件用法：const t = useT(); 之后 JSX / notify / askConfirm 里全部走 t(...)
+// ---- 界面语言：zh（默认）/ en ----
+// 文案用稳定 key（如 common.close），查 zh.ts / en.ts；缺失回退 key 本身
+// 插值：t("msg.delete_failed_msg", { msg })；未提供的 {占位符} 原样保留
+// 持久化：localStorage（首屏）+ settings.lang（权威），顺序同 theme.ts
 
 export type Lang = "zh" | "en";
+export type { MsgKey };
 
 export const LANG_KEY = "framebaker-lang";
+
+const DICTS: Record<Lang, Record<string, string>> = { zh, en };
 
 const TITLES: Record<Lang, string> = {
   zh: "FrameBaker · 像素逐帧动画编辑器",
@@ -19,7 +22,6 @@ const TITLES: Record<Lang, string> = {
 
 const listeners = new Set<(l: Lang) => void>();
 
-// 当前语言以 <html lang> 为准（首屏内联脚本已按 localStorage 设置好）
 export function getLang(): Lang {
   return document.documentElement.lang === "en" ? "en" : "zh";
 }
@@ -42,12 +44,12 @@ function applyLang(l: Lang, persist: boolean) {
   listeners.forEach((fn) => fn(l));
 }
 
-/** 切换语言；sync=true 时同时 PUT 服务端（用户主动切换），sync=false 用于应用服务端值（避免回写循环） */
+/** 切换语言；sync=true 时 PUT 服务端；sync=false 用于应用服务端值 */
 function applyMode(l: Lang, sync: boolean) {
   applyLang(l, true);
   if (sync) {
     api.putSetting("lang", l).catch(() => {
-      /* 静默降级：服务端不可达时仅本地 */
+      /* 静默降级 */
     });
   }
 }
@@ -59,11 +61,11 @@ export function setLang(l: Lang) {
 
 let serverLangLoaded = false;
 
-/** 启动后拉服务端语言（权威值），与本地不同则覆盖并同步 localStorage 缓存；失败静默 */
+/** 启动后拉服务端语言（权威值） */
 export function initLangSync() {
   if (serverLangLoaded) return;
   serverLangLoaded = true;
-  document.title = TITLES[getLang()]; // index.html 的静态 title 先按首屏语言纠正
+  document.title = TITLES[getLang()];
   api
     .getSettings()
     .then((s) => {
@@ -84,7 +86,6 @@ export function onLangChange(l: (lang: Lang) => void): () => void {
   };
 }
 
-/** React hook：订阅当前语言 */
 export function useLang(): Lang {
   const [l, setL] = useState<Lang>(getLang);
   useEffect(() => onLangChange(setL), []);
@@ -96,14 +97,14 @@ function interp(s: string, params?: Record<string, string | number>): string {
   return s.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m));
 }
 
-/** 翻译：zh 返回 key 本身，en 查字典（缺失回退 key），再做 {param} 插值 */
-export function t(key: string, params?: Record<string, string | number>): string {
-  const s = getLang() === "en" ? (EN[key] ?? key) : key;
-  return interp(s, params);
+/** 按 key 查当前语言文案，再做 {param} 插值 */
+export function t(key: MsgKey | string, params?: Record<string, string | number>): string {
+  const dict = DICTS[getLang()];
+  return interp(dict[key] ?? key, params);
 }
 
-/** React hook：订阅语言变化并返回 t（语言切换时组件自动重渲染） */
+/** 订阅语言变化并返回 t */
 export function useT() {
-  useLang(); // 仅为订阅重渲染
+  useLang();
   return t;
 }

@@ -10,11 +10,11 @@ interface Props {
 function engineText(engine: MattingEngine, model: string): string {
   switch (engine) {
     case "custom-cli":
-      return t("引擎: 自定义 CLI");
+      return t("msg.engine_custom_cli");
     case "rembg-bundled":
-      return t("引擎: rembg/{model}", { model });
+      return t("msg.engine_rembg_model", { model });
     case "rembg-path":
-      return t("引擎: rembg/{model}（PATH）", { model });
+      return t("msg.engine_rembg_model_path", { model });
     default:
       return "";
   }
@@ -31,11 +31,11 @@ export default function MattingOption({ checked, onChange }: Props) {
     <div className="matting-option">
       <label className="px-check matting-check">
         <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span className="matting-label">{t("抠图去背（透明背景）")}</span>
+        <span className="matting-label">{t("msg.matte_remove_background")}</span>
       </label>
       <span className={`engine-status ${available ? "ok" : "bad"}`}>
         <span className="dot" />
-        {engine == null ? t("引擎检测中…") : available ? engineText(engine, cfg!.matting.model) : t("未安装抠图引擎，将仅复制原图")}
+        {engine == null ? t("msg.detecting_engine") : available ? engineText(engine, cfg!.matting.model) : t("msg.no_matting_engine_will_copy_original_only")}
       </span>
     </div>
   );

@@ -25,7 +25,7 @@ export default function PlaybackBar({ fps, paused, cursor, total, zoom, onToggle
       exit={{ opacity: 0, y: 10 }}
       transition={{ duration: 0.15 }}
     >
-      <IconBtn onClick={onTogglePause} title={paused ? t("继续") : t("暂停")}>
+      <IconBtn onClick={onTogglePause} title={paused ? t("msg.continue") : t("msg.pause")}>
         {paused ? <Play size={15} /> : <Pause size={15} />}
       </IconBtn>
       <label className="fps-ctl">
@@ -34,7 +34,7 @@ export default function PlaybackBar({ fps, paused, cursor, total, zoom, onToggle
         <span>{fps}</span>
       </label>
       <span className="frame-indicator">{total ? `${cursor + 1} / ${total}` : "0 / 0"}</span>
-      <span className="fps-ctl" title={t("工具栏 ± 或 Cmd/Ctrl+滚轮缩放")}>{t("缩放 {pct}%", { pct: Math.round(zoom * 100) })}</span>
+      <span className="fps-ctl" title={t("msg.toolbar_or_cmd_ctrl_wheel_to_zoom")}>{t("msg.zoom_pct", { pct: Math.round(zoom * 100) })}</span>
     </motion.div>
   );
 }

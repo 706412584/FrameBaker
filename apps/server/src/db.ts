@@ -91,6 +91,14 @@ function ensureColumn(table: string, column: string, decl: string) {
 ensureColumn("projects", "folder_id", "TEXT");
 ensureColumn("materials", "folder_id", "TEXT");
 
+// 视频/GIF 抽帧入库曾误标 source=mp4|gif；PNG 产物改为 extract
+db.query(
+  "UPDATE materials SET source = 'extract' WHERE source IN ('mp4', 'gif') AND (raw_path LIKE '%.png' OR raw_path LIKE '%.PNG')"
+).run();
+db.query(
+  "UPDATE frames SET source = 'extract' WHERE source IN ('mp4', 'gif') AND (raw_path LIKE '%.png' OR raw_path LIKE '%.PNG')"
+).run();
+
 export const uid = () => crypto.randomUUID();
 
 export type { FrameRow, MaterialRow };
@@ -129,5 +137,7 @@ export function serializeFrame(f: FrameRow): Frame {
 }
 
 export function serializeMaterial(m: MaterialRow): Material {
-  return { ...m, metadata: parseJson<Record<string, unknown>>(m.metadata, {}) } as Material;
+  const path = m.raw_path ?? m.processed_path ?? "";
+  const kind: Material["kind"] = /\.(mp4|mov|webm|avi)$/i.test(path) ? "video" : "image";
+  return { ...m, metadata: parseJson<Record<string, unknown>>(m.metadata, {}), kind } as Material;
 }

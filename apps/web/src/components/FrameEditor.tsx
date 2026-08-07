@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Texture, type FederatedPointerEvent } from "pixi.js";
 import { frameImageUrl, type Frame, type FramePatch } from "../api";
+import { fitScaleForBounds, transformedFrameBounds } from "../frameGeometry";
 import { useT } from "../i18n";
 import { canvasColors, useTheme } from "../theme";
 
@@ -53,8 +54,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
 
   // 适配缩放（fit-to-view）：让帧完整收进可视画布区域——只缩小不放大
   // （小图 100% 保持 1:1 像素；大图收进画布，底部不再被裁掉）
-  // 按精灵"实际占用范围"计算：半宽 = 贴图半宽×scale + |offset_x|（半高同理），
-  // 这样带 offset 的帧也整体收进可视区、以画布中心为基准呈现
+  // 按旋转后的实际轴对齐范围计算，让带 offset 的帧也以画布中心为基准完整呈现
   const [fitScale, setFitScale] = useState(1);
   const updateFit = useCallback(() => {
     const p = pixi.current;
@@ -65,16 +65,8 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       setFitScale(1);
       return;
     }
-    // 可视区域 = canvas 本身（与时间轴是 flex 兄弟，无覆盖），留 10% 边距
-    const aw = p.app.screen.width * 0.9;
-    const ah = p.app.screen.height * 0.9;
-    const halfW = (tex.width / 2) * f.scale + Math.abs(f.offset_x);
-    const halfH = (tex.height / 2) * f.scale + Math.abs(f.offset_y);
-    if (halfW === 0 || halfH === 0) {
-      setFitScale(1);
-      return;
-    }
-    setFitScale(Math.min(1, aw / (2 * halfW), ah / (2 * halfH)));
+    const bounds = transformedFrameBounds(tex.width, tex.height, f);
+    setFitScale(fitScaleForBounds(bounds, p.app.screen.width, p.app.screen.height));
   }, []);
   const updateFitRef = useRef(updateFit);
   updateFitRef.current = updateFit;
@@ -264,7 +256,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
 
   return (
     <div className="pixi-wrap" ref={wrapRef}>
-      {!frame && <div className="canvas-empty">{t("暂无帧，点击右上角「导入素材」开始")}</div>}
+      {!frame && <div className="canvas-empty">{t("msg.no_frames_yet_click_import_materials_top_right")}</div>}
     </div>
   );
 }

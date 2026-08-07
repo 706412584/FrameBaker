@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, ImageDown, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
-import { api, materialImageUrl, wsClient, type Folder, type Material } from "../api";
+import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
 import { getLocale, useT } from "../i18n";
@@ -14,6 +14,7 @@ import FileZoom, { useFileZoom } from "./FileZoom";
 import MaterialImportModal from "./MaterialImportModal";
 import MaterialModal from "./MaterialModal";
 import ProjectPickerModal from "./ProjectPickerModal";
+import VideoExtractModal from "./VideoExtractModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import IconBtn from "./IconBtn";
 
@@ -28,6 +29,7 @@ export default function MaterialsPage() {
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<"upload" | "cli" | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [extractId, setExtractId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   /** 右键导入：null=批量选中；string=单素材 id */
   const [pickerScope, setPickerScope] = useState<"batch" | string>("batch");
@@ -134,9 +136,9 @@ export default function MaterialsPage() {
       const r = await api.batchDeleteMaterials(ids);
       setSelectedIds(new Set());
       await load();
-      toast(t("已删除 {count} 个素材", { count: r.deleted }));
+      toast(t("msg.deleted_count_materials", { count: r.deleted }));
     } catch (e) {
-      notify(t("删除失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.delete_failed_msg", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -145,7 +147,7 @@ export default function MaterialsPage() {
   const requestBatchDelete = async () => {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
-    if (!(await askConfirm(t("确认删除选中的 {n} 个素材？此操作不可恢复。", { n: ids.length })))) return;
+    if (!(await askConfirm(t("msg.delete_n_selected_materials_this_cannot_be_undone", { n: ids.length })))) return;
     await deleteMaterials(ids);
   };
 
@@ -153,20 +155,20 @@ export default function MaterialsPage() {
   const requestBatchMatting = async (ids: string[]) => {
     const rawIds = materials.filter((m) => ids.includes(m.id) && m.status !== "matted").map((m) => m.id);
     if (rawIds.length === 0) {
-      notify(t("选中素材均已抠图，批量不可再抠（可点开详情重新抠）"), "info");
+      notify(t("msg.all_selected_are_already_matted_open_detail_to_rematte"), "info");
       return;
     }
-    if (!(await askConfirm(t("对 {n} 个未抠图素材加入抠图任务？", { n: rawIds.length })))) return;
+    if (!(await askConfirm(t("msg.queue_matting_for_n_unmatted_materials", { n: rawIds.length })))) return;
     setBusy(true);
     try {
       const r = await api.batchMatteMaterials(rawIds);
       const msg =
         r.skipped > 0
-          ? t("已加入 {count} 个抠图任务（跳过已抠图 {skipped}）", { count: r.count, skipped: r.skipped })
-          : t("已加入 {count} 个抠图任务", { count: r.count });
+          ? t("msg.queued_count_matting_jobs_skipped_skipped_already_matted", { count: r.count, skipped: r.skipped })
+          : t("msg.queued_count_matting_jobs", { count: r.count });
       toast(msg);
     } catch (e) {
-      notify(t("抠图失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.matting_failed_msg", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -175,7 +177,7 @@ export default function MaterialsPage() {
   const openImportPicker = async (scope: "batch" | string) => {
     const n = scope === "batch" ? selectedIds.size : 1;
     if (n === 0) return;
-    if (!(await askConfirm(t("将 {n} 个素材导入到项目？", { n })))) return;
+    if (!(await askConfirm(t("msg.import_n_materials_into_a_project", { n })))) return;
     setPickerScope(scope);
     setShowPicker(true);
   };
@@ -187,9 +189,9 @@ export default function MaterialsPage() {
       const r = await api.batchImportMaterials(ids, projectId);
       setShowPicker(false);
       setSelectedIds(new Set());
-      toast(t("已导入 {count} 个素材到项目", { count: r.count }));
+      toast(t("msg.imported_count_materials_into_project", { count: r.count }));
     } catch (e) {
-      notify(t("导入失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.import_failed_msg", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -197,27 +199,27 @@ export default function MaterialsPage() {
 
   const moveSelectedTo = async (folderId: string | null, ids: string[]) => {
     const name =
-      folderId == null ? t("未分组") : (folders.find((f) => f.id === folderId)?.name ?? folderId);
-    if (!(await askConfirm(t("将 {n} 个素材移到「{name}」？", { n: ids.length, name })))) return;
+      folderId == null ? t("msg.ungrouped") : (folders.find((f) => f.id === folderId)?.name ?? folderId);
+    if (!(await askConfirm(t("msg.move_n_materials_to_name", { n: ids.length, name })))) return;
     try {
       await api.moveItems("material", ids, folderId);
       await load();
-      toast(t("已移动 {count} 个素材", { count: ids.length }));
+      toast(t("msg.moved_count_materials", { count: ids.length }));
     } catch (e) {
-      notify(t("操作失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.operation_failed_msg", { msg: (e as Error).message }));
     }
   };
 
   const matteOne = async (id: string, rematte: boolean) => {
-    const msg = rematte ? t("重新对该素材抠图？") : t("对该素材加入抠图任务？");
+    const msg = rematte ? t("msg.re_matte_this_material") : t("msg.queue_matting_for_this_material");
     if (!(await askConfirm(msg))) return;
     setBusy(true);
     try {
       // 单条走详情同款接口，已抠图也可重新抠（批量接口会跳过已抠图）
       await api.matteMaterial(id);
-      toast(t("抠图任务已加入队列"));
+      toast(t("msg.matting_job_queued"));
     } catch (e) {
-      notify(t("抠图失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.matting_failed_msg", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -226,8 +228,8 @@ export default function MaterialsPage() {
   const requestBatchExport = async (slot: "raw" | "processed") => {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
-    const label = slot === "processed" ? t("抠图") : t("原图");
-    if (!(await askConfirm(t("导出选中的 {n} 个素材的{slot}？", { n: ids.length, slot: label })))) return;
+    const label = slot === "processed" ? t("msg.matting") : t("msg.original");
+    if (!(await askConfirm(t("msg.export_slot_for_n_selected_materials", { n: ids.length, slot: label })))) return;
     const items = materials
       .filter((m) => ids.includes(m.id))
       .map((m) => ({ id: m.id, name: m.name, processed: !!m.processed_path }));
@@ -235,16 +237,16 @@ export default function MaterialsPage() {
     try {
       const r = await downloadMaterialImages(items, slot, v);
       if (r.ok === 0 && r.skipped > 0) {
-        notify(t("选中素材均无抠图可导出"), "info");
+        notify(t("msg.none_of_the_selected_materials_have_a_matted_image"), "info");
       } else {
         toast(
           r.skipped > 0 || r.failed > 0
-            ? t("已导出 {ok} 张，跳过 {skipped}，失败 {failed}", {
+            ? t("msg.exported_ok_skipped_skipped_failed_failed", {
                 ok: r.ok,
                 skipped: r.skipped,
                 failed: r.failed,
               })
-            : t("已导出 {ok} 张", { ok: r.ok })
+            : t("msg.exported_ok", { ok: r.ok })
         );
       }
     } finally {
@@ -255,7 +257,7 @@ export default function MaterialsPage() {
   /** 批量自动裁透明边：对当前显示槽位（processed 优先）找不透明包围盒后写回 */
   const requestBatchAutoCrop = async (ids: string[]) => {
     if (ids.length === 0) return;
-    if (!(await askConfirm(t("对选中的 {n} 个素材自动裁掉透明边？", { n: ids.length })))) return;
+    if (!(await askConfirm(t("msg.auto_trim_transparent_edges_on_n_selected_materials", { n: ids.length })))) return;
     setBusy(true);
     let ok = 0;
     let skipped = 0;
@@ -295,7 +297,7 @@ export default function MaterialsPage() {
       setV((x) => x + 1);
       await load();
       toast(
-        t("已自动裁边 {ok} 张，跳过 {skipped}，失败 {failed}", { ok, skipped, failed })
+        t("msg.auto_trimmed_ok_skipped_skipped_failed_failed", { ok, skipped, failed })
       );
     } finally {
       setBusy(false);
@@ -303,6 +305,7 @@ export default function MaterialsPage() {
   };
 
   const detail = detailId ? (materials.find((m) => m.id === detailId) ?? null) : null;
+  const extractMat = extractId ? (materials.find((m) => m.id === extractId) ?? null) : null;
 
   const ctxMat = ctxMenu ? (materials.find((m) => m.id === ctxMenu.materialId) ?? null) : null;
   const ctxBatch = ctxMenu != null && selectedIds.size >= 2 && selectedIds.has(ctxMenu.materialId);
@@ -311,32 +314,32 @@ export default function MaterialsPage() {
     : ctxBatch
       ? [
           {
-            label: t("导入到项目（{n}）", { n: selectedIds.size }),
+            label: t("msg.import_to_project_n", { n: selectedIds.size }),
             icon: <Send size={13} />,
             onClick: () => void openImportPicker("batch"),
           },
           {
-            label: t("批量抠图（{n}）", { n: selectedIds.size }),
+            label: t("msg.batch_matte_n", { n: selectedIds.size }),
             icon: <Wand2 size={13} />,
             onClick: () => void requestBatchMatting([...selectedIds]),
           },
           {
-            label: t("自动裁边（{n}）", { n: selectedIds.size }),
+            label: t("msg.auto_trim_n", { n: selectedIds.size }),
             icon: <Scan size={13} />,
             onClick: () => void requestBatchAutoCrop([...selectedIds]),
           },
           {
-            label: t("导出原图（{n}）", { n: selectedIds.size }),
+            label: t("msg.export_original_n", { n: selectedIds.size }),
             icon: <Download size={13} />,
             onClick: () => void requestBatchExport("raw"),
           },
             {
-              label: t("导出抠图（{n}）", { n: selectedIds.size }),
+              label: t("msg.export_matted_n", { n: selectedIds.size }),
               icon: <ImageDown size={13} />,
               onClick: () => void requestBatchExport("processed"),
             },
           {
-            label: t("删除 {n} 个素材", { n: selectedIds.size }),
+            label: t("msg.delete_n_materials", { n: selectedIds.size }),
             icon: <Trash2 size={13} />,
             danger: true,
             onClick: () => void requestBatchDelete(),
@@ -345,56 +348,66 @@ export default function MaterialsPage() {
       : ctxMat
         ? [
             {
-              label: t("打开详情"),
+              label: t("msg.open_details"),
               icon: <Eye size={13} />,
               onClick: () => setDetailId(ctxMat.id),
             },
+            ...(ctxMat.kind === "video"
+              ? ([
+                  {
+                    label: t("videoExtract.open"),
+                    icon: <Film size={13} />,
+                    onClick: () => setExtractId(ctxMat.id),
+                  },
+                ] satisfies CtxMenuItem[])
+              : ([
+                  {
+                    label: t("msg.import_to_project"),
+                    icon: <Send size={13} />,
+                    onClick: () => void openImportPicker(ctxMat.id),
+                  },
+                  {
+                    label: ctxMat.status === "matted" ? t("msg.re_matte") : t("msg.matting"),
+                    icon: <Wand2 size={13} />,
+                    onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
+                  },
+                  {
+                    label: t("msg.auto_trim"),
+                    icon: <Scan size={13} />,
+                    onClick: () => void requestBatchAutoCrop([ctxMat.id]),
+                  },
+                  {
+                    label: t("msg.export_original"),
+                    icon: <Download size={13} />,
+                    onClick: async () => {
+                      try {
+                        await downloadMaterialImage(ctxMat.id, ctxMat.name, "raw", v);
+                        toast(t("msg.original_exported"));
+                      } catch (e) {
+                        notify(t("msg.export_failed_msg", { msg: (e as Error).message }));
+                      }
+                    },
+                  },
+                  {
+                    label: t("msg.export_matted"),
+                    icon: <ImageDown size={13} />,
+                    disabled: !ctxMat.processed_path,
+                    onClick: async () => {
+                      try {
+                        await downloadMaterialImage(ctxMat.id, ctxMat.name, "processed", v);
+                        toast(t("msg.matted_image_exported"));
+                      } catch (e) {
+                        notify(t("msg.export_failed_msg", { msg: (e as Error).message }));
+                      }
+                    },
+                  },
+                ] satisfies CtxMenuItem[])),
             {
-              label: t("导入到项目"),
-              icon: <Send size={13} />,
-              onClick: () => void openImportPicker(ctxMat.id),
-            },
-            {
-              label: ctxMat.status === "matted" ? t("重新抠图") : t("抠图"),
-              icon: <Wand2 size={13} />,
-              onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
-            },
-            {
-              label: t("自动裁边"),
-              icon: <Scan size={13} />,
-              onClick: () => void requestBatchAutoCrop([ctxMat.id]),
-            },
-            {
-              label: t("导出原图"),
-              icon: <Download size={13} />,
-              onClick: async () => {
-                try {
-                  await downloadMaterialImage(ctxMat.id, ctxMat.name, "raw", v);
-                  toast(t("已导出原图"));
-                } catch (e) {
-                  notify(t("导出失败: {msg}", { msg: (e as Error).message }));
-                }
-              },
-            },
-            {
-              label: t("导出抠图"),
-              icon: <ImageDown size={13} />,
-              disabled: !ctxMat.processed_path,
-              onClick: async () => {
-                try {
-                  await downloadMaterialImage(ctxMat.id, ctxMat.name, "processed", v);
-                  toast(t("已导出抠图"));
-                } catch (e) {
-                  notify(t("导出失败: {msg}", { msg: (e as Error).message }));
-                }
-              },
-            },
-            {
-              label: t("删除"),
+              label: t("msg.delete_material"),
               icon: <Trash2 size={13} />,
               danger: true,
               onClick: async () => {
-                if (!(await askConfirm(t("确认删除该素材？此操作不可恢复。")))) return;
+                if (!(await askConfirm(t("msg.delete_this_material_this_cannot_be_undone")))) return;
                 await deleteMaterials([ctxMat.id]);
                 if (detailId === ctxMat.id) setDetailId(null);
               },
@@ -432,10 +445,10 @@ export default function MaterialsPage() {
       <div className="folder-content">
         <header className="home-header">
           <h1>
-            <Package size={28} /> {t("素材库")}
+            <Package size={28} /> {t("msg.materials")}
           </h1>
           <p className="subtitle">
-            {t("{count} 个素材 · 生成 / 上传 → 抠图 → 对比确认 → 导入项目 · {mod}+点击 多选 · Shift+点击 范围选", {
+            {t("msg.count_materials_generate_upload_matte_review_import_mod", {
               count: visible.length,
               mod: isMac ? "Cmd" : "Ctrl",
             })}
@@ -448,7 +461,7 @@ export default function MaterialsPage() {
               className="px-btn"
               onClick={() => setImportTab("upload")}
             >
-              <Upload size={16} /> {t("上传素材")}
+              <Upload size={16} /> {t("msg.upload_materials")}
             </motion.button>
             <motion.button
               type="button"
@@ -457,7 +470,7 @@ export default function MaterialsPage() {
               className="px-btn accent"
               onClick={() => setImportTab("cli")}
             >
-              <Sparkles size={16} /> {t("AI 生成")}
+              <Sparkles size={16} /> {t("msg.ai_generate")}
             </motion.button>
           </div>
           <FileZoom value={zoom} onChange={setZoom} />
@@ -467,12 +480,12 @@ export default function MaterialsPage() {
           {materials.length === 0 ? (
             <div className="empty">
               <Package size={32} />
-              <p>{t("素材库为空，先上传或 AI 生成一些素材吧")}</p>
+              <p>{t("msg.materials_empty_upload_or_ai_generate_some_first")}</p>
             </div>
           ) : visible.length === 0 ? (
             <div className="empty">
               <Package size={32} />
-              <p>{t("当前目录没有素材")}</p>
+              <p>{t("msg.no_materials_in_this_folder")}</p>
             </div>
           ) : (
             <div className="file-grid" style={{ ["--tile-min" as string]: `${zoom}px` }}>
@@ -497,10 +510,14 @@ export default function MaterialsPage() {
                   onContextMenu={(e) => onCardContextMenu(e, m.id)}
                 >
                   <div className="thumb">
-                    <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
+                    {m.kind === "video" ? (
+                      <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
+                    ) : (
+                      <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
+                    )}
                     <span
                       className={`mat-check ${selectedIds.has(m.id) ? "on" : ""}`}
-                      title={t("选择")}
+                      title={t("msg.select_70b208")}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleOne(m.id);
@@ -508,7 +525,8 @@ export default function MaterialsPage() {
                     >
                       {selectedIds.has(m.id) && <Check size={12} />}
                     </span>
-                    {m.status === "matted" && <span className="mat-badge-matted">{t("已抠图")}</span>}
+                    {m.kind === "video" && <span className="mat-badge-video">{t("msg.video")}</span>}
+                    {m.status === "matted" && <span className="mat-badge-matted">{t("msg.matted_431ee1")}</span>}
                     <span
                       className="mat-src"
                       style={{ background: themedSourceColor(SOURCE_COLORS[m.source] ?? "#888", theme) }}
@@ -536,40 +554,40 @@ export default function MaterialsPage() {
                 exit={{ opacity: 0, y: -14 }}
                 transition={{ duration: 0.15 }}
               >
-                <span className="batch-count">{t("已选 {count} 个素材", { count: selectedIds.size })}</span>
+                <span className="batch-count">{t("msg.count_materials_selected", { count: selectedIds.size })}</span>
                 <span className="tb-sep" />
-                <IconBtn className="danger" title={t("批量删除")} disabled={busy} onClick={() => void requestBatchDelete()}>
+                <IconBtn className="danger" title={t("msg.batch_delete")} disabled={busy} onClick={() => void requestBatchDelete()}>
                   <Trash2 size={14} />
                 </IconBtn>
-                <IconBtn title={t("导入到项目")} disabled={busy} onClick={() => void openImportPicker("batch")}>
+                <IconBtn title={t("msg.import_to_project")} disabled={busy} onClick={() => void openImportPicker("batch")}>
                   <Send size={14} />
                 </IconBtn>
                 <IconBtn
-                  title={t("批量抠图（仅未抠图）")}
+                  title={t("msg.batch_matte_raw_only")}
                   disabled={busy}
                   onClick={() => void requestBatchMatting([...selectedIds])}
                 >
                   <Wand2 size={14} />
                 </IconBtn>
                 <IconBtn
-                  title={t("批量自动裁边")}
+                  title={t("msg.batch_auto_trim")}
                   disabled={busy}
                   onClick={() => void requestBatchAutoCrop([...selectedIds])}
                 >
                   <Scan size={14} />
                 </IconBtn>
-                <IconBtn title={t("批量导出原图")} disabled={busy} onClick={() => void requestBatchExport("raw")}>
+                <IconBtn title={t("msg.batch_export_original")} disabled={busy} onClick={() => void requestBatchExport("raw")}>
                   <Download size={14} />
                 </IconBtn>
                 <IconBtn
-                  title={t("批量导出抠图（仅已抠图）")}
+                  title={t("msg.batch_export_matted_matted_only")}
                   disabled={busy}
                   onClick={() => void requestBatchExport("processed")}
                 >
                   <ImageDown size={14} />
                 </IconBtn>
                 <span className="tb-sep" />
-                <IconBtn title={t("取消选择")} disabled={busy} onClick={clearSelection}>
+                <IconBtn title={t("msg.clear_selection")} disabled={busy} onClick={clearSelection}>
                   <X size={14} />
                 </IconBtn>
               </motion.div>
@@ -607,8 +625,23 @@ export default function MaterialsPage() {
         </AnimatePresence>
 
         <AnimatePresence>
+          {extractMat && (
+            <VideoExtractModal
+              material={extractMat}
+              v={v}
+              onClose={() => setExtractId(null)}
+              onToast={(msg) => {
+                toast(msg);
+                void load();
+                setV((x) => x + 1);
+              }}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {showPicker && (
-            <ProjectPickerModal title={t("导入到项目")} onPick={doImportPick} onClose={() => setShowPicker(false)} />
+            <ProjectPickerModal title={t("msg.import_to_project")} onPick={doImportPick} onClose={() => setShowPicker(false)} />
           )}
         </AnimatePresence>
 

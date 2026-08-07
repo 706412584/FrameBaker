@@ -6,9 +6,9 @@ import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 
 const TYPE_LABEL: Record<Job["type"], string> = {
-  extract_frames: "拆帧",
-  generate_frames: "生成",
-  matting: "抠图",
+  extract_frames: "job.extract",
+  generate_frames: "msg.generate",
+  matting: "msg.matting",
 };
 
 const DONE_TTL = 6000; // 完成/取消任务停留 6s 后自动移除
@@ -62,13 +62,13 @@ export default function JobPanel() {
 
   const cancel = async (id: string) => {
     if (cancelling.has(id)) return;
-    if (!(await askConfirm(t("确定取消该任务？正在运行的命令会被中止。")))) return;
+    if (!(await askConfirm(t("msg.cancel_this_job_running_commands_will_be_aborted")))) return;
     setCancelling((prev) => new Set(prev).add(id));
     try {
       await api.cancelJob(id);
       await fetchOne(id);
     } catch (e) {
-      notify(t("取消失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.cancel_failed_msg", { msg: (e as Error).message }));
     } finally {
       setCancelling((prev) => {
         const next = new Set(prev);
@@ -115,9 +115,9 @@ export default function JobPanel() {
     <div className="job-panel pixel-panel">
       <div className="job-panel-head">
         <ListTodo size={13} />
-        <span>{t("任务队列")}</span>
+        <span>{t("msg.job_queue")}</span>
         <span className="count">
-          {activeCount > 0 ? t("{n} 进行中", { n: activeCount }) : t("全部完成")}
+          {activeCount > 0 ? t("msg.n_running", { n: activeCount }) : t("msg.all_done")}
         </span>
       </div>
       <AnimatePresence initial={false}>
@@ -142,18 +142,18 @@ export default function JobPanel() {
               <span className="kind">{t(TYPE_LABEL[j.type] ?? j.type)}</span>
               <span className="prog" title={j.error ?? j.progress ?? undefined}>
                 {j.status === "done"
-                  ? t("完成")
+                  ? t("msg.done")
                   : j.status === "error"
-                    ? t("失败")
+                    ? t("msg.failed")
                     : j.status === "cancelled"
-                      ? t("已取消")
-                      : (j.progress ?? (j.status === "queued" ? t("排队中") : t("处理中")))}
+                      ? t("msg.cancelled")
+                      : (j.progress ?? (j.status === "queued" ? t("msg.queued") : t("msg.processing")))}
               </span>
               {isActive(j) && (
                 <button
                   type="button"
                   className="dismiss"
-                  title={t("取消任务")}
+                  title={t("msg.cancel_job")}
                   disabled={cancelling.has(j.id)}
                   onClick={() => void cancel(j.id)}
                 >
@@ -161,7 +161,7 @@ export default function JobPanel() {
                 </button>
               )}
               {(j.status === "done" || j.status === "error" || j.status === "cancelled") && (
-                <button type="button" className="dismiss" title={t("移除")} onClick={() => dismiss(j.id)}>
+                <button type="button" className="dismiss" title={t("msg.dismiss")} onClick={() => dismiss(j.id)}>
                   <X size={12} />
                 </button>
               )}

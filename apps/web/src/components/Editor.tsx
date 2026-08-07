@@ -135,7 +135,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           }
         })
         .catch((e) => {
-          notify(t("帧属性更新失败: {msg}", { msg: (e as Error).message }));
+          notify(t("msg.frame_update_failed_msg", { msg: (e as Error).message }));
           if (patchRevisions.current.get(id) === revision) void loadFrames();
         })
         .finally(() => {
@@ -148,7 +148,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDuplicate = useCallback(
     async (id: string) => {
-      await api.duplicateFrame(id, 1).catch((e) => notify(t("复制失败: {msg}", { msg: (e as Error).message })));
+      await api.duplicateFrame(id, 1).catch((e) => notify(t("msg.duplicate_failed_msg", { msg: (e as Error).message })));
       await loadFrames();
     },
     [loadFrames]
@@ -156,14 +156,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   const onDelete = useCallback(
     async (id: string) => {
-      await api.deleteFrame(id).catch((e) => notify(t("删除失败: {msg}", { msg: (e as Error).message })));
+      await api.deleteFrame(id).catch((e) => notify(t("msg.delete_failed_msg", { msg: (e as Error).message })));
       await loadFrames();
     },
     [loadFrames]
   );
 
   const onReplace = useCallback((id: string, file: File) => {
-    setReplaceCrop({ frameId: id, image: file, title: t("替换并剪裁帧图片") });
+    setReplaceCrop({ frameId: id, image: file, title: t("msg.replace_crop_frame_image") });
   }, []);
 
   // 剪裁当前帧：取当前显示图（processed 优先，服务端缺失回退 raw），确认后覆盖写回
@@ -171,10 +171,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     async (id: string) => {
       try {
         const res = await fetch(frameImageUrl(id, v));
-        if (!res.ok) throw new Error(t("读取帧图片失败"));
-        setReplaceCrop({ frameId: id, image: await res.blob(), title: t("剪裁帧图片") });
+        if (!res.ok) throw new Error(t("msg.failed_to_read_frame_image"));
+        setReplaceCrop({ frameId: id, image: await res.blob(), title: t("msg.crop_frame_image") });
       } catch (e) {
-        notify(t("剪裁失败: {msg}", { msg: (e as Error).message }));
+        notify(t("msg.crop_failed_msg", { msg: (e as Error).message }));
       }
     },
     [v]
@@ -189,7 +189,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         setV((x) => x + 1);
         await loadFrames();
       } catch (e) {
-        notify(t("剪裁写回失败: {msg}", { msg: (e as Error).message }));
+        notify(t("msg.crop_write_back_failed_msg", { msg: (e as Error).message }));
       }
     },
     [loadFrames, replaceCrop]
@@ -203,7 +203,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       arr.splice(to, 0, moved);
       setFrames(arr);
       api.reorder(projectId, arr.map((f) => f.id)).catch((e) => {
-        notify(t("排序失败: {msg}", { msg: (e as Error).message }));
+        notify(t("msg.reorder_failed_msg", { msg: (e as Error).message }));
         loadFrames();
       });
     },
@@ -345,7 +345,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames(); // 当前帧被删时 loadFrames 会自动切到剩余第一帧
-    if (failed.length) notify(t("{n} 帧删除失败", { n: failed.length }));
+    if (failed.length) notify(t("msg.n_frames_failed_to_delete", { n: failed.length }));
   }, [selectedInOrder, loadFrames]);
 
   const batchDuplicate = useCallback(async () => {
@@ -356,7 +356,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
     setSelectedIds(new Set());
     await loadFrames();
-    if (failed.length) notify(t("{n} 帧复制失败", { n: failed.length }));
+    if (failed.length) notify(t("msg.n_frames_failed_to_duplicate", { n: failed.length }));
   }, [selectedInOrder, loadFrames]);
 
   const batchSetDuration = useCallback(
@@ -368,7 +368,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       }
       setSelectedIds(new Set());
       await loadFrames();
-      if (failed.length) notify(t("{n} 帧设置失败", { n: failed.length }));
+      if (failed.length) notify(t("msg.n_frames_failed_to_update", { n: failed.length }));
     },
     [selectedInOrder, loadFrames]
   );
@@ -377,14 +377,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const batchTrim = useCallback(async () => {
     const ids = selectedInOrder();
     if (ids.length === 0) return;
-    if (!(await askConfirm(t("将裁掉 {n} 帧图片的透明边（覆盖当前帧图片），继续？", { n: ids.length })))) return;
+    if (!(await askConfirm(t("msg.trim_transparent_edges_on_n_frames_overwrites_images_con", { n: ids.length })))) return;
     let trimmed = 0;
     let skipped = 0;
     let failed = 0;
     for (const id of ids) {
       try {
         const res = await fetch(frameImageUrl(id, v));
-        if (!res.ok) throw new Error(t("读取帧图片失败"));
+        if (!res.ok) throw new Error(t("msg.failed_to_read_frame_image"));
         const blob = await res.blob();
         const bitmap = await createImageBitmap(blob);
         const { width, height } = bitmap;
@@ -406,7 +406,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     setSelectedIds(new Set());
     setV((x) => x + 1);
     await loadFrames();
-    notify(t("已剪裁 {trimmed} 帧，跳过 {skipped} 帧，失败 {failed} 帧", { trimmed, skipped, failed }), failed > 0 ? "error" : "info");
+    notify(t("msg.trimmed_trimmed_skipped_skipped_failed_failed", { trimmed, skipped, failed }), failed > 0 ? "error" : "info");
   }, [selectedInOrder, loadFrames, v]);
 
   const activeIndex = frames.findIndex((f) => f.id === activeId);
@@ -424,48 +424,48 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     : ctxBatch
       ? [
           {
-            label: t("复制 {n} 帧", { n: selectedIds.size }),
+            label: t("msg.duplicate_n_frames", { n: selectedIds.size }),
             icon: <Copy size={13} />,
             onClick: async () => {
-              if (await askConfirm(t("复制选中的 {n} 帧（各 ×1）？", { n: selectedIds.size }))) await batchDuplicate();
+              if (await askConfirm(t("msg.duplicate_n_selected_frames_1_each", { n: selectedIds.size }))) await batchDuplicate();
             },
           },
-          { label: t("裁透明边"), icon: <Scan size={13} />, onClick: batchTrim },
+          { label: t("msg.trim_edges"), icon: <Scan size={13} />, onClick: batchTrim },
           {
-            label: t("删除 {n} 帧", { n: selectedIds.size }),
+            label: t("msg.delete_n_frames", { n: selectedIds.size }),
             icon: <Trash2 size={13} />,
             danger: true,
             onClick: async () => {
-              if (await askConfirm(t("确认删除选中的 {n} 帧？", { n: selectedIds.size }))) await batchDelete();
+              if (await askConfirm(t("msg.delete_n_selected_frames", { n: selectedIds.size }))) await batchDelete();
             },
           },
         ]
       : ctxFrame
         ? [
             {
-              label: ctxFrame.is_keyframe ? t("取消关键帧") : t("标记关键帧"),
+              label: ctxFrame.is_keyframe ? t("msg.unmark_keyframe") : t("msg.mark_keyframe"),
               icon: <Star size={13} />,
               onClick: () => patchFrame(ctxFrame.id, { is_keyframe: ctxFrame.is_keyframe ? 0 : 1 }),
             },
             {
-              label: t("时长 +1（当前 ×{n}）", { n: ctxFrame.duration }),
+              label: t("msg.duration_1_now_n", { n: ctxFrame.duration }),
               icon: <Plus size={13} />,
               onClick: () => patchFrame(ctxFrame.id, { duration: Math.min(600, ctxFrame.duration + 1) }),
             },
             {
-              label: t("时长 −1（当前 ×{n}）", { n: ctxFrame.duration }),
+              label: t("msg.duration_1_now_n_1aa6de", { n: ctxFrame.duration }),
               icon: <Minus size={13} />,
               disabled: ctxFrame.duration <= 1,
               onClick: () => patchFrame(ctxFrame.id, { duration: Math.max(1, ctxFrame.duration - 1) }),
             },
-            { label: t("剪裁图片…"), icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
-            { label: t("复制"), icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
+            { label: t("msg.cropping"), icon: <Crop size={13} />, onClick: () => onCropFrame(ctxFrame.id) },
+            { label: t("msg.duplicate"), icon: <Copy size={13} />, onClick: () => onDuplicate(ctxFrame.id) },
             {
-              label: t("删除"),
+              label: t("common.delete"),
               icon: <Trash2 size={13} />,
               danger: true,
               onClick: async () => {
-                if (await askConfirm(t("确认删除该帧？"))) await onDelete(ctxFrame.id);
+                if (await askConfirm(t("msg.delete_this_frame"))) await onDelete(ctxFrame.id);
               },
             },
           ]
@@ -474,14 +474,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   return (
     <div className="editor">
       <header className="topbar pixel-bar">
-        <IconBtn onClick={onBack} title={t("返回项目列表")}>
+        <IconBtn onClick={onBack} title={t("msg.back_to_projects")}>
           <ArrowLeft size={16} />
         </IconBtn>
         <span className="proj-name">{project?.name ?? "…"}</span>
-        <span className="frame-count">{t("{n} 帧", { n: frames.length })}</span>
+        <span className="frame-count">{t("msg.n_frames", { n: frames.length })}</span>
         <div className="spacer" />
         <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" onClick={() => setShowImport(true)}>
-          <Upload size={14} /> {t("导入素材")}
+          <Upload size={14} /> {t("msg.import_materials")}
         </motion.button>
         <motion.button
           type="button"
@@ -489,16 +489,16 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           className={`px-btn ${showPreview ? "accent-cyan" : ""}`}
           onClick={togglePlayback}
         >
-          <Play size={14} /> {t("播放预览")}
+          <Play size={14} /> {t("msg.playback_preview")}
         </motion.button>
         <motion.button
           type="button"
           whileTap={{ scale: 0.95 }}
           className="px-btn accent"
           disabled={frames.length === 0}
-          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(t("导出失败: {msg}", { msg: (e as Error).message })))}
+          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(t("msg.export_failed_msg", { msg: (e as Error).message })))}
         >
-          <Download size={14} /> {t("导出精灵表")}
+          <Download size={14} /> {t("msg.export_spritesheet")}
         </motion.button>
         <NoticeHistory />
         <ThemeToggle />
@@ -621,7 +621,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           <CropModal
             image={replaceCrop.image}
             title={replaceCrop.title}
-            subtitle={t("保存为 PNG")}
+            subtitle={t("msg.save_as_png")}
             onConfirm={confirmReplace}
             onClose={() => setReplaceCrop(null)}
           />

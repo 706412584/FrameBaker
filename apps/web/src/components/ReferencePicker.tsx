@@ -35,10 +35,10 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
   useEffect(() => {
     if (!open) return;
     if (tab === "materials" && mats === null) {
-      api.listMaterials().then(setMats).catch((e) => notify(t("加载素材库失败: {msg}", { msg: (e as Error).message })));
+      api.listMaterials().then(setMats).catch((e) => notify(t("msg.load_materials_failed_msg", { msg: (e as Error).message })));
     }
     if (tab === "frames" && frames === null && projectId) {
-      api.getFrames(projectId).then(setFrames).catch((e) => notify(t("加载项目帧失败: {msg}", { msg: (e as Error).message })));
+      api.getFrames(projectId).then(setFrames).catch((e) => notify(t("msg.load_frames_failed_msg", { msg: (e as Error).message })));
     }
   }, [open, tab, mats, frames, projectId]);
 
@@ -52,18 +52,18 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
 
   return (
     <div className="form-row">
-      <label>{t("引用图片（可选，模板占位符 {reference}）")}</label>
+      <label>{t("msg.reference_image_optional_template_reference")}</label>
       {value == null ? (
         <div className="file-drop" onClick={() => setOpen((o) => !o)}>
           <span className="ref-empty">
-            <ImagePlus size={16} /> {t("选择引用图")}
+            <ImagePlus size={16} /> {t("msg.choose_reference")}
           </span>
         </div>
       ) : (
         <div className="ref-selected">
-          <img src={thumb!} alt={t("引用图")} draggable={false} />
-          <span className="ref-kind">{value.kind === "material" ? t("素材") : t("项目帧")}</span>
-          <IconBtn title={t("清除引用图")} onClick={() => onChange(null)}>
+          <img src={thumb!} alt={t("msg.reference_image")} draggable={false} />
+          <span className="ref-kind">{value.kind === "material" ? t("common.material") : t("msg.project_frames")}</span>
+          <IconBtn title={t("msg.clear_reference")} onClick={() => onChange(null)}>
             <X size={14} />
           </IconBtn>
         </div>
@@ -73,20 +73,20 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
         <div className="ref-panel">
           <div className="import-tabs">
             <button type="button" className={`tab ${tab === "materials" ? "active" : ""}`} onClick={() => setTab("materials")}>
-              {t("素材库")}
+              {t("msg.materials")}
             </button>
             {showFrames && (
               <button type="button" className={`tab ${tab === "frames" ? "active" : ""}`} onClick={() => setTab("frames")}>
-                {t("项目帧")}
+                {t("msg.project_frames")}
               </button>
             )}
           </div>
           <div className="mat-pick-grid ref-grid">
             {tab === "materials" ? (
               mats === null ? (
-                <div className="empty">{t("加载中…")}</div>
+                <div className="empty">{t("msg.loading")}</div>
               ) : mats.length === 0 ? (
-                <div className="empty">{t("素材库为空")}</div>
+                <div className="empty">{t("msg.materials_empty")}</div>
               ) : (
                 mats.map((m) => (
                   <div key={m.id} className="mat-pick" title={m.name} onClick={() => pick({ kind: "material", id: m.id })}>
@@ -96,9 +96,9 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
                 ))
               )
             ) : frames === null ? (
-              <div className="empty">{t("加载中…")}</div>
+              <div className="empty">{t("msg.loading")}</div>
             ) : frames.length === 0 ? (
-              <div className="empty">{t("项目还没有帧")}</div>
+              <div className="empty">{t("msg.project_has_no_frames")}</div>
             ) : (
               frames.map((f, i) => (
                 <div key={f.id} className="mat-pick" title={`#${i + 1}`} onClick={() => pick({ kind: "frame", id: f.id })}>

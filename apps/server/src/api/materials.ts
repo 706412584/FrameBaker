@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import type { MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
-import { checkVideoSupport, resolveReferencePath } from "../jobs/extract";
+import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
+import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
 import { broadcast } from "../ws";
 
 function baseName(filename: string): string {
@@ -25,6 +26,9 @@ function isPng(bytes: Uint8Array): boolean {
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
   const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
   if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
+  if (/\.(mp4|mov|webm|avi)$/i.test(rawSrc)) {
+    throw new Error(`「${m.name}」是视频素材，请先抽帧再导入项目`);
+  }
   const frameId = uid();
   const rawDir = join(STORAGE_ROOT, "projects", projectId, "raw");
   const procDir = join(STORAGE_ROOT, "projects", projectId, "processed");
@@ -50,7 +54,7 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   return frameId;
 }
 
-/** 素材图片流式返回，processed 缺失回退 raw */
+/** 素材图片/视频流式返回，processed 缺失回退 raw */
 const materialImageHandler = ({
   params,
   query,
@@ -64,9 +68,17 @@ const materialImageHandler = ({
   if (!m) return status(404, "素材不存在");
   let path: string | null = query.type === "raw" ? m.raw_path : m.processed_path;
   if (!path || !existsSync(path)) path = m.raw_path;
-  if (!path || !existsSync(path)) return status(404, "图片文件不存在");
+  if (!path || !existsSync(path)) return status(404, "文件不存在");
+  const lower = path.toLowerCase();
+  const contentType = lower.endsWith(".mp4")
+    ? "video/mp4"
+    : lower.endsWith(".webm")
+      ? "video/webm"
+      : lower.endsWith(".mov")
+        ? "video/quicktime"
+        : "image/png";
   return new Response(Bun.file(path), {
-    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
+    headers: { "Content-Type": contentType, "Cache-Control": "no-store" },
   });
 };
 
@@ -180,11 +192,72 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     const m = getMaterial(params.id);
     if (!m) return status(404, "素材不存在");
     if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少 raw 文件");
+    if (/\.(mp4|mov|webm|avi)$/i.test(m.raw_path)) return status(400, "视频素材不能抠图，请先抽帧");
     const r = createMattingJob("", "material", params.id);
     if (r.duplicate) return status(409, "该素材已有进行中的抠图任务");
     return { jobId: r.jobId };
   })
-  // 批量抠图：仅对未抠图（raw）入队；已抠图 / 已有进行中任务跳过（详情页单条仍可重新抠，但会拦重复）
+  // 视频抽帧：复制到 staging → extract_frames → 每帧一个素材（同文件夹）
+  // body.timestamps 有值 → 定点抽帧（仅视频）；否则整段按 fps（GIF/视频）
+  .post(
+    "/materials/:id/extract",
+    ({ params, body, status }) => {
+      const m = getMaterial(params.id);
+      if (!m) return status(404, "素材不存在");
+      if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少文件");
+      const isGif = /\.(gif)$/i.test(m.raw_path);
+      const isVideo = /\.(mp4|mov|webm|avi)$/i.test(m.raw_path);
+      if (!isGif && !isVideo) return status(400, "仅视频/GIF 素材可抽帧");
+
+      const rawTs = Array.isArray(body.timestamps) ? body.timestamps : null;
+      if (rawTs) {
+        if (isGif) return status(400, "GIF 不支持定点抽帧，请用 fps 整段拆帧");
+        if (rawTs.length > EXTRACT_TIMESTAMPS_MAX) {
+          return status(400, `最多 ${EXTRACT_TIMESTAMPS_MAX} 个时间点`);
+        }
+      }
+
+      const stagingId = uid();
+      const dir = join(STORAGE_ROOT, "staging", stagingId);
+      mkdirSync(dir, { recursive: true });
+      const ext = m.raw_path.includes(".") ? m.raw_path.split(".").pop()!.toLowerCase() : "mp4";
+      const stagingFile = join(dir, `input.${ext}`);
+      copyFileSync(m.raw_path, stagingFile);
+      const fps = Math.min(Math.max(body.fps ?? 8, 1), 60);
+
+      let mode: "fps" | "timestamps" = "fps";
+      let timestamps: number[] | undefined;
+      if (rawTs) {
+        timestamps = normalizeExtractTimestamps(rawTs.map(Number));
+        if (timestamps.length === 0) return status(400, "未提供有效抽帧时间点");
+        mode = "timestamps";
+      }
+
+      const jobId = createJob("", "extract_frames", {
+        extract: {
+          stagingFile,
+          mediaType: isGif ? "gif" : "mp4",
+          fps,
+          mode,
+          timestamps,
+          autoMatting: body.autoMatting ?? false,
+          target: { kind: "materials" },
+          originName: (m.name || "素材").replace(/\s*#\d+$/, "").trim() || "素材",
+          folderId: body.folderId !== undefined ? body.folderId : m.folder_id,
+        },
+      });
+      return { jobId };
+    },
+    {
+      body: t.Object({
+        fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
+        timestamps: t.Optional(t.Array(t.Number(), { maxItems: 64 })),
+        autoMatting: t.Optional(t.Boolean()),
+        folderId: t.Optional(t.Union([t.String(), t.Null()])),
+      }),
+    }
+  )
+  // 批量抠图：仅对未抠图（raw）入队；已抠图 / 视频 / 已有进行中任务跳过
   .post(
     "/materials/batch-matting",
     ({ body }) => {
@@ -193,7 +266,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       for (const id of body.ids) {
         const m = getMaterial(id);
         if (!m || !m.raw_path || !existsSync(m.raw_path)) continue;
-        if (m.status === "matted") {
+        if (/\.(mp4|mov|webm|avi)$/i.test(m.raw_path) || m.status === "matted") {
           skipped++;
           continue;
         }

@@ -56,7 +56,7 @@ export default function Timeline({ frames, activeId, selectedIds, v, height, onF
           {f.duration > 1 && <span className="tl-dur">×{f.duration}</span>}
         </div>
       ))}
-      {frames.length === 0 && <span className="tl-empty">{t("时间轴为空 —— 先导入素材")}</span>}
+      {frames.length === 0 && <span className="tl-empty">{t("msg.timeline_empty_import_materials_first")}</span>}
     </footer>
   );
 }

@@ -1,15 +1,16 @@
 import type { FrameSource } from "@framebaker/shared";
 
-/** 来源短标签的 i18n key（中文即 key） */
+/** 来源短标签的 i18n key */
 export const SOURCE_LABEL_KEYS: Record<FrameSource, string> = {
   cli: "CLI",
   api: "API",
-  dashscope: "百炼",
+  dashscope: "msg.bailian",
   gemini: "banana",
   minimax: "MiniMax",
-  upload: "上传",
+  upload: "common.upload",
   gif: "GIF",
   mp4: "MP4",
-  image: "图片",
-  duplicate: "复制",
+  image: "msg.image",
+  extract: "msg.extract_tag",
+  duplicate: "msg.duplicate",
 };

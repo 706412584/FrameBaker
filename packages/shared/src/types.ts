@@ -13,6 +13,7 @@ export const FRAME_SOURCES = [
   "gif",
   "mp4",
   "image",
+  "extract",
   "duplicate",
 ] as const;
 export type FrameSource = (typeof FRAME_SOURCES)[number];
@@ -96,37 +97,90 @@ export interface PromptEnhancer {
  */
 export const GEN_SIZE_PRESETS: Record<Exclude<GenProviderType, "cli">, Array<{ value: string; label: string }>> = {
   api: [
-    { value: "", label: "默认（provider 配置）" },
-    { value: "1024x1024", label: "1024×1024（方）" },
-    { value: "1536x1024", label: "1536×1024（横）" },
-    { value: "1024x1536", label: "1024×1536（竖）" },
+    { value: "", label: "size.default" },
+    { value: "1024x1024", label: "size.1024x1024" },
+    { value: "1536x1024", label: "size.1536x1024" },
+    { value: "1024x1536", label: "size.1024x1536" },
   ],
   dashscope: [
-    { value: "", label: "默认（provider 配置）" },
-    { value: "2K", label: "2K（万相推荐）" },
-    { value: "1K", label: "1K" },
-    { value: "4K", label: "4K（wan2.7-image-pro）" },
-    { value: "1328*1328", label: "1328×1328（方）" },
-    { value: "1664*928", label: "1664×928（横）" },
-    { value: "928*1664", label: "928×1664（竖）" },
+    { value: "", label: "size.default" },
+    { value: "2K", label: "size.2k_wan" },
+    { value: "1K", label: "size.1k" },
+    { value: "4K", label: "size.4k_pro" },
+    { value: "1328*1328", label: "size.1328x1328" },
+    { value: "1664*928", label: "size.1664x928" },
+    { value: "928*1664", label: "size.928x1664" },
   ],
   gemini: [
-    { value: "", label: "默认（provider 配置）" },
-    { value: "1:1", label: "1:1（方）" },
-    { value: "3:2", label: "3:2（横）" },
-    { value: "2:3", label: "2:3（竖）" },
-    { value: "16:9", label: "16:9（宽屏）" },
-    { value: "9:16", label: "9:16（竖屏）" },
+    { value: "", label: "size.default" },
+    { value: "1:1", label: "size.1_1" },
+    { value: "3:2", label: "size.3_2" },
+    { value: "2:3", label: "size.2_3" },
+    { value: "16:9", label: "size.16_9" },
+    { value: "9:16", label: "size.9_16" },
   ],
   minimax: [
-    { value: "", label: "默认（provider 配置）" },
-    { value: "1:1", label: "1:1（方）" },
-    { value: "3:2", label: "3:2（横）" },
-    { value: "2:3", label: "2:3（竖）" },
-    { value: "16:9", label: "16:9（宽屏）" },
-    { value: "9:16", label: "9:16（竖屏）" },
+    { value: "", label: "size.default" },
+    { value: "1:1", label: "size.1_1" },
+    { value: "3:2", label: "size.3_2" },
+    { value: "2:3", label: "size.2_3" },
+    { value: "16:9", label: "size.16_9" },
+    { value: "9:16", label: "size.9_16" },
   ],
 };
+
+/** 视频生成尺寸/比例预设（与图片档位分开；透传给各家 video API） */
+export const GEN_VIDEO_SIZE_PRESETS: Record<Exclude<GenProviderType, "cli">, Array<{ value: string; label: string }>> = {
+  api: [
+    { value: "", label: "size.default" },
+    { value: "1280*720", label: "size.1280x720" },
+    { value: "1920*1080", label: "size.1920x1080" },
+  ],
+  dashscope: [
+    { value: "", label: "size.default" },
+    { value: "720P", label: "size.720p" },
+    { value: "1080P", label: "size.1080p" },
+    { value: "16:9", label: "size.16_9" },
+    { value: "9:16", label: "size.9_16" },
+    { value: "1:1", label: "size.1_1" },
+  ],
+  gemini: [
+    { value: "", label: "size.default" },
+    { value: "16:9", label: "size.16_9" },
+    { value: "9:16", label: "size.9_16" },
+    { value: "1:1", label: "size.1_1" },
+  ],
+  minimax: [
+    { value: "", label: "size.default" },
+    { value: "16:9", label: "size.16_9" },
+    { value: "9:16", label: "size.9_16" },
+    { value: "1:1", label: "size.1_1" },
+    { value: "1080P", label: "size.1080p" },
+    { value: "768P", label: "size.768p" },
+  ],
+};
+
+/**
+ * 把 size / 比例字符串解析成预览用宽高（逻辑像素），供 UI 比例框示意。
+ * 无法识别时回退 1:1。
+ */
+export function parseSizePreview(size: string): { w: number; h: number; label: string } {
+  const s = size.trim();
+  if (!s) return { w: 1, h: 1, label: "default" };
+  const ratio = /^(\d+)\s*:\s*(\d+)$/.exec(s);
+  if (ratio) return { w: Number(ratio[1]), h: Number(ratio[2]), label: s };
+  const wh = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(s);
+  if (wh) return { w: Number(wh[1]), h: Number(wh[2]), label: `${wh[1]}×${wh[2]}` };
+  const up = s.toUpperCase();
+  if (up === "1K") return { w: 1024, h: 1024, label: "1K ≈1024²" };
+  if (up === "2K") return { w: 2048, h: 2048, label: "2K ≈2048²" };
+  if (up === "4K") return { w: 4096, h: 4096, label: "4K ≈4096²" };
+  if (up === "480P") return { w: 854, h: 480, label: "480P" };
+  if (up === "720P") return { w: 1280, h: 720, label: "720P" };
+  if (up === "768P") return { w: 1366, h: 768, label: "768P" };
+  if (up === "1080P") return { w: 1920, h: 1080, label: "1080P" };
+  return { w: 1, h: 1, label: s };
+}
 
 /** GET /api/config 下发的 provider 摘要（不含 apiKey） */
 export interface GenProviderInfo {
@@ -139,6 +193,8 @@ export interface GenProviderInfo {
   configured: boolean;
   /** 是否支持视频生成（文生视频 → 逐帧切割）：cli/dashscope/minimax 支持 */
   video: boolean;
+  /** 设置页默认尺寸（弹窗空选时预览用；不下发 key） */
+  apiSize?: string;
 }
 
 /** 各 provider 类型是否支持视频生成（服务端 /api/config 摘要与前端弹窗过滤共用） */
@@ -149,6 +205,19 @@ export const PROVIDER_VIDEO_SUPPORT: Record<GenProviderType, boolean> = {
   gemini: false,
   minimax: true,
 };
+
+/**
+ * 百炼 / Token Plan Base URL 归一：
+ * 用户常粘贴 OpenAI 兼容地址 `…/compatible-mode/v1`，而生图/视频走原生 `…/api/v1/services/…`。
+ * 剥掉尾斜杠、`/compatible-mode/v1`、`/api/v1`，得到 host 根（如 `https://token-plan.cn-beijing.maas.aliyuncs.com`）。
+ */
+export function normalizeDashscopeBaseUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/compatible-mode\/v1$/i, "")
+    .replace(/\/api\/v1$/i, "");
+}
 
 /** MiniMax image-* / 百炼 wan*-image、qwen-image：明显是文生图，视频模式下应避开 */
 export function isLikelyImageOnlyModel(model: string): boolean {
@@ -209,38 +278,41 @@ export interface ServerConfig {
  * id 传给服务端；directive 由服务端拼进系统提示词（前端只用 id/label 做下拉）
  */
 export const ENHANCE_STYLES = [
-  { id: "pixel", label: "像素画", directive: "pixel art 风格，retro game sprite，limited color palette，crisp clusters" },
-  { id: "anime", label: "动漫二次元", directive: "anime / cel-shaded 风格，clean lineart，vibrant colors" },
-  { id: "illustration", label: "手绘插画", directive: "hand-drawn illustration 风格，painterly texture，soft brush strokes" },
-  { id: "3d", label: "3D 渲染", directive: "3D render 风格，Pixar-like，soft studio lighting，octane render" },
-  { id: "realistic", label: "写实", directive: "photorealistic 风格，detailed texture，natural lighting" },
-  { id: "general", label: "不限风格", directive: "不限定风格，重点丰富主体外观、姿态、视角与氛围" },
+  { id: "pixel", label: "enhance.pixel", directive: "pixel art 风格，retro game sprite，limited color palette，crisp clusters" },
+  { id: "anime", label: "enhance.anime", directive: "anime / cel-shaded 风格，clean lineart，vibrant colors" },
+  { id: "illustration", label: "enhance.illustration", directive: "hand-drawn illustration 风格，painterly texture，soft brush strokes" },
+  { id: "3d", label: "enhance.3d", directive: "3D render 风格，Pixar-like，soft studio lighting，octane render" },
+  { id: "realistic", label: "enhance.realistic", directive: "photorealistic 风格，detailed texture，natural lighting" },
+  { id: "general", label: "enhance.general", directive: "不限定风格，重点丰富主体外观、姿态、视角与氛围" },
 ] as const;
 export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
 
 /**
  * 多动作 / 连续帧生成预设（素材详情「多动作生成」用）。
  * - 图片：按顺序追加帧（可重复）→ 一次生成连续动作拼图表 → 网格切分
- * - 视频：点选动作注入提示词 → 文生视频 → 按 fps 抽帧入库（无需拼图/切分）
+ * - 视频：点选一个动作注入提示词 → 文生视频素材 → 素材库单独抽帧（无需拼图/切分）
  * prompt 为英文动作基调；完整文案由 buildActionSheetPrompt / buildActionVideoPrompt 组装。
  */
 export const ACTION_PRESETS = [
-  { id: "idle", label: "待机", prompt: "idle breathing" },
-  { id: "walk", label: "走路", prompt: "walk cycle" },
-  { id: "run", label: "奔跑", prompt: "run cycle" },
-  { id: "jump", label: "跳跃", prompt: "jump arc" },
-  { id: "attack", label: "攻击", prompt: "attack swing" },
-  { id: "cast", label: "施法", prompt: "spell cast" },
-  { id: "hurt", label: "受击", prompt: "hit recoil" },
-  { id: "death", label: "死亡", prompt: "collapse / defeat" },
+  { id: "idle", label: "action.idle", prompt: "idle breathing" },
+  { id: "walk", label: "action.walk", prompt: "walk cycle" },
+  { id: "run", label: "action.run", prompt: "run cycle" },
+  { id: "jump", label: "action.jump", prompt: "jump arc" },
+  { id: "attack", label: "action.attack", prompt: "attack swing" },
+  { id: "cast", label: "action.cast", prompt: "spell cast" },
+  { id: "hurt", label: "action.hurt", prompt: "hit recoil" },
+  { id: "death", label: "action.death", prompt: "collapse / defeat" },
 ] as const;
 export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
+
+/** 视频定点抽帧最多时间点数（前后端一致） */
+export const EXTRACT_TIMESTAMPS_MAX = 64;
 
 /** 拼图表最多格数（与网格切分上限对齐） */
 export const ACTION_SHEET_MAX_FRAMES = 8;
 
-/** 视频模式最多注入的动作段数（一段短片内的动作序列） */
-export const ACTION_VIDEO_MAX_ACTIONS = 4;
+/** 视频模式：点选注入单个动作（不做拼图表那套 n 帧槽位） */
+export const ACTION_VIDEO_MAX_ACTIONS = 1;
 
 /** 按帧数推荐拼图行列（尽量铺满、少空白格） */
 export function suggestActionSheetGrid(frameCount: number): { cols: number; rows: number } {
@@ -274,14 +346,14 @@ export function buildActionSheetPrompt(opts: {
 
   const a0 = frames[0];
   const head = sameAction && a0
-    ? `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous ${a0.label} (${a0.prompt}) cycle, L→R then T→B. Identical look each panel; smooth motion; last loops to first. Plain/transparent bg, no text.`
+    ? `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous ${a0.prompt} cycle, L→R then T→B. Identical look each panel; smooth motion; last loops to first. Plain/transparent bg, no text.`
     : `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous sequence, L→R then T→B. Identical look; smooth panel-to-panel motion. Plain/transparent bg, no text.`;
 
   const parts = [head];
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Char: ${clip(character, 160)}`);
   if (n > 0) {
-    parts.push(`Frames: ${frames.map((f, i) => `${i + 1}:${f.label}/${f.prompt}`).join("; ")}`);
+    parts.push(`Frames: ${frames.map((f, i) => `${i + 1}:${f.id}/${f.prompt}`).join("; ")}`);
   }
   const empty = cols * rows - n;
   if (empty > 0) parts.push(`Blank last ${empty} panel(s).`);
@@ -292,26 +364,20 @@ export function buildActionSheetPrompt(opts: {
 }
 
 /**
- * 组装「动作视频」prompt：直接注入所选动作，生成一段连续短片（再按 fps 抽帧）。
- * 不做拼图格点；单动作强调循环，多动作按顺序衔接。
+ * 组装「动作视频」prompt：点选一个动作注入，生成一段连续短片（抽帧在素材库单独做）。
+ * 不做拼图格点；强调该动作循环与角色一致。
  */
 export function buildActionVideoPrompt(opts: {
   actions: Array<{ id: string; label: string; prompt: string }>;
   characterPrompt?: string | null;
   extra?: string | null;
 }): string {
-  const actions = opts.actions.slice(0, ACTION_VIDEO_MAX_ACTIONS);
+  const a0 = opts.actions[0];
   const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
-  if (actions.length === 0) return clip("Pixel art game character idle loop. Plain bg, no text.", 1400);
-
-  const a0 = actions[0]!;
-  const same = actions.every((a) => a.id === a0.id);
-  const motion = same
-    ? `continuous ${a0.label} (${a0.prompt}) loop`
-    : `motion sequence: ${actions.map((a) => `${a.label} (${a.prompt})`).join(", then ")}`;
+  if (!a0) return clip("Pixel art game character idle loop. Plain bg, no text.", 1400);
 
   const parts = [
-    `Pixel art game character performing ${motion}. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
+    `Pixel art game character performing continuous ${a0.prompt} loop. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
   ];
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Char: ${clip(character, 200)}`);
@@ -421,6 +487,7 @@ export const SOURCE_COLORS: Record<FrameSource, string> = {
   gif: "#bd93f9",
   mp4: "#ff5555",
   image: "#a4ffff",
+  extract: "#8be9fd",
   duplicate: "#caa9fa",
 };
 
@@ -493,6 +560,8 @@ export interface Material {
   folder_id: string | null;
   metadata: Record<string, unknown>;
   created_at: number;
+  /** 由路径推断：视频素材不可抠图/剪裁，需先抽帧 */
+  kind: "image" | "video";
 }
 
 /** DB 行形态 */

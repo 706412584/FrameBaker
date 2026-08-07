@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Crop, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { api, materialImageUrl, type Material, type Project } from "../api";
+import { Crop, Film, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
+import { useModalEscClose } from "../hooks/useModalEscClose";
 import { askConfirm, notify } from "../notice";
 import { SOURCE_LABEL_KEYS } from "../sourceLabel";
 import { useServerConfig } from "../config";
@@ -10,6 +11,8 @@ import IconBtn from "./IconBtn";
 import CropModal from "./CropModal";
 import GridSplitModal from "./GridSplitModal";
 import ActionGenModal from "./ActionGenModal";
+import MattingOption from "./MattingOption";
+import VideoExtractModal from "./VideoExtractModal";
 
 interface Props {
   material: Material;
@@ -19,26 +22,28 @@ interface Props {
   onToast: (msg: string) => void;
 }
 
-/** 素材详情：原图/抠图对比滑杆 + 抠图/还原/导入/删除 */
+/** 素材详情：图片对比滑杆 / 视频预览 + 抽帧编辑器；抠图/还原/导入/删除 */
 export default function MaterialModal({ material: m, v, onClose, onChanged, onToast }: Props) {
   const t = useT();
+  useModalEscClose(onClose);
+  const isVideo = m.kind === "video";
   const [pos, setPos] = useState(55);
   const [busy, setBusy] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
-  // 剪裁二次加工：载入当前显示图（processed ?? raw），确认后覆盖同一槽位
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
-  // 网格切分：多宫格精灵图逐格切成独立素材
   const [showSplit, setShowSplit] = useState(false);
-  // 多动作生成：以当前素材为引用图，一次生成多动作拼图表再网格切分
   const [showActions, setShowActions] = useState(false);
+  const [showExtract, setShowExtract] = useState(false);
+  const [extractFps, setExtractFps] = useState(8);
+  const [extractMatte, setExtractMatte] = useState(true);
+  const [showFullFps, setShowFullFps] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cfg = useServerConfig();
   const engine = cfg?.matting.engine;
   const engineAvailable = engine != null && engine !== "none";
 
-  // ---- 对比滑杆：pointer 拖动改变 clip 比例 ----
   const updatePos = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
@@ -57,26 +62,24 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
     }
   };
 
-  // 抠图走任务队列（模型首次下载可能耗时数分钟，同步请求会挂死；进度见右侧任务面板）
   const doMatting = () =>
     run(async () => {
       await api.matteMaterial(m.id);
-      onToast(t("抠图任务已加入队列"));
+      onToast(t("msg.matting_job_queued"));
     });
 
   const doUnmatting = () =>
     run(async () => {
       await api.unmatteMaterial(m.id);
       onChanged();
-      onToast(t("已还原为原图"));
+      onToast(t("msg.restored_to_original"));
     });
 
-  // 打开剪裁：取当前显示图对应槽位（processed 优先），fetch 成 blob 进剪裁工具
   const openCrop = () =>
     run(async () => {
       const slot = m.processed_path ? "processed" : "raw";
       const res = await fetch(materialImageUrl(m.id, v, slot));
-      if (!res.ok) throw new Error(t("读取素材图片失败"));
+      if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       setCrop({ blob: await res.blob(), slot });
     });
 
@@ -86,22 +89,33 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       await api.replaceMaterialImage(m.id, blob, crop.slot);
       setCrop(null);
       onChanged();
-      onToast(t("剪裁完成"));
+      onToast(t("msg.crop_done"));
+    });
+
+  const doExtract = () =>
+    run(async () => {
+      await api.extractMaterial(m.id, { fps: extractFps, autoMatting: extractMatte });
+      onToast(t("msg.extract_job_queued_fps_fps", { fps: extractFps }));
+      onClose();
     });
 
   const doDelete = async () => {
-    if (!(await askConfirm(t("确认删除该素材？此操作不可恢复。")))) return;
+    if (!(await askConfirm(t("msg.delete_this_material_this_cannot_be_undone")))) return;
     await run(async () => {
       await api.batchDeleteMaterials([m.id]);
       onChanged();
-      onToast(t("已删除素材"));
+      onToast(t("msg.material_deleted"));
       onClose();
     });
   };
 
   const openImport = () => {
+    if (isVideo) {
+      notify(t("msg.extract_frames_first_then_import_those_materials"), "info");
+      return;
+    }
     if (!showImport && projects === null) {
-      api.listProjects().then(setProjects).catch((e) => notify(t("加载项目失败: {msg}", { msg: e.message })));
+      api.listProjects().then(setProjects).catch((e) => notify(t("msg.load_project_failed_msg", { msg: e.message })));
     }
     setShowImport((s) => !s);
   };
@@ -109,14 +123,14 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const doImport = (projectId: string) =>
     run(async () => {
       const r = await api.importMaterial(m.id, projectId, count);
-      onToast(t("已导入 {count} 帧到项目", { count: r.count }));
+      onToast(t("msg.imported_count_frames_into_project", { count: r.count }));
       setShowImport(false);
     });
 
   const prompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : null;
 
   return (
-    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}  >
       <motion.div
         className="modal pixel-panel mat-modal"
         initial={{ scale: 0.92, y: 24 }}
@@ -126,100 +140,154 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
       >
         <div className="form-inline">
           <h2 style={{ flex: 1 }}>{m.name}</h2>
-          <IconBtn onClick={onClose} title={t("关闭")}>
+          <IconBtn onClick={onClose} title={t("common.close")}>
             <X size={16} />
           </IconBtn>
         </div>
 
-        {/* 原图 | 抠图后 对比滑杆 */}
-        <div
-          className="compare"
-          ref={wrapRef}
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            updatePos(e);
-          }}
-          onPointerMove={(e) => {
-            if (e.buttons & 1) updatePos(e);
-          }}
-        >
-          <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={t("原图")} draggable={false} />
-          {m.processed_path ? (
-            <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-              <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("抠图后")} draggable={false} />
-            </div>
-          ) : (
-            <div className="cmp-clip cmp-placeholder" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-              <span>{t("未抠图")}</span>
-            </div>
-          )}
-          <div className="cmp-divider" style={{ left: `${pos}%` }}>
-            <span className="cmp-handle">
-              <MoveHorizontal size={12} />
-            </span>
+        {isVideo ? (
+          <div className="mat-video-wrap">
+            <video className="mat-video" src={materialFileUrl(m.id, v, "raw")} controls playsInline preload="metadata" />
+            <div className="hint">{t("msg.video_no_extract_during_gen_split_to_images_here_then_ma")}</div>
+            {showFullFps && (
+              <>
+                <div className="form-row">
+                  <label>{t("msg.extract_fps_fps", { fps: extractFps })}</label>
+                  <input
+                    type="range"
+                    min={1}
+                    max={24}
+                    value={extractFps}
+                    disabled={busy}
+                    onChange={(e) => setExtractFps(Number(e.target.value))}
+                  />
+                </div>
+                <MattingOption checked={extractMatte} onChange={setExtractMatte} />
+              </>
+            )}
           </div>
-          <span className="cmp-tag left">{t("原图")}</span>
-          <span className="cmp-tag right">{m.processed_path ? t("抠图后") : t("未抠图")}</span>
-        </div>
+        ) : (
+          <div
+            className="compare"
+            ref={wrapRef}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              updatePos(e);
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons & 1) updatePos(e);
+            }}
+          >
+            <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={t("msg.original")} draggable={false} />
+            {m.processed_path ? (
+              <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
+                <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("msg.matted")} draggable={false} />
+              </div>
+            ) : (
+              <div className="cmp-clip cmp-placeholder" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
+                <span>{t("msg.not_matted")}</span>
+              </div>
+            )}
+            <div className="cmp-divider" style={{ left: `${pos}%` }}>
+              <span className="cmp-handle">
+                <MoveHorizontal size={12} />
+              </span>
+            </div>
+            <span className="cmp-tag left">{t("msg.original")}</span>
+            <span className="cmp-tag right">{m.processed_path ? t("msg.matted") : t("msg.not_matted")}</span>
+          </div>
+        )}
 
         <div className="mat-meta">
-          <span>{t("来源")} {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}</span>
-          <span>{m.status === "matted" ? t("已抠图") : t("原图")}</span>
+          <span>{t("msg.source")} {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}</span>
+          <span>{isVideo ? t("msg.video") : m.status === "matted" ? t("msg.matted_431ee1") : t("msg.original")}</span>
           <span>{new Date(m.created_at).toLocaleString(getLocale())}</span>
-          <span className={`engine-status ${engineAvailable ? "ok" : "bad"}`}>
-            <span className="dot" />
-            {engine == null
-              ? t("引擎检测中…")
-              : engineAvailable
-                ? t("引擎: rembg/{model}", { model: cfg!.matting.model })
-                : t("未安装抠图引擎，抠图将仅复制原图（scripts/setup_matting.sh，Windows 用 .ps1）")}
-          </span>
+          {!isVideo && (
+            <span className={`engine-status ${engineAvailable ? "ok" : "bad"}`}>
+              <span className="dot" />
+              {engine == null
+                ? t("msg.detecting_engine")
+                : engineAvailable
+                  ? t("msg.engine_rembg_model", { model: cfg!.matting.model })
+                  : t("msg.no_matting_engine_copy_only_scripts_setup_matting_sh_ps1")}
+            </span>
+          )}
           {prompt && <span className="mat-prompt">prompt: {prompt}</span>}
         </div>
 
         <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.95 }}
-            className="px-btn accent-cyan"
-            disabled={busy}
-            onClick={doMatting}
-          >
-            <Wand2 size={14} /> {m.status === "matted" ? t("重新抠图") : t("执行抠图")}
-          </motion.button>
-          {m.status === "matted" && (
-            <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={doUnmatting}>
-              <Undo2 size={14} /> {t("还原原图")}
-            </motion.button>
+          {isVideo ? (
+            <>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn accent"
+                disabled={busy}
+                onClick={() => setShowExtract(true)}
+              >
+                <Film size={14} /> {t("videoExtract.open")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                onClick={() => setShowFullFps((s) => !s)}
+              >
+                {t("videoExtract.fullExtract")}
+              </motion.button>
+              {showFullFps && (
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                  className="px-btn accent-cyan"
+                  disabled={busy}
+                  onClick={() => void doExtract()}
+                >
+                  {busy ? t("common.submitting") : t("msg.extract_frames_fps_fps", { fps: extractFps })}
+                </motion.button>
+              )}
+            </>
+          ) : (
+            <>
+              <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent-cyan" disabled={busy} onClick={doMatting}>
+                <Wand2 size={14} /> {m.status === "matted" ? t("msg.re_matte") : t("msg.run_matting")}
+              </motion.button>
+              {m.status === "matted" && (
+                <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={doUnmatting}>
+                  <Undo2 size={14} /> {t("msg.restore_original")}
+                </motion.button>
+              )}
+              <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
+                <Crop size={14} /> {t("msg.crop")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                title={t("msg.split_sprite_grid_into_separate_materials_by_rows_cols")}
+                onClick={() => setShowSplit(true)}
+              >
+                <Grid3x3 size={14} /> {t("msg.grid_split")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                title={t("msg.use_this_material_as_ref_append_continuous_frames_repeat")}
+                onClick={() => setShowActions(true)}
+              >
+                <PersonStanding size={14} /> {t("msg.multi_action_generate")}
+              </motion.button>
+            </>
           )}
-          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
-            <Crop size={14} /> {t("剪裁")}
-          </motion.button>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.95 }}
-            className="px-btn"
-            disabled={busy}
-            title={t("多宫格精灵图按行×列逐格切成独立素材")}
-            onClick={() => setShowSplit(true)}
-          >
-            <Grid3x3 size={14} /> {t("网格切分")}
-          </motion.button>
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.95 }}
-            className="px-btn"
-            disabled={busy}
-            title={t("以当前素材为引用图，追加连续帧（可重复同一动作），一次生成拼图表再网格切分")}
-            onClick={() => setShowActions(true)}
-          >
-            <PersonStanding size={14} /> {t("多动作生成")}
-          </motion.button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy} onClick={openImport}>
-            <Send size={14} /> {t("导入到项目")}
+            <Send size={14} /> {t("msg.import_to_project")}
           </motion.button>
           <div style={{ flex: 1 }} />
-          <IconBtn className="danger" title={t("删除素材")} disabled={busy} onClick={() => void doDelete()}>
+          <IconBtn className="danger" title={t("msg.delete_material")} disabled={busy} onClick={() => void doDelete()}>
             <Trash2 size={15} />
           </IconBtn>
         </div>
@@ -228,7 +296,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           <div className="mat-import">
             <div className="form-inline">
               <label className="px-check">
-                {t("复制帧数")}
+                {t("msg.duplicate_count")}
                 <input
                   className="px-input num"
                   type="number"
@@ -240,15 +308,15 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               </label>
             </div>
             {projects === null ? (
-              <div className="empty">{t("加载项目中…")}</div>
+              <div className="empty">{t("msg.loading_project")}</div>
             ) : projects.length === 0 ? (
-              <div className="empty">{t("还没有项目，请先到「项目」页新建")}</div>
+              <div className="empty">{t("msg.no_projects_yet_create_one_on_projects_page")}</div>
             ) : (
               <div className="picker-list">
                 {projects.map((p) => (
                   <button key={p.id} type="button" className="picker-row" disabled={busy} onClick={() => doImport(p.id)}>
                     <span className="picker-name">{p.name}</span>
-                    <span className="picker-meta">{t("{count} 帧", { count: p.frame_count ?? 0 })}</span>
+                    <span className="picker-meta">{t("msg.count_frames", { count: p.frame_count ?? 0 })}</span>
                   </button>
                 ))}
               </div>
@@ -256,30 +324,41 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           </div>
         )}
 
-        {/* 剪裁二次加工：作用于当前显示图对应槽位 */}
         <AnimatePresence>
           {crop && (
             <CropModal
               image={crop.blob}
               title={m.name}
-              subtitle={t("作用于：{slot}", { slot: crop.slot === "processed" ? t("抠图后") : t("原图") })}
+              subtitle={t("msg.target_slot", { slot: crop.slot === "processed" ? t("msg.matted") : t("msg.original") })}
               onConfirm={doCrop}
               onClose={() => setCrop(null)}
             />
           )}
         </AnimatePresence>
 
-        {/* 网格切分：多宫格精灵图 → N 个素材 */}
         <AnimatePresence>
           {showSplit && (
             <GridSplitModal material={m} v={v} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
           )}
         </AnimatePresence>
 
-        {/* 多动作生成：引用图 → 一张动作拼图表 → 网格切分 */}
         <AnimatePresence>
           {showActions && (
             <ActionGenModal material={m} v={v} onClose={() => setShowActions(false)} onToast={onToast} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showExtract && (
+            <VideoExtractModal
+              material={m}
+              v={v}
+              onClose={() => setShowExtract(false)}
+              onToast={(msg) => {
+                onToast(msg);
+                onChanged();
+              }}
+            />
           )}
         </AnimatePresence>
       </motion.div>

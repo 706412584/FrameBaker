@@ -107,12 +107,12 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
     },
   },
   {
-    label: "百炼",
+    label: "msg.bailian",
     draft: {
       ...CLI_EMPTY,
-      name: "百炼（万相）",
+      name: "settings.name.bailian_token_plan",
       type: "dashscope",
-      apiBaseUrl: "https://dashscope.aliyuncs.com",
+      apiBaseUrl: "https://token-plan.cn-beijing.maas.aliyuncs.com",
       apiKey: "",
       modelsText: "wan2.7-image, wan2.7-image-pro, happyhorse-1.1-t2v, happyhorse-1.1-i2v, happyhorse-1.1-r2v",
       apiSize: "2K",
@@ -143,10 +143,10 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
     },
   },
   {
-    label: "火山方舟（豆包）",
+    label: "settings.preset.volc",
     draft: {
       ...CLI_EMPTY,
-      name: "火山方舟（豆包 Seedream）",
+      name: "settings.name.volc_seedream",
       type: "api",
       apiBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
       apiKey: "",
@@ -155,10 +155,10 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
     },
   },
   {
-    label: "自定义 CLI",
+    label: "settings.preset.custom_cli",
     draft: {
       ...CLI_EMPTY,
-      name: "未命名 CLI",
+      name: "settings.name.untitled_cli",
       type: "cli",
       apiBaseUrl: "",
       apiKey: "",
@@ -167,10 +167,10 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
     },
   },
   {
-    label: "自定义 API",
+    label: "settings.preset.custom_api",
     draft: {
       ...CLI_EMPTY,
-      name: "未命名 API",
+      name: "settings.name.untitled_api",
       type: "api",
       apiBaseUrl: "",
       apiKey: "",
@@ -184,7 +184,7 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
 const TYPE_LABEL: Record<GenProviderType, string> = {
   cli: "CLI",
   api: "API",
-  dashscope: "百炼",
+  dashscope: "msg.bailian",
   gemini: "banana",
   minimax: "MiniMax",
 };
@@ -192,42 +192,42 @@ const TYPE_LABEL: Record<GenProviderType, string> = {
 /** 各 API 系类型的表单 placeholder 与接口说明 */
 const API_TYPE_META: Record<Exclude<GenProviderType, "cli">, { baseUrlPh: string; modelsPh: string; sizePh: string; hint: string }> = {
   api: {
-    baseUrlPh: "https://api.openai.com/v1（或火山方舟 /api/v3 等兼容端点）",
+    baseUrlPh: "settings.ph.api_base",
     modelsPh: "gpt-image-1, doubao-seedream-4-0-250828",
     sizePh: "1024x1024",
-    hint: "文生图 POST {Base URL}/images/generations；选引用图改走 /images/edits（需 gpt-image 系列等支持编辑的模型，dall-e-3 不支持）；测试连接 / 获取模型走 GET /models",
+    hint: "settings.hint.api",
   },
   dashscope: {
-    baseUrlPh: "https://dashscope.aliyuncs.com（或 {WorkspaceId}.cn-beijing.maas.aliyuncs.com）",
+    baseUrlPh: "settings.ph.dashscope_base",
     modelsPh: "wan2.7-image, wan2.7-image-pro, happyhorse-1.1-t2v, happyhorse-1.1-i2v",
-    sizePh: "2K 或 2048*2048",
-    hint: "百炼原生：图片 wan2.7-image / qwen-image 走 multimodal-generation（尺寸 1K/2K/4K 或 宽*高）；视频 HappyHorse / 万相 t2v·i2v·r2v 走 video-synthesis 异步（参数 resolution/ratio/duration；i2v 需首帧引用图）。测试连接 / 获取模型走 GET compatible-mode/v1/models",
+    sizePh: "settings.ph.dashscope_size",
+    hint: "msg.token_plan_base_https_token_plan_cn_beijing_maas_aliyunc",
   },
   gemini: {
     baseUrlPh: "https://generativelanguage.googleapis.com",
     modelsPh: "gemini-2.5-flash-image, gemini-3-pro-image-preview",
     sizePh: "1:1",
-    hint: "banana（Gemini 图像）：POST {Base URL}/v1beta/models/{模型}:generateContent（x-goog-api-key 头）；引用图以 inlineData base64 上送；尺寸填宽高比如 16:9；测试连接 / 获取模型走 GET /v1beta/models",
+    hint: "settings.hint.gemini",
   },
   minimax: {
     baseUrlPh: "https://api.minimaxi.com",
     modelsPh: "image-01, MiniMax-Hailuo-2.3, MiniMax-H3",
     sizePh: "16:9",
-    hint: "MiniMax：图片 image-01 走 /v1/image_generation（引用图 subject_reference）；视频按模型分协议——Hailuo/T2V 走 /v1/video_generation（多数套餐），MiniMax-H3 走 /v2/video_generation；尺寸图/H3 填宽高比（如 16:9），Hailuo 也可填 768P/1080P；测试连接仅校验字段；获取模型为 best-effort，拉不到就手填",
+    hint: "msg.minimax_image_01_v1_image_generation_subject_reference_v",
   },
 };
 
 function engineText(cfg: ReturnType<typeof useServerConfig>): string {
-  if (!cfg) return t("引擎检测中…");
+  if (!cfg) return t("msg.detecting_engine");
   switch (cfg.matting.engine) {
     case "custom-cli":
-      return t("引擎: 自定义 CLI");
+      return t("msg.engine_custom_cli");
     case "rembg-bundled":
-      return t("引擎: rembg/{model}", { model: cfg.matting.model });
+      return t("msg.engine_rembg_model", { model: cfg.matting.model });
     case "rembg-path":
-      return t("引擎: rembg/{model}（PATH）", { model: cfg.matting.model });
+      return t("msg.engine_rembg_model_path", { model: cfg.matting.model });
     default:
-      return t("未安装抠图引擎，将仅复制原图");
+      return t("msg.no_matting_engine_will_copy_original_only");
   }
 }
 
@@ -269,7 +269,7 @@ export default function SettingsPage() {
           }))
         );
       })
-      .catch((e) => notify(t("读取设置失败: {msg}", { msg: (e as Error).message })));
+      .catch((e) => notify(t("msg.load_settings_failed_msg", { msg: (e as Error).message })));
   }, []);
 
   const runDoctorCheck = () => {
@@ -277,7 +277,7 @@ export default function SettingsPage() {
     api
       .getDoctor()
       .then(setDoctor)
-      .catch((e) => notify(t("体检失败: {msg}", { msg: (e as Error).message })))
+      .catch((e) => notify(t("msg.doctor_failed_msg", { msg: (e as Error).message })))
       .finally(() => setDoctorLoading(false));
   };
   useEffect(() => {
@@ -289,7 +289,7 @@ export default function SettingsPage() {
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
 
   const addPreset = (preset: (typeof PRESETS)[number]) =>
-    setDrafts((prev) => [...prev, { ...preset.draft, id: crypto.randomUUID(), name: t(preset.draft.name) }]);
+    setDrafts((prev) => [{ ...preset.draft, id: crypto.randomUUID(), name: t(preset.draft.name) }, ...prev]);
 
   /** 任意卡片保存/删除都整表写入 genProviders */
   const persist = async (list: ProviderDraft[]): Promise<boolean> => {
@@ -298,7 +298,7 @@ export default function SettingsPage() {
       await refreshServerConfig();
       return true;
     } catch (e) {
-      notify(t("保存失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
       return false;
     }
   };
@@ -316,11 +316,11 @@ export default function SettingsPage() {
 
   const removeOne = async (id: string) => {
     const d = drafts.find((x) => x.id === id);
-    if (!(await askConfirm(t("确定删除 provider「{name}」吗？", { name: d?.name ?? id })))) return;
+    if (!(await askConfirm(t("msg.delete_provider_name", { name: d?.name ?? id })))) return;
     const next = drafts.filter((x) => x.id !== id);
     if (await persist(next)) {
       setDrafts(next);
-      notify(t("已删除 provider"), "info");
+      notify(t("msg.provider_deleted"), "info");
       runDoctorCheck();
     }
   };
@@ -352,7 +352,7 @@ export default function SettingsPage() {
       const r = await api.listProviderModels({ type: d.type, apiBaseUrl: d.apiBaseUrl, apiKey: d.apiKey });
       setModelLists((prev) => ({
         ...prev,
-        [d.id]: { loading: false, models: r.models ?? null, error: r.ok ? null : (r.error ?? t("拉取失败")) },
+        [d.id]: { loading: false, models: r.models ?? null, error: r.ok ? null : (r.error ?? t("msg.fetch_failed")) },
       }));
     } catch (e) {
       setModelLists((prev) => ({ ...prev, [d.id]: { loading: false, models: null, error: (e as Error).message } }));
@@ -371,10 +371,10 @@ export default function SettingsPage() {
     try {
       await api.putSetting("matting", mat);
       await refreshServerConfig();
-      notify(t("抠图配置已保存"), "info");
+      notify(t("msg.matting_config_saved"), "info");
       runDoctorCheck();
     } catch (e) {
-      notify(t("保存失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
     } finally {
       setSavingMat(false);
     }
@@ -386,8 +386,8 @@ export default function SettingsPage() {
 
   const addEnhancer = () =>
     setEnhancers((prev) => [
+      { id: crypto.randomUUID(), name: t("msg.untitled_enhancer"), apiBaseUrl: "", apiKey: "", apiModel: "" },
       ...prev,
-      { id: crypto.randomUUID(), name: t("未命名加强模型"), apiBaseUrl: "", apiKey: "", apiModel: "" },
     ]);
 
   const persistEnhancers = async (list: EnhancerDraft[]): Promise<boolean> => {
@@ -396,7 +396,7 @@ export default function SettingsPage() {
       await refreshServerConfig();
       return true;
     } catch (e) {
-      notify(t("保存失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
       return false;
     }
   };
@@ -404,7 +404,7 @@ export default function SettingsPage() {
   const saveEnhancers = async () => {
     setSavingEnh(true);
     if (await persistEnhancers(enhancers)) {
-      notify(t("加强模型已保存"), "info");
+      notify(t("msg.enhancers_saved"), "info");
       runDoctorCheck();
     }
     setSavingEnh(false);
@@ -412,11 +412,11 @@ export default function SettingsPage() {
 
   const removeEnhancer = async (id: string) => {
     const e = enhancers.find((x) => x.id === id);
-    if (!(await askConfirm(t("确定删除加强模型「{name}」吗？", { name: e?.name ?? id })))) return;
+    if (!(await askConfirm(t("msg.delete_enhancer_name", { name: e?.name ?? id })))) return;
     const next = enhancers.filter((x) => x.id !== id);
     if (await persistEnhancers(next)) {
       setEnhancers(next);
-      notify(t("已删除加强模型"), "info");
+      notify(t("msg.enhancer_deleted"), "info");
       runDoctorCheck();
     }
   };
@@ -442,19 +442,19 @@ export default function SettingsPage() {
     <div className="page settings-page">
       <header className="home-header">
         <h1>
-          <Settings2 size={24} /> {t("设置")}
+          <Settings2 size={24} /> {t("msg.settings")}
         </h1>
-        <p className="subtitle">{t("生成 provider（CLI / API 可配多个共存，生成时选择模型）· 抠图引擎 · 体检")}</p>
+        <p className="subtitle">{t("msg.gen_providers_cli_api_pick_model_at_gen_time_matting_doc")}</p>
       </header>
 
       {/* ===== 生成 Provider 列表 ===== */}
       <section className="settings-sec">
         <h3>
-          <Settings2 size={14} /> {t("生成 Provider")}
+          <Settings2 size={14} /> {t("msg.gen_providers")}
         </h3>
 
         <div className="preset-row">
-          <span>{t("快速添加：")}</span>
+          <span>{t("msg.quick_add")}</span>
           {PRESETS.map((p) => (
             <button key={p.label} type="button" className="px-btn mini" onClick={() => addPreset(p)}>
               <Plus size={12} /> {t(p.label)}
@@ -464,8 +464,8 @@ export default function SettingsPage() {
 
         {drafts.length === 0 && (
           <div className="hint">
-            {t("还没有 provider。点上方预设快速添加（CLI / OpenAI 兼容 / 百炼 / banana / MiniMax / 火山方舟）；也可用环境变量")}{" "}
-            <code>FRAMEBAKER_GEN_CLI</code> {t("兜底（列表为空时生效）。")}
+            {t("msg.no_providers_yet_use_presets_above_cli_openai_compatible")}{" "}
+            <code>FRAMEBAKER_GEN_CLI</code> {t("msg.fallback_when_list_is_empty")}
           </div>
         )}
 
@@ -488,10 +488,10 @@ export default function SettingsPage() {
                   disabled={savingId != null}
                   onClick={() => saveOne(d.id)}
                 >
-                  <Save size={12} /> {savingId === d.id ? t("保存中…") : savedId === d.id ? t("已保存 ✓") : t("保存")}
+                  <Save size={12} /> {savingId === d.id ? t("msg.saving") : savedId === d.id ? t("msg.saved") : t("common.save")}
                 </motion.button>
                 <button type="button" className="px-btn mini danger" onClick={() => removeOne(d.id)}>
-                  <Trash2 size={12} /> {t("删除")}
+                  <Trash2 size={12} /> {t("common.delete")}
                 </button>
               </div>
 
@@ -500,28 +500,28 @@ export default function SettingsPage() {
                   <div className="form-row">
                     <div className="form-inline">
                       <label className="field">
-                        <span>{t("命令（PATH 名或绝对路径）")}</span>
+                        <span>{t("msg.command_path_name_or_absolute_path")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("mygen 或 /abs/path/mygen")}
+                          placeholder={t("msg.mygen_or_abs_path_mygen")}
                           value={d.cliBin}
                           onChange={(e) => patchDraft(d.id, { cliBin: e.target.value })}
                         />
                       </label>
                       <label className="field">
-                        <span>{t("prompt 参数名")}</span>
+                        <span>{t("msg.prompt_arg_name")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("--prompt（留空=位置参数）")}
+                          placeholder={t("msg.prompt_blank_positional")}
                           value={d.cliPromptArg}
                           onChange={(e) => patchDraft(d.id, { cliPromptArg: e.target.value })}
                         />
                       </label>
                       <label className="field">
-                        <span>{t("输出参数名")}</span>
+                        <span>{t("msg.output_arg_name")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("-o 或 --output")}
+                          placeholder={t("msg.o_or_output")}
                           value={d.cliOutputArg}
                           onChange={(e) => patchDraft(d.id, { cliOutputArg: e.target.value })}
                         />
@@ -531,28 +531,28 @@ export default function SettingsPage() {
                   <div className="form-row">
                     <div className="form-inline">
                       <label className="field">
-                        <span>{t("模型参数名（可留空）")}</span>
+                        <span>{t("msg.model_arg_name_optional")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("--model（留空不下发模型）")}
+                          placeholder={t("msg.model_blank_omit_model")}
                           value={d.cliModelArg}
                           onChange={(e) => patchDraft(d.id, { cliModelArg: e.target.value })}
                         />
                       </label>
                       <label className="field">
-                        <span>{t("引用图参数名（可留空）")}</span>
+                        <span>{t("msg.reference_arg_name_optional")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("--ref（留空=不支持引用图）")}
+                          placeholder={t("msg.ref_blank_no_reference")}
                           value={d.cliReferenceArg}
                           onChange={(e) => patchDraft(d.id, { cliReferenceArg: e.target.value })}
                         />
                       </label>
                       <label className="field">
-                        <span>{t("额外固定参数（可留空）")}</span>
+                        <span>{t("msg.extra_fixed_args_optional")}</span>
                         <input
                           className="px-input"
-                          placeholder={t("--steps 20（原样追加）")}
+                          placeholder={t("msg.steps_20_appended_as_is")}
                           value={d.cliExtraArgs}
                           onChange={(e) => patchDraft(d.id, { cliExtraArgs: e.target.value })}
                         />
@@ -560,9 +560,9 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="hint">
-                    {t("不用手写任何")} {"{占位符}"}
-                    {t("：执行时按上表组装")} <code>argv</code>
-                    {t("（命令 + 参数名 值 …），不经 shell；参数名留空表示对应值作位置参数传入；模型 / 引用图在生成弹窗选择后按对应参数名下发")}
+                    {t("msg.no_need_to_hand_write_any")} {t("settings.placeholder_token")}
+                    {t("msg.assembled_from_the_table_above_at_run_time")} <code>argv</code>
+                    {t("msg.command_argname_value_no_shell_blank_arg_name_positional")}
                   </div>
                 </>
               ) : (
@@ -594,7 +594,7 @@ export default function SettingsPage() {
                   <div className="form-row">
                     <div className="form-inline">
                       <label className="field">
-                        <span>{t("可用模型（逗号分隔，生成时下拉选择）")}</span>
+                        <span>{t("msg.models_comma_separated_dropdown_at_gen_time")}</span>
                         <div className="models-fetch-row">
                           <input
                             className="px-input"
@@ -608,27 +608,27 @@ export default function SettingsPage() {
                             disabled={ml?.loading}
                             onClick={() => fetchModels(d)}
                           >
-                            <RefreshCw size={12} /> {ml?.loading ? t("拉取中…") : t("获取模型")}
+                            <RefreshCw size={12} /> {ml?.loading ? t("msg.fetching") : t("msg.fetch_models")}
                           </button>
                         </div>
                       </label>
                       <label className="field">
-                        <span>{t("尺寸（可留空）")}</span>
+                        <span>{t("msg.size_optional")}</span>
                         <input
                           className="px-input num"
-                          placeholder={API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh}
+                          placeholder={t(API_TYPE_META[d.type as Exclude<GenProviderType, "cli">].sizePh)}
                           value={d.apiSize}
                           onChange={(e) => patchDraft(d.id, { apiSize: e.target.value })}
                         />
                       </label>
                     </div>
                   </div>
-                  {ml?.error && <div className="hint">{t("获取模型失败：{err}（可继续手填）", { err: ml.error })}</div>}
+                  {ml?.error && <div className="hint">{t("msg.fetch_models_failed_err_you_can_type_manually", { err: ml.error })}</div>}
                   {ml?.models && (
                     <div className="model-fetch">
                       <input
                         className="px-input model-filter"
-                        placeholder={t("过滤模型（共 {count} 个，点击加入/移除）", { count: ml.models.length })}
+                        placeholder={t("msg.filter_models_count_click_to_add_remove", { count: ml.models.length })}
                         value={modelFilters[d.id] ?? ""}
                         onChange={(e) =>
                           setModelFilters((prev) => ({ ...prev, [d.id]: e.target.value }))
@@ -663,21 +663,21 @@ export default function SettingsPage() {
                       disabled={tst?.testing}
                       onClick={() => testOne(d)}
                     >
-                      <PlugZap size={12} /> {tst?.testing ? t("测试中…") : t("测试连接")}
+                      <PlugZap size={12} /> {tst?.testing ? t("msg.testing") : t("msg.test_connection")}
                     </button>
                     {tst?.result && (
                       <span className={`engine-status ${tst.result.ok ? "ok" : "bad"}`}>
                         <span className="dot" />
                         {tst.result.ok
                           ? tst.result.note ??
-                            `${t("连通（{ms}ms）", { ms: tst.result.latencyMs ?? 0 })}${
+                            `${t("msg.ok_msms", { ms: tst.result.latencyMs ?? 0 })}${
                               tst.result.modelsFound === true
-                                ? t("，模型在列表中")
+                                ? t("msg.in_model_list")
                                 : tst.result.modelsFound === false
-                                  ? t("，但模型列表中没有首个模型")
+                                  ? t("msg.but_first_model_not_in_list")
                                   : ""
                             }`
-                          : t("失败：{err}", { err: tst.result.error ?? t("未知错误") })}
+                          : t("msg.failed_err", { err: tst.result.error ?? t("msg.unknown_error") })}
                       </span>
                     )}
                   </div>
@@ -692,47 +692,47 @@ export default function SettingsPage() {
       {/* ===== 抠图 ===== */}
       <section className="settings-sec">
         <h3>
-          <Wand2 size={14} /> {t("抠图")}
+          <Wand2 size={14} /> {t("msg.matting")}
           <span className={`engine-status ${cfg && cfg.matting.engine !== "none" ? "ok" : "bad"}`}>
             <span className="dot" />
             {engineText(cfg)}
           </span>
         </h3>
         <div className="form-row">
-          <label>{t("自定义抠图命令（留空走自动探测：.venv-matting → PATH rembg → 原样复制）")}</label>
+          <label>{t("msg.custom_matting_command_blank_auto_venv_matting_path_remb")}</label>
           <div className="form-inline">
             <label className="field">
-              <span>{t("命令")}</span>
+              <span>{t("msg.command")}</span>
               <input
                 className="px-input"
-                placeholder={t("mymatte 或 /abs/path/mymatte")}
+                placeholder={t("msg.mymatte_or_abs_path_mymatte")}
                 value={mat.cliBin}
                 onChange={(e) => setMat((s) => ({ ...s, cliBin: e.target.value }))}
               />
             </label>
             <label className="field">
-              <span>{t("输入图参数名")}</span>
+              <span>{t("msg.input_image_arg_name")}</span>
               <input
                 className="px-input"
-                placeholder={t("留空=位置参数")}
+                placeholder={t("msg.blank_positional")}
                 value={mat.cliInputArg}
                 onChange={(e) => setMat((s) => ({ ...s, cliInputArg: e.target.value }))}
               />
             </label>
             <label className="field">
-              <span>{t("输出图参数名")}</span>
+              <span>{t("msg.output_image_arg_name")}</span>
               <input
                 className="px-input"
-                placeholder={t("如 -o")}
+                placeholder={t("msg.e_g_o")}
                 value={mat.cliOutputArg}
                 onChange={(e) => setMat((s) => ({ ...s, cliOutputArg: e.target.value }))}
               />
             </label>
             <label className="field">
-              <span>{t("模型参数名")}</span>
+              <span>{t("msg.model_arg_name")}</span>
               <input
                 className="px-input num"
-                placeholder={t("如 -m")}
+                placeholder={t("msg.e_g_m")}
                 value={mat.cliModelArg}
                 onChange={(e) => setMat((s) => ({ ...s, cliModelArg: e.target.value }))}
               />
@@ -740,7 +740,7 @@ export default function SettingsPage() {
           </div>
         </div>
         <div className="form-row">
-          <label>{t("默认模型（生成/上传抠图时使用；留空用 env / 默认 u2net）")}</label>
+          <label>{t("msg.default_model_gen_upload_matting_blank_env_u2net")}</label>
           <PxSuggest
             placeholder="u2net"
             suggestions={[...REMBG_MODELS]}
@@ -749,8 +749,8 @@ export default function SettingsPage() {
           />
           {cfg && (
             <div className="hint">
-              {t("当前生效模型：")}<code>{cfg.matting.model}</code>（
-              {cfg.matting.modelCached ? t("已缓存 storage/models") : t("未缓存，首次抠图自动下载，约百 MB")}）
+              {t("msg.active_model")}<code>{cfg.matting.model}</code>（
+              {cfg.matting.modelCached ? t("msg.cached_in_storage_models") : t("msg.not_cached_first_run_downloads_100mb")}）
             </div>
           )}
         </div>
@@ -762,7 +762,7 @@ export default function SettingsPage() {
             disabled={savingMat}
             onClick={saveMatting}
           >
-            <Save size={14} /> {savingMat ? t("保存中…") : t("保存抠图配置")}
+            <Save size={14} /> {savingMat ? t("msg.saving") : t("msg.save_matting_config")}
           </motion.button>
         </div>
       </section>
@@ -770,31 +770,31 @@ export default function SettingsPage() {
       {/* ===== 提示词加强模型 ===== */}
       <section className="settings-sec">
         <h3>
-          <Sparkles size={14} /> {t("提示词加强模型")}
+          <Sparkles size={14} /> {t("msg.prompt_enhancers")}
           <span className="settings-head-actions">
             <button type="button" className="px-btn mini" onClick={addEnhancer}>
-              <Plus size={12} /> {t("添加")}
+              <Plus size={12} /> {t("msg.add")}
             </button>
           </span>
         </h3>
         <div className="hint">
-          {t("用于生成弹窗的「优化提示词」：把简短描述改写成更适合生图的提示词（加强模板内置固定，无需手写）。OpenAI 兼容")}{" "}
+          {t("msg.for_enhance_prompt_in_gen_dialog_rewrite_short_desc_into")}{" "}
           <code>chat/completions</code>{" "}
-          {t("接口均可（OpenAI / 百炼兼容模式 qwen / DeepSeek 等）。优化后新旧提示词并排展示，由你选择用哪版。")}
+          {t("msg.apis_openai_bailian_qwen_deepseek_side_by_side_compare_y")}
         </div>
         {enhancers.map((e) => {
           const tst = tests[`enh-${e.id}`];
           return (
             <div key={e.id} className="provider-card">
               <div className="provider-head">
-                <span className="provider-type enhancer">{t("加强")}</span>
+                <span className="provider-type enhancer">{t("msg.enhance")}</span>
                 <input
                   className="px-input provider-name"
                   value={e.name}
                   onChange={(e2) => patchEnhancer(e.id, { name: e2.target.value })}
                 />
                 <button type="button" className="px-btn mini danger" onClick={() => removeEnhancer(e.id)}>
-                  <Trash2 size={12} /> {t("删除")}
+                  <Trash2 size={12} /> {t("common.delete")}
                 </button>
               </div>
               <div className="form-row">
@@ -803,7 +803,7 @@ export default function SettingsPage() {
                     <span>Base URL</span>
                     <input
                       className="px-input"
-                      placeholder={t("https://api.openai.com/v1（或百炼兼容模式 …/compatible-mode/v1）")}
+                      placeholder={t("msg.https_api_openai_com_v1_or_bailian_compatible_mode_compa")}
                       value={e.apiBaseUrl}
                       onChange={(e2) => patchEnhancer(e.id, { apiBaseUrl: e2.target.value })}
                     />
@@ -820,7 +820,7 @@ export default function SettingsPage() {
                     />
                   </label>
                   <label className="field">
-                    <span>{t("模型")}</span>
+                    <span>{t("msg.model")}</span>
                     <input
                       className="px-input"
                       placeholder="gpt-4o-mini / qwen-plus"
@@ -832,20 +832,20 @@ export default function SettingsPage() {
               </div>
               <div className="provider-test">
                 <button type="button" className="px-btn mini" disabled={tst?.testing} onClick={() => testEnhancer(e)}>
-                  <PlugZap size={12} /> {tst?.testing ? t("测试中…") : t("测试连接")}
+                  <PlugZap size={12} /> {tst?.testing ? t("msg.testing") : t("msg.test_connection")}
                 </button>
                 {tst?.result && (
                   <span className={`engine-status ${tst.result.ok ? "ok" : "bad"}`}>
                     <span className="dot" />
                     {tst.result.ok
-                      ? `${t("连通（{ms}ms）", { ms: tst.result.latencyMs ?? 0 })}${
+                      ? `${t("msg.ok_msms", { ms: tst.result.latencyMs ?? 0 })}${
                           tst.result.modelsFound === true
-                            ? t("，模型在列表中")
+                            ? t("msg.in_model_list")
                             : tst.result.modelsFound === false
-                              ? t("，但模型列表中没有该模型")
+                              ? t("msg.but_not_in_model_list")
                               : ""
                         }`
-                      : t("失败：{err}", { err: tst.result.error ?? t("未知错误") })}
+                      : t("msg.failed_err", { err: tst.result.error ?? t("msg.unknown_error") })}
                   </span>
                 )}
               </div>
@@ -860,7 +860,7 @@ export default function SettingsPage() {
             disabled={savingEnh}
             onClick={saveEnhancers}
           >
-            <Save size={14} /> {savingEnh ? t("保存中…") : t("保存加强模型")}
+            <Save size={14} /> {savingEnh ? t("msg.saving") : t("msg.save_enhancers")}
           </motion.button>
         </div>
       </section>
@@ -868,15 +868,15 @@ export default function SettingsPage() {
       {/* ===== 体检 ===== */}
       <section className="settings-sec">
         <h3>
-          <Stethoscope size={14} /> {t("体检")}
+          <Stethoscope size={14} /> {t("msg.doctor")}
           <span className="settings-head-actions">
             <button type="button" className="px-btn mini" disabled={doctorLoading} onClick={runDoctorCheck}>
-              {doctorLoading ? t("检查中…") : t("重新检查")}
+              {doctorLoading ? t("msg.checking") : t("msg.recheck")}
             </button>
           </span>
         </h3>
         {doctor === null ? (
-          <div className="hint">{t("正在检查…")}</div>
+          <div className="hint">{t("msg.checking_481ee2")}</div>
         ) : (
           <ul className="doctor-list">
             {doctor.checks.map((c) => (

@@ -1192,6 +1192,183 @@ input[type="range"] {
   white-space: nowrap;
   pointer-events: none;
 }
+.mat-badge-video {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  z-index: 1;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.3;
+  background: var(--cyan);
+  color: #1a1d21;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.mat-video-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mat-video {
+  width: 100%;
+  max-height: 360px;
+  background: var(--bg);
+  image-rendering: auto;
+}
+
+/* ===== 视频抽帧编辑器 ===== */
+.ve-modal {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.ve-player {
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
+  box-shadow: 0 0 0 2px var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: min(52vh, 480px);
+}
+.ve-video {
+  width: 100%;
+  max-height: min(58vh, 560px);
+  display: block;
+  background: #000;
+}
+.ve-controls {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.ve-scrub {
+  flex: 1;
+  min-width: 120px;
+}
+.ve-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ve-range-row {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.ve-num {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ve-num .px-input.num {
+  width: 88px;
+}
+.ve-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.ve-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 72px;
+  position: relative;
+}
+.ve-mark-thumb {
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: none;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--border);
+  cursor: pointer;
+  overflow: hidden;
+}
+.ve-mark-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+  display: block;
+}
+.ve-mark-ph {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ve-mark-i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  font-size: 10px;
+  padding: 0 4px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--accent);
+  pointer-events: none;
+}
+.ve-mark-t {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.ve-mark .icon-btn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}
+
+/* 生成尺寸选择 + 比例预览 */
+.size-picker-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.size-picker-row .px-select {
+  flex: 1;
+  min-width: 0;
+}
+.size-preview {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 88px;
+}
+.size-preview-frame {
+  background: color-mix(in srgb, var(--accent) 35%, var(--bg));
+  box-shadow: 0 0 0 2px var(--border);
+  max-width: 120px;
+  max-height: 120px;
+}
+.size-preview-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 120px;
+  line-height: 1.2;
+}
+
+.thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
 
 /* 文件夹侧栏布局 */
 .folder-layout {
@@ -2562,14 +2739,12 @@ body.resizing-row * {
   z-index: 400;
 }
 .px-select-list {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
+  position: fixed; /* 实际 top/left/width 由组件 inline style 写入，避免被 .modal overflow 裁切 */
   z-index: 401;
   list-style: none;
   max-height: 240px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--elevated);
   box-shadow:
     0 -4px 0 0 var(--border),

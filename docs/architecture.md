@@ -30,14 +30,14 @@
 │   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
 │  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
+│  providerAdapter.ts（生成校验/执行 adapter + provider 模型探测）      │
 │  doctor.ts（体检 + API 联通测试：/api/doctor /api/provider/test）    │
 │  queue.ts（内存队列，并发 2；JobTarget = project | materials）      │
 │   ├─ jobs/extract.ts   extract_frames / generate_frames             │
 │   │                    ├─ CLI 模板（jobs/run.ts）                    │
 │   │                    ├─ OpenAI 兼容 API（jobs/generateApi.ts）     │
-│   │                    └─ 视频生成（generateApi.ts：百炼/MiniMax     │
-│   │                       异步任务轮询 → mp4 → ffmpeg 逐帧切割；     │
-│   │                       CLI 产物按魔数检测自动拆帧）               │
+│   │                    ├─ 视频生成（百炼/MiniMax 异步轮询 → mp4）    │
+│   │                    └─ generatedArtifacts.ts（分类与帧/素材入库） │
 │   └─ jobs/matting.ts   matting（frame | material；引擎探测见下）    │
 │                                                                     │
 │  db.ts（bun:sqlite，WAL）  ──  jobs/frames/projects/materials 四表  │
@@ -73,15 +73,18 @@
 - **注入安全**：外部命令（生成 CLI / 抠图 CLI）不走模板字符串：设置页配的是结构化字段（命令 + 参数名映射），服务端组装 argv 数组（Bun.spawn，不经 shell）；遗留 env 模板（FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，同样不经 shell，prompt 含空格也安全。
 - **生成 provider 解析**（`provider.ts`，每次调用实时读 settings 表）：settings `genProviders` 列表模型——CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider（legacyTemplate 遗留模板路径）兜底。生成请求按 `providerId` 选择（缺省第一个配置齐备的）；`type=cli` 走结构化 argv 组装（`cliBin` + 参数名映射 `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，参数名留空=位置参数或不下发）；`type=api`/`dashscope`/`gemini`/`minimax` 走 `jobs/generateApi.ts`：
   - api（OpenAI 兼容）：无引用图 `POST {base}/images/generations`（JSON），有引用图 `POST {base}/images/edits`（multipart image+prompt，需 gpt-image 系列等支持 edits 的模型）；`data[0].b64_json` 或 `data[0].url` 取图，120/180s 超时。
-  - dashscope（百炼原生，wan2.7-image / qwen-image 等不在兼容模式内）：`POST {base}/api/v1/services/aigc/multimodal-generation/generation`，messages content 为 `[{image: dataURI}?, {text}]`（引用图 base64 上送），同步返回 `output.choices[0].message.content[*].image` URL 后下载；`apiSize` 支持 `2K`/`1K`/`4K` 或 `宽*高`；baseUrl 尾部的 `/api/v1` 自动归一。
+  - dashscope（百炼原生，wan2.7-image / qwen-image 等不在兼容模式内）：`POST {base}/api/v1/services/aigc/multimodal-generation/generation`，messages content 为 `[{image: dataURI}?, {text}]`（引用图 base64 上送），同步返回 `output.choices[0].message.content[*].image` URL 后下载；`apiSize` 支持 `2K`/`1K`/`4K` 或 `宽*高`；`apiBaseUrl` 经 `normalizeDashscopeBaseUrl` 剥掉 `/compatible-mode/v1` 与 `/api/v1`（Token Plan 默认 `https://token-plan.cn-beijing.maas.aliyuncs.com`，Key `sk-sp-`）。
   - gemini（banana / nano-banana）：`POST {base}/v1beta/models/{model}:generateContent`（x-goog-api-key），parts `[{text}, {inlineData}?]`，响应取首个 `inlineData.data`；`apiSize` 映射 `imageConfig.aspectRatio`。
   - minimax：图片 `POST {base}/v1/image_generation`（Bearer），引用图走 `subject_reference`（限一张，主体特征保持），`response_format=base64` 取 `data.image_base64[0]`；`apiSize` 映射 `aspect_ratio`。
   模型取请求 `model` 缺省列表第一项。`GET /api/config` 下发 `gen.providers` 与 `promptEnhancers` 摘要（不含 apiKey；providers 带 `video` 标记，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
-- **视频生成逐帧切割**（`generateFrames` 的 `mediaKind="video"` + `fps`，仅 cli/dashscope/minimax，路由层 `checkVideoSupport` 前置 400）：生成一段视频后经 `extractToStaging`（ffmpeg fps 抽帧）逐帧入库，`count` 忽略。CLI：`{output}` 给 `.mp4` 路径；API 走异步任务（generateApi.ts `generateVideoViaApi`）：minimax 按模型分协议——Hailuo/T2V 为 v1，`MiniMax-H3` 为 v2；dashscope 为万相/HappyHorse `video-synthesis`（t2v 文生；i2v/r2v 用 `referencePath` 作首帧/参考图 base64；parameters 用 resolution/ratio/duration）；轮询 5s 间隔、10 分钟超时。**图片模式下 CLI 产物经魔数检测（ftyp/EBML/RIFF-AVI）若为视频同样自动转拆帧**。
+- **视频生成**（`generateFrames` 的 `mediaKind="video"`，仅 cli/dashscope/minimax）：只生成并保存 `materials/{id}/raw.mp4`（不抽帧）；抽帧走 `POST /api/materials/:id/extract`（`fps` 整段或 `timestamps` 定点，单 job）→ `extract_frames`。CLI/百炼/MiniMax 视频协议同前；轮询 5s 间隔、10 分钟超时。**图片模式下 CLI 产物若为视频同样存为视频素材**。
 - **提示词加强**（`enhance.ts`）：`POST /api/enhance-prompt` 调用设置页 `promptEnhancers` 列表里的 OpenAI 兼容 `chat/completions`（加强系统提示词内置固定，像素画方向），返回优化后文本；前端保留原文并并排展示新旧两版供选择。
-- **体检与联通测试**（`doctor.ts`）：`GET /api/doctor` 逐项检查存储可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 查命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`；百炼 / MiniMax 无探测端点仅校验字段）/ 每个加强模型（实发 `GET /models`）；`POST /api/provider/test` 用表单未保存的值单独测某个 API provider 或加强模型（8s 超时，401/403 判认证失败，标准模型列表时核对模型是否在列）。
+- **体检与联通测试**（`doctor.ts` + `providerAdapter.ts`）：`GET /api/doctor` 逐项检查存储可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 查命令存在；OpenAI 兼容、百炼兼容模式与 Gemini 实发模型列表请求；MiniMax 无轻量探测端点，仅校验字段）/ 每个加强模型（实发 `GET /models`）；`POST /api/provider/test` 用表单未保存的值单独测某个 API provider 或加强模型（8s 超时，401/403 判认证失败，标准模型列表时核对模型是否在列）。
 - **抠图引擎探测**（`jobs/matting.ts`，每次调用实时解析，`GET /api/config` 可查）：a. 自定义 CLI（设置页 `matting.cliBin` 结构化字段优先，否则 env `FRAMEBAKER_MATTING_CLI` 遗留模板 `{input}` `{output}` 可选 `{model}`）→ b. `<repo>/.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`；由 `scripts/setup_matting.sh` / `setup_matting.ps1` 安装：python3 venv + `pip install "rembg[cli,cpu]"`）→ c. PATH 里的 `rembg` → d. passthrough 复制并在 job.progress / 响应 warning 里提示安装。rembg 调用为 `rembg i -m <MODEL> in out`，模型名取 设置页 `matting.model` → `FRAMEBAKER_MATTING_MODEL` → 默认 u2net，模型缓存在 `storage/models`（spawn 时注入 `U2NET_HOME`）。前端上传/生成表单的「抠图去背」开关默认勾选，`GET /api/config` 驱动引擎状态显示。
 - **图像处理 worker**（`apps/web/src/imageops/`）：剪裁的解码 / 透明边包围盒扫描 / PNG 编码放 Web Worker（OffscreenCanvas）。Bun 的 HTML 打包不处理 `new Worker(new URL(...))`，worker 脚本由服务端路由 `GET /imageops/imageOps.worker.js` 按需 `Bun.build` 同源下发；`client.ts` 懒加载单例并在 worker 不可用/出错时自动降级主线程 canvas，纯计算（`ops.ts`）两侧共用。
+- **帧变换几何**（`apps/web/src/frameGeometry.ts`）：集中中心锚点、offset、rotation、scale 的轴对齐包围盒、fit-to-view 与 rotation 归一化；Pixi `FrameEditor` 与 Canvas `export.ts` 是两个渲染 adapter，共用同一几何语义。
+- **导入工作流**（`apps/web/src/hooks/useImportWorkflow.ts`）：项目导入与素材导入共用文件状态转换、顺序上传、任务轮询、部分失败、计时器清理与完成汇总；两个 modal 仅提供各自的 FormData/API adapter，剪裁阶段继续由 `useCropQueue` 负责。
+- **生成 provider adapter 与产物提交**：`providerAdapter.ts` 每次任务实时解析 provider，封装配置/模型/能力校验、CLI argv、API/CLI 产出分发及 doctor 的模型探测；`jobs/generatedArtifacts.ts` 拥有产物 allocation、媒体分类、帧/素材/视频入库、暂存清理、广播与自动抠图收尾。`jobs/extract.ts` 只协调“产出 → 提交”，API 厂商协议仍位于 `jobs/generateApi.ts`。
 
 ## 数据流
 
@@ -124,12 +127,13 @@
 ```
 上传单图 → POST /api/materials/upload → materials/<id>/raw.png 直接入库（source=image）
 上传 GIF/MP4 → 同上入口 → staging 暂存 → extract_frames(target=materials)
-  → ffmpeg 拆帧 → 每帧一个素材（name=原文件名 #i，source=gif/mp4）
-CLI 生成 → POST /api/materials/generate → generate_frames(target=materials)
-  → 按 provider（CLI 模板 / OpenAI 兼容 API）逐项产出 materials/<id>/raw.png（source=cli，metadata 存 prompt 与 provider）
-抠图 → POST /api/materials/:id/matting（同步，rembg 秒级耗时，前端按钮显示"抠图中…"）
+  → ffmpeg 拆帧 → 每帧一个素材（name=原文件名 #i，source=extract）
+生成 → POST /api/materials/generate → generate_frames(target=materials)
+  → providerAdapter 按 CLI / OpenAI 兼容 / DashScope / Gemini / MiniMax 产出
+  → generatedArtifacts 分类并提交图片或视频素材（source=provider 类型，metadata 存 prompt/provider/model/size）
+抠图 → POST /api/materials/:id/matting → 创建 matting job，由 JobPanel 跟踪
   → 引擎解析顺序见「关键设计」；成功产出 processed.png，status='matted'
-  → 无引擎时 passthrough 复制并在响应 warning 字段说明
+  → 无引擎时 passthrough 复制并在 job.progress 说明
   → 前端对比滑杆查看 raw vs processed；POST /:id/unmatting 删除 processed 还原
   → 选中多个素材可 POST /api/materials/batch-matting 批量入队（二次加工按需触发）
 剪裁 → CropModal（前端 worker 剪裁出 PNG blob）→ POST /api/materials/:id/replace-image
@@ -189,6 +193,6 @@ storage/
 - `JobPanel`（挂在 App 根部）：右侧常驻任务队列面板——初始 `GET /api/jobs` 接管进行中任务，之后 WS `job_*` 事件驱动 + 活动任务 3s 轮询兜底；排队/运行中可取消；完成/取消停留 6s 自动移除，失败的常驻可手动关闭；无任务时不渲染
 - `SplitDivider` + `layout.ts`：编辑器布局分隔条（帧列表宽度 180–480 默认 240、时间轴高度 80–320 默认 140），pointer capture 拖动、双击恢复默认、尺寸存 localStorage `framebaker-layout`；画布区依赖 Pixi `resizeTo`（ResizeObserver）自动跟随重绘
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）
-- `i18n.ts` + `i18n/en.ts`：界面语言（zh 默认 / en）；`t()` / `useT()`；localStorage `framebaker-lang` + settings `lang`
+- `i18n.ts` + `i18n/zh.ts` / `i18n/en.ts`：界面语言（zh 默认 / en）；文案用稳定 key（如 `common.close`），`t(key)` / `useT()` 查表；localStorage `framebaker-lang` + settings `lang`
 - `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗
 - `api.ts`：fetch 封装 + WS 客户端（断线 3s 重连）

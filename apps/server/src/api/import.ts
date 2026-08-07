@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { createJob } from "../queue";
-import { checkVideoSupport, resolveReferencePath } from "../jobs/extract";
+import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
 
 export const importApi = new Elysia({ prefix: "/api" })
   // 上传素材拆帧：gif / mp4 / 单图

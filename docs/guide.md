@@ -25,9 +25,9 @@ CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中�
 
 - **CLI provider**：本地命令，**结构化字段免模板**——填命令（PATH 名或绝对路径）、prompt 参数名（如 `--prompt`，留空则 prompt 作位置参数）、输出参数名（如 `-o`）；可选模型参数名（生成弹窗选了模型才下发）、引用图参数名（留空表示该 CLI 不支持引用图）、额外固定参数（原样追加）。服务端按此组装 argv 直接执行，不经 shell。
 - **API provider（OpenAI 兼容）**：OpenAI 官方（gpt-image 系列）、火山方舟豆包 Seedream（`https://ark.cn-beijing.volces.com/api/v3`）、各类兼容网关。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。测试连接实发 `GET {baseUrl}/models`。
-- **百炼 provider（DashScope 原生）**：万相 `wan2.7-image` / `wan2.7-image-pro`（文生图/编辑）与 HappyHorse 视频（`happyhorse-1.1-t2v` / `i2v` / `r2v`）**不在 OpenAI 兼容模式内**，必须选这个类型。Base URL 填 `https://dashscope.aliyuncs.com` 或工作区子域；图片尺寸可用 `2K`/`1K`/`4K` 或 `宽*高`。视频走异步 `video-synthesis`（i2v 需首帧引用图）。也可继续用 qwen-image 系列。
+- **百炼 provider（DashScope 原生）**：**Token Plan** Base 填 `https://token-plan.cn-beijing.maas.aliyuncs.com`（也可粘贴文档里的 `…/compatible-mode/v1`，服务端会归一到 host 根）；Key 用 `sk-sp-` 专属钥。万相 `wan2.7-image` / HappyHorse 视频走原生 `api/v1/services/…`（不在 OpenAI 兼容聊天通道内）。按量付费用 `https://dashscope.aliyuncs.com` + `sk-` 钥。图片尺寸可用 `2K`/`1K`/`4K` 或 `宽*高`；i2v 需首帧引用图。
 - **banana provider（Gemini 图像）**：nano-banana（`gemini-2.5-flash-image`、`gemini-3-pro-image-preview` 等）。Base URL 填 `https://generativelanguage.googleapis.com`，尺寸填宽高比（如 `16:9`）。引用图原生支持（inlineData base64）。测试连接实发 `GET /v1beta/models`。
-- **MiniMax provider**：图片 `image-01` + 视频 `MiniMax-Hailuo-2.3` / `MiniMax-H3`（预设一次带出）。Base URL 填 `https://api.minimaxi.com`，尺寸图/H3 填宽高比，Hailuo 也可填 `768P`/`1080P`。引用图走 `subject_reference`（主体特征保持，限一张）。**视频**：生成弹窗切到「视频」并选视频模型——多数套餐用 Hailuo（v1），H3 走 v2；异步任务约数分钟后按 fps 抽帧入库。
+- **MiniMax / 百炼视频**：**生成只落视频素材**；打开素材详情选帧率「抽帧」后再抠图/导入。
 
 测试连接用表单当前值探测，不用先保存；百炼 / MiniMax 没有轻量探测端点，只做字段校验（生成失败会以任务错误形式暴露）。
 

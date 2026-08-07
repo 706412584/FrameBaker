@@ -13,7 +13,7 @@ export default function LangToggle() {
       whileTap={{ scale: 0.85 }}
       className="icon-btn"
       onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-      title={t("界面语言（点击切换）")}
+      title={t("msg.language_click_to_switch")}
     >
       <Languages size={16} />
       <span style={{ fontSize: 11, marginLeft: 2 }}>{lang === "zh" ? "中" : "EN"}</span>

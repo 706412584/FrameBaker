@@ -60,9 +60,9 @@ interface GenerateBody {
   model?: string;
   /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */
   size?: string;
-  /** 视频模式：生成一段视频后逐帧切割入库（仅 CLI / 百炼 / MiniMax） */
+  /** 视频模式：只生成视频素材，不抽帧（抽帧走素材详情） */
   mediaKind?: "image" | "video";
-  /** 视频抽帧帧率（mediaKind=video 生效） */
+  /** @deprecated 视频生成不再抽帧 */
   fps?: number;
   /** 落入的素材文件夹（null/缺省 = 未分组） */
   folderId?: string | null;
@@ -121,6 +121,11 @@ export const api = {
   generateMaterial: (body: GenerateBody) =>
     req<JobCreatedResponse>("/api/materials/generate", { method: "POST", ...json(body) }),
   matteMaterial: (id: string) => req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST" }),
+  /** 视频/GIF 素材抽帧 → 每帧一个新素材；timestamps 定点（仅视频），否则 fps 整段 */
+  extractMaterial: (
+    id: string,
+    body?: { fps?: number; timestamps?: number[]; autoMatting?: boolean; folderId?: string | null }
+  ) => req<JobCreatedResponse>(`/api/materials/${id}/extract`, { method: "POST", ...json(body ?? {}) }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
   batchMatteMaterials: (ids: string[]) =>
     req<OkResponse & { count: number; skipped: number }>("/api/materials/batch-matting", {
@@ -165,6 +170,10 @@ export const frameImageUrl = (id: string, v?: number) =>
 /** 素材图片 URL；type=raw 强制原图，默认 processed（缺失时服务端回退 raw） */
 export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed") =>
   `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}`;
+
+/** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
+export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>
+  `/api/materials/${id}/image?type=${type}${v ? `&v=${v}` : ""}`;
 
 // ---- WS 客户端：断线 3s 重连 ----
 type Listener = (msg: WSMessage) => void;

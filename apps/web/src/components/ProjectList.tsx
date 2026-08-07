@@ -4,6 +4,7 @@ import { Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api, frameImageUrl, wsClient, type Folder, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
+import { useModalEscClose } from "../hooks/useModalEscClose";
 import FolderTree, { type FolderSelection } from "./FolderTree";
 import FileZoom, { useFileZoom } from "./FileZoom";
 
@@ -15,6 +16,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState("");
   const [zoom, setZoom] = useFileZoom();
+  useModalEscClose(() => setShowModal(false), showModal);
 
   const loadFolders = useCallback(async () => {
     try {
@@ -60,26 +62,26 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
       setName("");
       onOpen(id);
     } catch (e) {
-      notify(t("创建失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.create_failed_msg", { msg: (e as Error).message }));
     }
   };
 
   const remove = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!(await askConfirm(t("确定删除该项目及其全部帧吗？此操作不可恢复。")))) return;
-    await api.deleteProject(id).catch((err) => notify(t("删除失败: {msg}", { msg: (err as Error).message })));
+    if (!(await askConfirm(t("msg.delete_this_project_and_all_its_frames_this_cannot_be_un")))) return;
+    await api.deleteProject(id).catch((err) => notify(t("msg.delete_failed_msg", { msg: (err as Error).message })));
     load();
   };
 
   const moveToFolder = async (folderId: string | null, ids: string[]) => {
     const name =
-      folderId == null ? t("未分组") : (folders.find((f) => f.id === folderId)?.name ?? folderId);
-    if (!(await askConfirm(t("将 {n} 个项目移到「{name}」？", { n: ids.length, name })))) return;
+      folderId == null ? t("msg.ungrouped") : (folders.find((f) => f.id === folderId)?.name ?? folderId);
+    if (!(await askConfirm(t("msg.move_n_projects_to_name", { n: ids.length, name })))) return;
     try {
       await api.moveItems("project", ids, folderId);
       await load();
     } catch (e) {
-      notify(t("操作失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.operation_failed_msg", { msg: (e as Error).message }));
     }
   };
 
@@ -115,7 +117,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
           <h1>
             <Clapperboard size={30} /> FrameBaker
           </h1>
-          <p className="subtitle">{t("像素逐帧动画编辑器 · 拆帧 / 生成 / 编辑 / 导出精灵表")}</p>
+          <p className="subtitle">{t("msg.pixel_frame_by_frame_editor_extract_generate_edit_export")}</p>
           <motion.button
             type="button"
             whileHover={{ scale: 1.05 }}
@@ -123,7 +125,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
             className="px-btn accent"
             onClick={() => setShowModal(true)}
           >
-            <Plus size={16} /> {t("新建项目")}
+            <Plus size={16} /> {t("msg.new_project")}
           </motion.button>
           <FileZoom value={zoom} onChange={setZoom} />
         </header>
@@ -132,12 +134,12 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
           {projects.length === 0 ? (
             <div className="empty">
               <Sparkles size={32} />
-              <p>{t("还没有项目，点击「新建项目」开始创作吧")}</p>
+              <p>{t("msg.no_projects_yet_click_new_project_to_start")}</p>
             </div>
           ) : visible.length === 0 ? (
             <div className="empty">
               <Clapperboard size={32} />
-              <p>{t("当前目录没有项目")}</p>
+              <p>{t("msg.no_projects_in_this_folder")}</p>
             </div>
           ) : (
             <div className="file-grid" style={{ ["--tile-min" as string]: `${zoom}px` }}>
@@ -163,10 +165,10 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                   <div className="info">
                     <div className="name">{p.name}</div>
                     <div className="meta">
-                      {t("{n} 帧", { n: p.frame_count ?? 0 })} · {new Date(p.created_at).toLocaleString(getLocale())}
+                      {t("msg.n_frames", { n: p.frame_count ?? 0 })} · {new Date(p.created_at).toLocaleString(getLocale())}
                     </div>
                   </div>
-                  <button type="button" className="icon-btn danger card-del" title={t("删除项目")} onClick={(e) => remove(e, p.id)}>
+                  <button type="button" className="icon-btn danger card-del" title={t("msg.delete_project")} onClick={(e) => remove(e, p.id)}>
                     <Trash2 size={14} />
                   </button>
                 </motion.div>
@@ -182,7 +184,6 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setShowModal(false)}
           >
             <motion.div
               className="modal pixel-panel"
@@ -191,18 +192,18 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
               exit={{ scale: 0.9, y: 24 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h2>{t("新建项目")}</h2>
+              <h2>{t("msg.new_project")}</h2>
               <input
                 className="px-input"
                 autoFocus
-                placeholder={t("项目名称")}
+                placeholder={t("msg.project_name")}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && create()}
               />
               <div className="modal-actions">
                 <button type="button" className="px-btn" onClick={() => setShowModal(false)}>
-                  {t("取消")}
+                  {t("common.cancel")}
                 </button>
                 <motion.button
                   type="button"
@@ -210,7 +211,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                   className="px-btn accent"
                   onClick={create}
                 >
-                  {t("创建")}
+                  {t("msg.create")}
                 </motion.button>
               </div>
             </motion.div>

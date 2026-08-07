@@ -50,6 +50,7 @@ export const app = new Elysia()
           models: p.apiModels,
           configured: providerConfigured(p),
           video: PROVIDER_VIDEO_SUPPORT[p.type],
+          apiSize: p.apiSize,
         })),
       },
       promptEnhancers: getPromptEnhancers()

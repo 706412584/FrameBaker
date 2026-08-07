@@ -30,7 +30,7 @@ export default function FileZoom({ value, onChange }: { value: number; onChange:
   const t = useT();
   return (
     <div className="file-zoom">
-      <label htmlFor="file-zoom">{t("图标大小")}</label>
+      <label htmlFor="file-zoom">{t("msg.icon_size")}</label>
       <input
         id="file-zoom"
         type="range"
@@ -43,7 +43,7 @@ export default function FileZoom({ value, onChange }: { value: number; onChange:
           persist(n);
           onChange(n);
         }}
-        title={t("图标大小")}
+        title={t("msg.icon_size")}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import { cropImage, findOpaqueBounds } from "../imageops/client";
 import type { CropRect } from "../imageops/ops";
 import { notify } from "../notice";
 import { useT } from "../i18n";
+import { useModalEscClose } from "../hooks/useModalEscClose";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
 
@@ -49,6 +50,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ ax: number; ay: number; rx: number; ry: number } | null>(null);
   const t = useT();
+  useModalEscClose(onClose);
 
   const total = rows * cols;
 
@@ -58,7 +60,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     (async () => {
       try {
         const res = await fetch(materialImageUrl(m.id, v, slot));
-        if (!res.ok) throw new Error(t("读取素材图片失败"));
+        if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
         const blob = await res.blob();
         const bmp = await createImageBitmap(blob);
         if (!alive) {
@@ -69,7 +71,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         setRegion({ x: 0, y: 0, w: bmp.width, h: bmp.height });
         bmp.close();
       } catch (e) {
-        notify(t("读取素材图片失败") + `: ${(e as Error).message}`);
+        notify(t("msg.failed_to_read_material_image") + `: ${(e as Error).message}`);
       }
     })();
     return () => {
@@ -124,16 +126,16 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     if (!imgSize || busy) return;
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
-      if (!res.ok) throw new Error(t("读取素材图片失败"));
+      if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
       const bounds = await findOpaqueBounds(blob);
       if (!bounds) {
-        notify(t("未找到不透明区域"), "info");
+        notify(t("msg.no_opaque_region_found"), "info");
         return;
       }
       setRegion(clampRegion(bounds, imgSize.w, imgSize.h));
     } catch (e) {
-      notify(t("自动框选失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.auto_select_failed_msg", { msg: (e as Error).message }));
     }
   };
 
@@ -150,7 +152,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const split = async () => {
     if (busy || !region || !imgSize) return;
     if (region.w < cols || region.h < rows) {
-      notify(t("网格区域 {w}×{h} 小于行列 {cols}×{rows}", { w: region.w, h: region.h, cols, rows }));
+      notify(t("msg.region_w_h_smaller_than_grid_cols_rows", { w: region.w, h: region.h, cols, rows }));
       return;
     }
     setBusy(true);
@@ -159,15 +161,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     let trimmed = 0;
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
-      if (!res.ok) throw new Error(t("读取素材图片失败"));
+      if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
       const cw = Math.floor(region.w / cols);
       const ch = Math.floor(region.h / rows);
-      const base = m.name.replace(/\s*#\d+$/, "").trim() || t("素材");
+      const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const i = r * cols + c + 1;
-          setProgress(t("切分上传中 {i}/{total}", { i, total }));
+          setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
             const h = r === rows - 1 ? region.h - ch * r : ch;
@@ -197,14 +199,14 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       }
       onDone();
       const msg = fail
-        ? t("切分完成：成功 {ok} / 失败 {fail}", { ok, fail })
+        ? t("msg.split_done_ok_ok_fail_failed", { ok, fail })
         : autoTrim && trimmed > 0
-          ? t("已切出 {ok} 个素材（自动裁边 {trimmed}）", { ok, trimmed })
-          : t("已切出 {ok} 个素材", { ok });
+          ? t("msg.split_ok_materials_auto_trimmed_trimmed", { ok, trimmed })
+          : t("msg.created_ok_materials", { ok });
       onToast(msg);
       onClose();
     } catch (e) {
-      notify(t("切分失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.split_failed_msg", { msg: (e as Error).message }));
       setBusy(false);
       setProgress("");
     }
@@ -221,7 +223,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       : undefined;
 
   return (
-    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}  >
       <motion.div
         className="modal pixel-panel gs-modal"
         initial={{ scale: 0.92, y: 24 }}
@@ -230,15 +232,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         onClick={(e) => e.stopPropagation()}
       >
         <div className="form-inline">
-          <h2 style={{ flex: 1 }}>{t("网格切分")}</h2>
-          <IconBtn onClick={onClose} title={t("关闭")}>
+          <h2 style={{ flex: 1 }}>{t("msg.grid_split")}</h2>
+          <IconBtn onClick={onClose} title={t("common.close")}>
             <X size={16} />
           </IconBtn>
         </div>
 
         <div className="hint">
-          {t("作用于：{target} · 拖动网格框对齐 · 逐格切成独立素材", {
-            target: slot === "processed" ? t("抠图后") : t("原图"),
+          {t("msg.target_target_drag_grid_to_align_split_cells_into_materi", {
+            target: slot === "processed" ? t("msg.matted") : t("msg.original"),
           })}
         </div>
 
@@ -270,11 +272,11 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         </div>
 
         <div className="form-inline gs-tools">
-          <IconBtn title={t("自动框选不透明区域")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
+          <IconBtn title={t("msg.fit_opaque_bounds")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
             <Scan size={14} />
           </IconBtn>
           <button type="button" className="px-btn mini" disabled={busy || !imgSize} onClick={resetRegion}>
-            {t("复位整图")}
+            {t("msg.reset_to_full_image")}
           </button>
           <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(-1, 0)}>
             ←
@@ -290,14 +292,14 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           </button>
           {region && imgSize && (
             <span className="gs-total">
-              {t("区域 {x},{y} · {w}×{h}", { x: region.x, y: region.y, w: region.w, h: region.h })}
+              {t("msg.region_x_y_w_h", { x: region.x, y: region.y, w: region.w, h: region.h })}
             </span>
           )}
         </div>
 
         <div className="form-inline">
           <label className="px-check">
-            {t("列数")}
+            {t("msg.cols")}
             <input
               className="px-input num"
               type="number"
@@ -309,7 +311,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             />
           </label>
           <label className="px-check">
-            {t("行数")}
+            {t("msg.rows")}
             <input
               className="px-input num"
               type="number"
@@ -320,12 +322,12 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
               onChange={(e) => setRows(clampCell(Number(e.target.value)))}
             />
           </label>
-          <span className="gs-total">{t("共 {total} 格", { total })}</span>
+          <span className="gs-total">{t("msg.total_cells", { total })}</span>
         </div>
 
         <label className="px-check">
           <input type="checkbox" checked={autoTrim} disabled={busy} onChange={(e) => setAutoTrim(e.target.checked)} />
-          {t("每格自动裁透明边")}
+          {t("msg.auto_trim_transparent_edges_per_cell")}
         </label>
 
         <MattingOption checked={autoMatting} onChange={setAutoMatting} />
@@ -338,7 +340,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             disabled={busy || !region}
             onClick={() => void split()}
           >
-            <Grid3x3 size={14} /> {busy ? progress || t("切分中…") : t("切成 {total} 个素材", { total })}
+            <Grid3x3 size={14} /> {busy ? progress || t("msg.splitting") : t("msg.split_into_total_materials", { total })}
           </motion.button>
         </div>
       </motion.div>

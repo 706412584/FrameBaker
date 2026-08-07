@@ -78,7 +78,7 @@ export function cycleThemeMode() {
   setThemeMode(order[(order.indexOf(cur) + 1) % order.length]);
 }
 
-// 系统主题变化：仅"跟随系统"模式（localStorage 无记录）下实时跟随
+// 系统主题变化：仅「跟随系统」模式（localStorage 无记录）下实时跟随
 media.addEventListener("change", (e) => {
   if (getThemeMode() === "system") {
     applyTheme(e.matches ? "dark" : "light", false);

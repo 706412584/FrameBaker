@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GenProvider } from "@framebaker/shared";
+import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
 import { JobCancelledError } from "./run";
 
 interface ImagesResponse {
@@ -120,8 +121,8 @@ async function generateViaDashscope(
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
-  // 容忍用户填到 /api/v1 为止的 baseUrl
-  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+  // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
+  const base = normalizeDashscopeBaseUrl(cfg.apiBaseUrl);
   const content: Array<Record<string, string>> = [];
   if (referencePath) {
     const b64 = readFileSync(referencePath).toString("base64");
@@ -518,8 +519,8 @@ async function generateVideoViaDashscope(
   referencePath?: string
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
-  // 容忍用户填到 /api/v1 为止的 baseUrl
-  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+  // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
+  const base = normalizeDashscopeBaseUrl(cfg.apiBaseUrl);
   const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
   const isI2v = /i2v/i.test(model);
   const isR2v = /r2v/i.test(model);
@@ -605,6 +606,7 @@ async function generateVideoViaDashscope(
  * API 视频生成统一入口（仅 dashscope / minimax，其余类型在前端已被过滤，这里兜底报错）。
  * 产出 mp4 到 outPath；耗时数分钟，进度经 report 写入 job.progress
  * referencePath：百炼 i2v/r2v 作首帧/参考图；其余忽略
+ * sizeOverride：生成弹窗选择的比例/分辨率，非空时覆盖 provider.apiSize
  */
 export async function generateVideoViaApi(
   cfg: GenProvider,
@@ -613,12 +615,14 @@ export async function generateVideoViaApi(
   outPath: string,
   report: (s: string) => void,
   signal?: AbortSignal,
-  referencePath?: string
+  referencePath?: string,
+  sizeOverride?: string
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
-  if (cfg.type === "dashscope") {
-    return generateVideoViaDashscope(cfg, prompt, model, outPath, report, signal, referencePath);
+  const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
+  if (eff.type === "dashscope") {
+    return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePath);
   }
-  if (cfg.type === "minimax") return generateVideoViaMinimax(cfg, prompt, model, outPath, report, signal);
-  throw new Error(`该 provider 类型（${cfg.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
+  if (eff.type === "minimax") return generateVideoViaMinimax(eff, prompt, model, outPath, report, signal);
+  throw new Error(`该 provider 类型（${eff.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
 }

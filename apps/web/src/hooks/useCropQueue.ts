@@ -87,7 +87,7 @@ export function useCropQueue<T extends CroppableItem>(
       busyRef.current = false;
       setQueue([]);
     }
-    notify(t("已剪裁 {done} 张，跳过 {skipped} 张", { done, skipped }));
+    notify(t("msg.cropped_done_skipped_skipped", { done, skipped }));
   };
 
   /** 「应用到剩余」：同一剪裁框应用到队列全部未处理图片（含当前张），与各图实际边界求交集；交集为空或等于整图则跳过 */

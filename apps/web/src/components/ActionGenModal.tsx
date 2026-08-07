@@ -13,6 +13,7 @@ import {
 import { api, materialImageUrl, type Material } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
+import { useModalEscClose } from "../hooks/useModalEscClose";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
@@ -42,12 +43,13 @@ function resolveFrames(seq: SeqItem[]) {
 /**
  * 多动作生成：
  * - 图片：引用图 + 有序帧序列 → 一次拼图表 → 网格切分
- * - 视频：点选动作注入提示词 → 文生视频 → fps 抽帧（无拼图/切分）
+ * - 视频：点选动作注入提示词 → 文生视频素材 → 素材详情单独抽帧
  */
 export default function ActionGenModal({ material: m, v, onClose, onToast }: Props) {
   const t = useT();
+  useModalEscClose(onClose);
   const slot = m.processed_path ? "processed" : "raw";
-  const base = m.name.replace(/\s*#\d+$/, "").trim() || t("素材");
+  const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
   const characterPrompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : null;
 
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
@@ -59,7 +61,6 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const [rows, setRows] = useState(1);
   const [gridTouched, setGridTouched] = useState(false);
   const [extra, setExtra] = useState("");
-  const [videoFps, setVideoFps] = useState(8);
   const [autoMatting, setAutoMatting] = useState(true);
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
@@ -68,7 +69,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const cfg = useServerConfig();
 
   const isVideo = mediaKind === "video";
-  const maxItems = isVideo ? ACTION_VIDEO_MAX_ACTIONS : ACTION_SHEET_MAX_FRAMES;
+  const maxItems = ACTION_SHEET_MAX_FRAMES;
   const frames = useMemo(() => resolveFrames(seq), [seq]);
   const sameAction = frames.length > 0 && frames.every((f) => f.id === frames[0]!.id);
 
@@ -83,6 +84,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
     if (next === mediaKind) return;
     setMediaKind(next);
     setModel("");
+    setSize("");
     setGridTouched(false);
     // 视频只需注入动作，不必重复走路×4；切回图片恢复拼图默认
     if (next === "video") {
@@ -96,14 +98,14 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const addFrame = (id: ActionPresetId) => {
     setSeq((prev) => {
       if (prev.length >= maxItems) {
-        notify(t(isVideo ? "最多注入 {n} 个动作" : "最多 {n} 帧", { n: maxItems }), "info");
+        notify(t("msg.max_n_frames", { n: maxItems }), "info");
         return prev;
       }
       return [...prev, { key: nextKey(), id }];
     });
   };
 
-  /** 视频：点选动作直接设为当前注入（单动作最常见）；Shift 语义用「追加」按钮另走 addFrame */
+  /** 视频：点选即注入（单动作替换）；图片：追加一帧 */
   const injectAction = (id: ActionPresetId) => {
     if (isVideo) {
       setSeq([{ key: nextKey(), id }]);
@@ -125,7 +127,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
     if (frames.length === 0 || submitting) return;
     if (!isVideo && cols * rows < frames.length) {
       notify(
-        t("网格 {cols}×{rows} 只有 {cells} 格，少于已选 {n} 个动作", {
+        t("msg.grid_cols_rows_has_cells_cells_n_selected_frames", {
           cols,
           rows,
           cells: cols * rows,
@@ -140,38 +142,30 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
       videoOnly: isVideo,
       preferI2v: isVideo,
     });
-    const nameTag = sameAction
-      ? isVideo
-        ? frames[0]!.label
-        : `${frames[0]!.label}${frames.length}帧`
-      : isVideo
-        ? `动作${frames.length}段`
-        : `连续${frames.length}帧`;
+    const nameTag = isVideo
+      ? frames[0]!.id
+      : sameAction
+        ? `${frames[0]!.id}${frames.length}`
+        : `seq${frames.length}`;
 
     try {
       if (isVideo) {
         await api.generateMaterial({
           prompt: buildActionVideoPrompt({
-            actions: frames,
+            actions: frames.slice(0, ACTION_VIDEO_MAX_ACTIONS),
             characterPrompt,
             extra: extra.trim(),
           }),
           count: 1,
-          autoMatting,
+          autoMatting: false,
           name: `${base}_${nameTag}_vid`,
           folderId: m.folder_id,
           mediaKind: "video",
-          fps: videoFps,
-          // 百炼 HappyHorse i2v/r2v 作首帧/参考；t2v 忽略
           referenceMaterialId: m.id,
           ...sel,
+          ...(size ? { size } : {}),
         });
-        onToast(
-          t("已入队动作视频「{action}」；完成后按 {fps} fps 抽帧成素材", {
-            action: sameAction ? t(frames[0]!.label) : nameTag,
-            fps: videoFps,
-          })
-        );
+        onToast(t("msg.queued_action_video_action_open_it_in_materials_and_extr", { action: t(frames[0]!.label) }));
       } else {
         await api.generateMaterial({
           prompt: buildActionSheetPrompt({
@@ -190,7 +184,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
           ...(size ? { size } : {}),
         });
         onToast(
-          t("已入队连续动作表（{cols}×{rows} · {n} 帧）；完成后打开该素材用「网格切分」拆格", {
+          t("msg.queued_continuous_sheet_cols_rows_n_frames_when_done_ope", {
             cols,
             rows,
             n: frames.length,
@@ -199,13 +193,13 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
       }
       onClose();
     } catch (e) {
-      notify(t("提交失败: {msg}", { msg: (e as Error).message }));
+      notify(t("msg.submit_failed_msg", { msg: (e as Error).message }));
       setSubmitting(false);
     }
   };
 
   return (
-    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+    <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}  >
       <motion.div
         className="modal pixel-panel ag-modal"
         initial={{ scale: 0.92, y: 24 }}
@@ -214,19 +208,19 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         onClick={(e) => e.stopPropagation()}
       >
         <div className="form-inline">
-          <h2 style={{ flex: 1 }}>{t("多动作生成")}</h2>
-          <IconBtn onClick={onClose} title={t("关闭")}>
+          <h2 style={{ flex: 1 }}>{t("msg.multi_action_generate")}</h2>
+          <IconBtn onClick={onClose} title={t("common.close")}>
             <X size={16} />
           </IconBtn>
         </div>
 
         <div className="form-row">
-          <label>{t("生成方式")}</label>
+          <label>{t("msg.generation_mode")}</label>
           <PxSelect
             value={mediaKind}
             options={[
-              { value: "image", label: t("图片拼图表（再网格切分）") },
-              { value: "video", label: t("视频（注入动作 → 抽帧）") },
+              { value: "image", label: t("msg.image_sprite_sheet_then_grid_split") },
+              { value: "video", label: t("msg.video_extract_frames_later_in_materials") },
             ]}
             onChange={(v) => switchMediaKind(v as "image" | "video")}
           />
@@ -234,27 +228,27 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
 
         <div className="hint">
           {isVideo
-            ? t("以当前素材为引用图注入动作（百炼选 i2v/r2v 效果更好）；生成短视频再按帧率拆成素材，无需拼图与切分")
-            : t("以「{name}」为引用图（{slot}），按顺序追加连续帧（可重复同一动作）；一次生成拼图表再切分", {
+            ? t("msg.inject_actions_with_ref_bailian_i2v_r2v_best_saves_video")
+            : t("msg.ref_name_slot_append_continuous_frames_same_action_repea", {
                 name: m.name,
-                slot: slot === "processed" ? t("抠图后") : t("原图"),
+                slot: slot === "processed" ? t("msg.matted") : t("msg.original"),
               })}
           {characterPrompt
-            ? ` · ${t("已附带原提示词以锁定角色描述")}`
+            ? ` · ${t("msg.original_prompt_included_to_lock_character_description")}`
             : isVideo
-              ? ` · ${t("原素材无提示词时主要靠引用图（i2v）约束外观")}`
-              : ` · ${t("原素材无提示词，主要靠引用图约束外观")}`}
+              ? ` · ${t("msg.no_original_prompt_appearance_relies_mainly_on_the_ref_i")}`
+              : ` · ${t("msg.no_original_prompt_appearance_relies_mainly_on_the_refer")}`}
         </div>
 
         <div className="ag-main">
           <div className="ag-ref">
             <img src={materialImageUrl(m.id, v, slot)} alt={m.name} draggable={false} />
-            <span className="ag-ref-tag">{isVideo ? t("角色参考") : t("参考图")}</span>
+            <span className="ag-ref-tag">{isVideo ? t("msg.character_ref") : t("msg.reference")}</span>
           </div>
           <div className="ag-actions-col">
             <div className="ag-actions">
               {ACTION_PRESETS.map((a) => {
-                const active = isVideo && seq.length === 1 && seq[0]?.id === a.id;
+                const active = isVideo && seq[0]?.id === a.id;
                 return (
                   <button
                     key={a.id}
@@ -263,8 +257,8 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                     disabled={submitting || (!isVideo && seq.length >= maxItems)}
                     title={
                       isVideo
-                        ? t("注入动作「{label}」", { label: t(a.label) })
-                        : t("追加一帧「{label}」", { label: t(a.label) })
+                        ? t("msg.inject_action_label", { label: t(a.label) })
+                        : t("msg.append_frame_label", { label: t(a.label) })
                     }
                     onClick={() => injectAction(a.id)}
                   >
@@ -273,27 +267,9 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 );
               })}
             </div>
-            {isVideo ? (
+            {isVideo ? null : (
               <div className="ag-quick">
-                <span className="hint">{t("可追加衔接动作（最多 {n} 段）", { n: ACTION_VIDEO_MAX_ACTIONS })}</span>
-                {ACTION_PRESETS.slice(0, 4).map((a) => (
-                  <button
-                    key={`append-${a.id}`}
-                    type="button"
-                    className="px-btn mini"
-                    disabled={submitting || seq.length >= ACTION_VIDEO_MAX_ACTIONS}
-                    onClick={() => addFrame(a.id)}
-                  >
-                    +{t(a.label)}
-                  </button>
-                ))}
-                <button type="button" className="px-btn mini" disabled={submitting || seq.length === 0} onClick={() => setSeq([])}>
-                  {t("清空")}
-                </button>
-              </div>
-            ) : (
-              <div className="ag-quick">
-                <span className="hint">{t("一键填满")}</span>
+                <span className="hint">{t("msg.quick_fill")}</span>
                 {(["walk", "run", "idle", "attack"] as ActionPresetId[]).map((id) => {
                   const p = ACTION_PRESETS.find((a) => a.id === id)!;
                   return (
@@ -309,7 +285,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                   );
                 })}
                 <button type="button" className="px-btn mini" disabled={submitting || seq.length === 0} onClick={() => setSeq([])}>
-                  {t("清空")}
+                  {t("common.clear")}
                 </button>
               </div>
             )}
@@ -319,11 +295,8 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         <div className="form-row">
           <label>
             {isVideo
-              ? t("已注入动作（{n}/{max}）· 点击可移除 · 顺序即片内衔接", {
-                  n: seq.length,
-                  max: ACTION_VIDEO_MAX_ACTIONS,
-                })
-              : t("帧序列（{n}/{max}）· 点击可移除 · 顺序即时间轴", {
+              ? t("msg.injected_action_click_a_chip_above_to_change")
+              : t("msg.frame_sequence_n_max_click_to_remove_order_timeline", {
                   n: seq.length,
                   max: ACTION_SHEET_MAX_FRAMES,
                 })}
@@ -331,8 +304,18 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
           <div className="ag-seq">
             {seq.length === 0 ? (
               <span className="hint">
-                {isVideo ? t("点左侧动作注入；需要多段动作时用下方「+动作」追加") : t("点上方动作追加帧，可重复追加同一动作以保证循环连续")}
+                {isVideo ? t("msg.click_an_action_above_to_inject_into_the_prompt") : t("msg.click_actions_above_to_append_frames_repeat_the_same_act")}
               </span>
+            ) : isVideo ? (
+              (() => {
+                const s = seq[0]!;
+                const p = ACTION_PRESETS.find((a) => a.id === s.id)!;
+                return (
+                  <span className="ag-seq-chip" style={{ cursor: "default" }}>
+                    {t(p.label)}
+                  </span>
+                );
+              })()
             ) : (
               seq.map((s, i) => {
                 const p = ACTION_PRESETS.find((a) => a.id === s.id)!;
@@ -342,7 +325,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                     type="button"
                     className="ag-seq-chip"
                     disabled={submitting}
-                    title={t("移除第 {i} 项", { i: i + 1 })}
+                    title={t("msg.remove_item_i", { i: i + 1 })}
                     onClick={() => removeAt(s.key)}
                   >
                     <span className="ag-seq-i">{i + 1}</span>
@@ -356,33 +339,23 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         </div>
 
         <div className="form-row">
-          <label>{isVideo ? t("附加描述（可空，拼接到视频提示词之后）") : t("附加描述（可空，拼接到拼图提示词之后）")}</label>
+          <label>{isVideo ? t("msg.extra_desc_optional_appended_to_video_prompt") : t("msg.extra_desc_optional_appended_to_sheet_prompt")}</label>
           <input
             className="px-input"
             value={extra}
             disabled={submitting}
-            placeholder={t("例如：holding a sword, facing right, pixel art")}
+            placeholder={t("msg.e_g_holding_a_sword_facing_right_pixel_art")}
             onChange={(e) => setExtra(e.target.value)}
           />
         </div>
 
         {isVideo ? (
-          <div className="form-row">
-            <label>{t("视频抽帧帧率：{fps} fps（生成一段视频后逐帧切割成多个素材）", { fps: videoFps })}</label>
-            <input
-              type="range"
-              min={1}
-              max={24}
-              value={videoFps}
-              disabled={submitting}
-              onChange={(e) => setVideoFps(Number(e.target.value))}
-            />
-          </div>
+          <div className="hint">{t("msg.when_done_open_the_video_material_and_extract_frames_at")}</div>
         ) : (
           <>
             <div className="form-inline">
               <label className="px-check">
-                {t("列数")}
+                {t("msg.cols")}
                 <input
                   className="px-input num"
                   type="number"
@@ -397,7 +370,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 />
               </label>
               <label className="px-check">
-                {t("行数")}
+                {t("msg.rows")}
                 <input
                   className="px-input num"
                   type="number"
@@ -412,7 +385,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 />
               </label>
               <span className="hint" style={{ flex: 1 }}>
-                {t("布局 {cols}×{rows}（{cells} 格）· {n} 帧连续 · 左→右、上→下", {
+                {t("msg.layout_cols_rows_cells_cells_n_continuous_frames_l_r_t_b", {
                   cols,
                   rows,
                   cells: cols * rows,
@@ -442,7 +415,8 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
           preferI2v={isVideo}
         />
         {!isVideo && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
-        <MattingOption checked={autoMatting} onChange={setAutoMatting} />
+        {isVideo && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}
+        {!isVideo && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
 
         <div className="modal-actions">
           <motion.button
@@ -454,12 +428,12 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
           >
             <PersonStanding size={14} />{" "}
             {submitting
-              ? t("提交中…")
+              ? t("common.submitting")
               : isVideo
-                ? t("生成动作视频（{action}）", {
-                    action: sameAction ? t(frames[0]?.label ?? "") : t("{n} 段动作", { n: frames.length }),
+                ? t("msg.generate_action_video_action", {
+                    action: t(frames[0]?.label ?? ""),
                   })
-                : t("生成连续动作表（{n} 帧 · {cols}×{rows}）", { n: frames.length || "", cols, rows })}
+                : t("msg.generate_continuous_sheet_n_frames_cols_rows", { n: frames.length || "", cols, rows })}
           </motion.button>
         </div>
       </motion.div>

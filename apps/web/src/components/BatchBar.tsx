@@ -33,7 +33,7 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
   const applyDuration = async () => {
     const n = Math.max(1, Math.min(60, parseInt(dur, 10) || 1));
     setDur(String(n));
-    if (!(await askConfirm(t("将选中的 {n} 帧时长设为 ×{dur}？", { n: count, dur: n })))) return;
+    if (!(await askConfirm(t("msg.set_duration_of_n_frames_to_dur", { n: count, dur: n })))) return;
     await run(() => onApplyDuration(n));
   };
 
@@ -45,15 +45,15 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
       exit={{ opacity: 0, y: -14 }}
       transition={{ duration: 0.15 }}
     >
-      <span className="batch-count">{t("已选 {count} 帧", { count })}</span>
+      <span className="batch-count">{t("msg.count_frames_selected", { count })}</span>
       <span className="tb-sep" />
       <IconBtn
         className="danger"
-        title={t("批量删除")}
+        title={t("msg.batch_delete")}
         disabled={busy}
         onClick={() =>
           void (async () => {
-            if (!(await askConfirm(t("确认删除选中的 {n} 帧？", { n: count })))) return;
+            if (!(await askConfirm(t("msg.delete_n_selected_frames", { n: count })))) return;
             await run(onDelete);
           })()
         }
@@ -61,11 +61,11 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
         <Trash2 size={14} />
       </IconBtn>
       <IconBtn
-        title={t("批量复制（各 ×1）")}
+        title={t("msg.batch_duplicate_1_each")}
         disabled={busy}
         onClick={() =>
           void (async () => {
-            if (!(await askConfirm(t("复制选中的 {n} 帧（各 ×1）？", { n: count })))) return;
+            if (!(await askConfirm(t("msg.duplicate_n_selected_frames_1_each", { n: count })))) return;
             await run(onDuplicate);
           })()
         }
@@ -73,7 +73,7 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
         <Copy size={14} />
       </IconBtn>
       <IconBtn
-        title={busy ? t("处理中…") : t("剪裁透明边（批量）")}
+        title={busy ? t("msg.processing_1cac8a") : t("msg.trim_transparent_edges_batch")}
         disabled={busy}
         onClick={() => void run(onTrim)}
       >
@@ -91,11 +91,11 @@ export default function BatchBar({ count, onDelete, onDuplicate, onApplyDuration
           onKeyDown={(e) => e.key === "Enter" && void applyDuration()}
         />
         <button type="button" className="px-btn mini" disabled={busy} onClick={() => void applyDuration()}>
-          {t("设时长")}
+          {t("msg.set_duration")}
         </button>
       </span>
       <span className="tb-sep" />
-      <IconBtn title={t("取消选择")} disabled={busy} onClick={onClear}>
+      <IconBtn title={t("msg.clear_selection")} disabled={busy} onClick={onClear}>
         <X size={14} />
       </IconBtn>
     </motion.div>

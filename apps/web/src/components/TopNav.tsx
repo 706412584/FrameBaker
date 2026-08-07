@@ -16,21 +16,21 @@ export default function TopNav({ current, onNav }: Props) {
     <nav className="top-nav">
       <span className="brand">FrameBaker</span>
       <button type="button" className={`nav-tab ${current === "home" ? "active" : ""}`} onClick={() => onNav("home")}>
-        <Clapperboard size={14} /> {t("项目")}
+        <Clapperboard size={14} /> {t("msg.projects")}
       </button>
       <button
         type="button"
         className={`nav-tab ${current === "materials" ? "active" : ""}`}
         onClick={() => onNav("materials")}
       >
-        <Package size={14} /> {t("素材库")}
+        <Package size={14} /> {t("msg.materials")}
       </button>
       <button
         type="button"
         className={`nav-tab ${current === "settings" ? "active" : ""}`}
         onClick={() => onNav("settings")}
       >
-        <Settings size={14} /> {t("设置")}
+        <Settings size={14} /> {t("msg.settings")}
       </button>
       <div className="spacer" />
       <NoticeHistory />
