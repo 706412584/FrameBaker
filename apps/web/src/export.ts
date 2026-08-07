@@ -1,5 +1,6 @@
 import { frameImageUrl, materialImageUrl, type Frame } from "./api";
 import { transformedFrameBounds } from "./frameGeometry";
+import { createZip } from "./zip";
 
 function download(blob: Blob, filename: string) {
   const a = document.createElement("a");
@@ -14,7 +15,7 @@ function safeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").trim() || "material";
 }
 
-/** 导出单个素材图片：raw=原图，processed=抠图后 */
+/** 导出单个素材图片：raw=原图，processed=抠图后（单张直接下载） */
 export async function downloadMaterialImage(
   id: string,
   name: string,
@@ -25,11 +26,10 @@ export async function downloadMaterialImage(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
   const suffix = slot === "processed" ? "_matted" : "_raw";
-  // 带短 id 防重名互相覆盖
   download(blob, `${safeFilename(name)}_${id.slice(0, 6)}${suffix}.png`);
 }
 
-/** 批量导出：逐张下载（浏览器多文件限制，间隔触发）；返回成功/跳过/失败计数 */
+/** 批量导出：打包成 ZIP 下载；返回成功/跳过/失败计数 */
 export async function downloadMaterialImages(
   items: Array<{ id: string; name: string; processed?: boolean }>,
   slot: "raw" | "processed",
@@ -38,26 +38,46 @@ export async function downloadMaterialImages(
   let ok = 0;
   let skipped = 0;
   let failed = 0;
+  const entries: { name: string; data: Uint8Array }[] = [];
+  const usedNames = new Set<string>();
+
   for (const it of items) {
     if (slot === "processed" && !it.processed) {
       skipped++;
       continue;
     }
     try {
-      await downloadMaterialImage(it.id, it.name, slot, v);
+      const res = await fetch(materialImageUrl(it.id, v, slot));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const suffix = slot === "processed" ? "_matted" : "_raw";
+      let filename = `${safeFilename(it.name)}_${it.id.slice(0, 6)}${suffix}.png`;
+      // 防止 ZIP 内重名
+      if (usedNames.has(filename)) {
+        const dot = filename.lastIndexOf(".");
+        filename = `${filename.slice(0, dot)}_${it.id.slice(0, 4)}${filename.slice(dot)}`;
+      }
+      usedNames.add(filename);
+      entries.push({ name: filename, data: buf });
       ok++;
-      // 给浏览器一点时间接受多次 download，避免被合并拦截
-      await new Promise((r) => setTimeout(r, 120));
     } catch {
       failed++;
     }
   }
+
+  if (entries.length > 0) {
+    const zip = await createZip(entries);
+    const label = slot === "processed" ? "matted" : "raw";
+    download(zip, `materials_${label}.zip`);
+  }
+
   return { ok, skipped, failed };
 }
 
 /**
  * 导出精灵帧：按 Pixi 相同语义把 offset / scale / rotation / opacity 烘焙进统一尺寸单元格，
- * 每帧单独导出一张 PNG（文件名按 idx 零填充编号），同时附带 JSON 元数据（尺寸 / 原点 / 帧时长）。
+ * 每帧单独导出一张 PNG（文件名按 idx 零填充编号），连同 JSON 元数据一起打包成 ZIP 下载。
+ * 不会合成成一张精灵图，每帧保持独立。
  */
 export async function exportSpritesheet(frames: Frame[], name: string) {
   if (frames.length === 0) return;
@@ -97,6 +117,8 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
       },
     };
 
+    const entries: { name: string; data: Uint8Array }[] = [];
+
     for (let i = 0; i < ordered.length; i++) {
       const frame = ordered[i];
       const bitmap = bitmaps[i];
@@ -118,16 +140,18 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas 导出失败"))), "image/png")
       );
       const filename = `${name}_${String(i).padStart(padLen, "0")}.png`;
-      download(png, filename);
+      entries.push({ name: filename, data: new Uint8Array(await png.arrayBuffer()) });
       meta.frames.push({ file: filename, w: cellW, h: cellH, duration: frame.duration });
-      // 给浏览器一点时间接受多次 download，避免被合并拦截
-      await new Promise((r) => setTimeout(r, 120));
     }
 
-    download(
-      new Blob([JSON.stringify(meta, null, 2)], { type: "application/json" }),
-      `${name}.frames.json`
-    );
+    // JSON 元数据
+    entries.push({
+      name: `${name}.frames.json`,
+      data: new TextEncoder().encode(JSON.stringify(meta, null, 2)),
+    });
+
+    const zip = await createZip(entries);
+    download(zip, `${name}_spritesheet.zip`);
   } finally {
     bitmaps.forEach((bitmap) => bitmap?.close());
   }
