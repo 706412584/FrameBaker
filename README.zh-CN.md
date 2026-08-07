@@ -7,11 +7,19 @@
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 [English](README.md) | **中文**
 
-<!-- 截图位 -->
-<!-- ![screenshot](docs/screenshot.png) -->
+![播放预览演示](docs/media/demo.gif)
+
+| 帧编辑器 | 素材库 |
+| --- | --- |
+| ![帧编辑器](docs/media/editor.png) | ![素材库](docs/media/library.png) |
+
+| 播放预览 | 深色主题（Magnetic Night） |
+| --- | --- |
+| ![播放预览](docs/media/preview.png) | ![深色主题](docs/media/library-dark.png) |
 
 ## 特性
 
@@ -93,7 +101,9 @@ Bun workspaces monorepo：
 - [docs/api.md](docs/api.md) —— API 一览（含请求/响应示例）与 WS 事件
 - [docs/roadmap.md](docs/roadmap.md) —— 已完成清单与后续规划
 
-## 字体许可
+## 许可
+
+[MIT](LICENSE) © 2026 taotao7
 
 界面字体为 **Fusion Pixel 12px**（`apps/web/public/fonts/`），采用 SIL Open Font License 1.1 —— 详见 `apps/web/public/fonts/OFL.txt`。
 

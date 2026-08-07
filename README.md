@@ -7,11 +7,19 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 **English** | [中文](README.zh-CN.md)
 
-<!-- Screenshot placeholder -->
-<!-- ![screenshot](docs/screenshot.png) -->
+![Playback preview demo](docs/media/demo.gif)
+
+| Frame editor | Materials library |
+| --- | --- |
+| ![Frame editor](docs/media/editor.png) | ![Materials library](docs/media/library.png) |
+
+| Playback preview | Dark theme (Magnetic Night) |
+| --- | --- |
+| ![Playback preview](docs/media/preview.png) | ![Dark theme](docs/media/library-dark.png) |
 
 ## Features
 
@@ -93,7 +101,9 @@ Bun workspaces monorepo:
 - [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events
 - [docs/roadmap.md](docs/roadmap.md) — shipped features and planned work
 
-## Font License
+## License
+
+[MIT](LICENSE) © 2026 taotao7
 
 The UI font is **Fusion Pixel 12px** (`apps/web/public/fonts/`), licensed under the SIL Open Font License 1.1 — see `apps/web/public/fonts/OFL.txt`.
 
