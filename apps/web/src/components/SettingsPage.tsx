@@ -14,6 +14,7 @@ import { api } from "../api";
 import { refreshServerConfig, useServerConfig } from "../config";
 import { askConfirm, notify } from "../notice";
 import { t, useT } from "../i18n";
+import PxSelect from "./PxSelect";
 import PxSuggest from "./PxSuggest";
 
 /** 编辑草稿：模型按能力分栏，用逗号分隔文本编辑，保存时才拆成数组；CLI 为结构化字段（免模板） */
@@ -648,9 +649,15 @@ export default function SettingsPage() {
                   {ml?.error && <div className="hint">{t("msg.fetch_models_failed_err_you_can_type_manually", { err: ml.error })}</div>}
                   {ml?.models && (
                     <div className="model-fetch">
-                      <select className="px-input" value={modelTargets[d.id] ?? "image"} onChange={(e) => setModelTargets((prev) => ({ ...prev, [d.id]: e.target.value as "image" | "video" | "text" }))}>
-                        <option value="image">{t("settings.classifyImage")}</option><option value="video">{t("settings.classifyVideo")}</option><option value="text">{t("settings.classifyText")}</option>
-                      </select>
+                      <PxSelect
+                        value={modelTargets[d.id] ?? "image"}
+                        options={[
+                          { value: "image", label: t("settings.classifyImage") },
+                          { value: "video", label: t("settings.classifyVideo") },
+                          { value: "text", label: t("settings.classifyText") },
+                        ]}
+                        onChange={(v) => setModelTargets((prev) => ({ ...prev, [d.id]: v as "image" | "video" | "text" }))}
+                      />
                       <input
                         className="px-input model-filter"
                         placeholder={t("msg.filter_models_count_click_to_add_remove", { count: ml.models.length })}
@@ -825,14 +832,18 @@ export default function SettingsPage() {
               <div className="form-row">
                 <div className="form-inline">
                   <label className="field"><span>{t("settings.providerConnection")}</span>
-                    <select className="px-input" value={e.providerId} onChange={(e2) => patchEnhancer(e.id, { providerId: e2.target.value, legacy: false, model: "" })}>
-                      <option value="">{t("settings.selectConnection")}</option>
-                      {drafts.filter((d) => d.type === "api" || d.type === "dashscope").map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
+                    <PxSelect
+                      value={e.providerId}
+                      options={[
+                        { value: "", label: t("settings.selectConnection") },
+                        ...drafts.filter((d) => d.type === "api" || d.type === "dashscope").map((d) => ({ value: d.id, label: d.name })),
+                      ]}
+                      onChange={(v) => patchEnhancer(e.id, { providerId: v, legacy: false, model: "" })}
+                    />
                   </label>
                   <label className="field">
                     <span>{t("msg.model")}</span>
-                    {splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").length ? <select className="px-input" value={e.model} onChange={(e2) => patchEnhancer(e.id, { model: e2.target.value })}><option value="">{t("settings.selectModel")}</option>{splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").map((m) => <option key={m}>{m}</option>)}</select> : <input className="px-input" placeholder="gpt-4o-mini / qwen-plus" value={e.model} onChange={(e2) => patchEnhancer(e.id, { model: e2.target.value })} />}
+                    {splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").length ? <PxSelect value={e.model} options={[{ value: "", label: t("settings.selectModel") }, ...splitModels(drafts.find((d) => d.id === e.providerId)?.textModelsText ?? "").map((m) => ({ value: m, label: m }))]} onChange={(v) => patchEnhancer(e.id, { model: v })} /> : <input className="px-input" placeholder="gpt-4o-mini / qwen-plus" value={e.model} onChange={(e2) => patchEnhancer(e.id, { model: e2.target.value })} />}
                   </label>
                 </div>
               </div>

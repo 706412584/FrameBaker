@@ -15,6 +15,7 @@ const DONE_TTL = 6000; // 完成/取消任务停留 6s 后自动移除
 const MAX_ITEMS = 20;
 const POS_KEY = "framebaker-jobpanel-pos";
 const PANEL_W = 264;
+const NAV_H = 60; // 顶部导航栏高度，拖拽下限需避开以免头部被遮挡无法抓取
 
 const isActive = (j: Job) => j.status === "queued" || j.status === "running";
 const isTransient = (j: Job) => j.status === "done" || j.status === "cancelled";
@@ -36,7 +37,10 @@ export default function JobPanel() {
       const raw = localStorage.getItem(POS_KEY);
       if (raw) {
         const p = JSON.parse(raw);
-        if (typeof p.left === "number" && typeof p.top === "number") return p;
+        if (typeof p.left === "number" && typeof p.top === "number") {
+          // 修正历史存档中 top 过低被导航栏遮挡的情况
+          return { left: p.left, top: Math.max(NAV_H, p.top) };
+        }
       }
     } catch {
       /* ignore */
@@ -69,7 +73,7 @@ export default function JobPanel() {
       const maxY = window.innerHeight - 40; // 至少留头部可见
       setPos({
         left: Math.max(0, Math.min(left, maxX)),
-        top: Math.max(0, Math.min(top, maxY)),
+        top: Math.max(NAV_H, Math.min(top, maxY)),
       });
     };
     const onUp = () => {
