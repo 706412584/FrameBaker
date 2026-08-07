@@ -21,9 +21,14 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 | --- | --- |
 | ![Playback preview](docs/media/preview.png) | ![Dark theme](docs/media/library-dark.png) |
 
+| Video material (custom pixel-style player) | Frame extract editor (VIDEO CUT LAB) |
+| --- | --- |
+| ![Video material detail](docs/media/video-material.png) | ![Frame extract editor](docs/media/video-cut-lab.png) |
+
 ## Features
 
 - **Multi-source import** — GIF / MP4 frame extraction via ffmpeg (adjustable fps), multi-select PNG upload, external generator CLI (`FRAMEBAKER_GEN_CLI`)
+- **Video materials & frame extract editor** — generated/uploaded videos get a custom pixel-style player (checkerboard backdrop, click-to-play, themed scrubber); the "VIDEO CUT LAB" editor scrubs to an exact frame and marks it, or fills a time range at a target fps, then extracts up to 64 frames as image materials in one batch (optionally matted on the way out)
 - **Built-in matting** — rembg works out of the box (u2net by default, custom models supported); custom CLI template optional; before/after compare slider to review cutouts
 - **Materials library** — a first-class staging area: generate or upload, matte, compare, then import into any project — single or batch
 - **Frame editor** — PixiJS v8 canvas with onion skin, grid, viewport zoom, draggable offsets, scale / rotation / opacity controls, crop-and-replace, per-frame duration, and keyframes
