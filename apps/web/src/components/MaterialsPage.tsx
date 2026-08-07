@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Package, Play, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -515,12 +515,7 @@ export default function MaterialsPage() {
                 >
                   <div className="thumb">
                     {m.kind === "video" ? (
-                      <>
-                        <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
-                        <span className="mat-video-play">
-                          <Play size={18} fill="currentColor" />
-                        </span>
-                      </>
+                      <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
                     ) : (
                       <img src={materialImageUrl(m.id, v)} alt="" draggable={false} loading="lazy" />
                     )}

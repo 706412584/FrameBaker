@@ -379,7 +379,7 @@ export default function VideoExtractModal({ material: m, v, onClose, onToast }: 
 
         <div className="ve-workspace">
           <section className="ve-preview-column">
-            <div className={`ve-player ${loadState}`} onDoubleClick={togglePlay}>
+            <div className={`ve-player ${loadState}`} onClick={togglePlay}>
               <video
                 key={src}
                 ref={videoRef}
@@ -422,20 +422,6 @@ export default function VideoExtractModal({ material: m, v, onClose, onToast }: 
                   </motion.div>
                 )}
               </AnimatePresence>
-              {loadState === "ready" && !playing && (
-                <motion.button
-                  type="button"
-                  className="ve-center-play"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.94 }}
-                  onClick={togglePlay}
-                  aria-label={t("msg.continue")}
-                >
-                  <Play size={24} fill="currentColor" />
-                </motion.button>
-              )}
             </div>
 
             <div className="ve-transport">

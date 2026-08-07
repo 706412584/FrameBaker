@@ -1289,29 +1289,137 @@ input[type="range"] {
   flex-direction: column;
   gap: 10px;
 }
-.mat-video {
-  width: 100%;
-  max-height: 360px;
-  background: var(--bg);
-  image-rendering: auto;
+
+/* ===== 素材视频播放器 ===== */
+.vp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.mat-video-play {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 42px;
-  height: 42px;
+.vp-player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 420px;
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-contrast);
-  background: color-mix(in srgb, var(--accent) 88%, transparent);
-  box-shadow: 4px 4px 0 color-mix(in srgb, var(--bg) 78%, transparent);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  transition: transform 0.16s ease;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 2px var(--border),
+    6px 6px 0 color-mix(in srgb, var(--border) 34%, transparent);
 }
-.mat-card:hover .mat-video-play {
-  transform: translate(-50%, -50%) scale(1.08);
+.vp-video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: var(--bg);
+  image-rendering: auto;
+}
+.vp-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  pointer-events: none;
+}
+.vp-state svg {
+  color: var(--accent);
+}
+.vp-state.error {
+  color: var(--error);
+}
+.vp-state.error svg {
+  color: var(--error);
+}
+.vp-player.error {
+  cursor: default;
+}
+.vp-transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+.vp-play-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: none;
+  box-shadow:
+    0 -3px 0 0 color-mix(in srgb, var(--accent) 58%, black),
+    0 3px 0 0 color-mix(in srgb, var(--accent) 58%, black),
+    -3px 0 0 0 color-mix(in srgb, var(--accent) 58%, black),
+    3px 0 0 0 color-mix(in srgb, var(--accent) 58%, black);
+  transition: background 0.1s;
+}
+.vp-play-btn:hover {
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+.vp-play-btn:active {
+  transform: translateY(2px);
+}
+.vp-play-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.vp-seek {
+  flex: 1;
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.vp-seek::before {
+  content: "";
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  box-shadow:
+    0 -2px 0 0 var(--border),
+    0 2px 0 0 var(--border),
+    -2px 0 0 0 var(--border),
+    2px 0 0 0 var(--border);
+}
+.vp-seek-fill {
+  position: absolute;
+  height: 6px;
+  background: var(--accent);
+  box-shadow:
+    0 -2px 0 0 color-mix(in srgb, var(--accent) 58%, black),
+    0 2px 0 0 color-mix(in srgb, var(--accent) 58%, black);
+  transition: width 0.05s linear;
+  pointer-events: none;
+}
+.vp-timecode {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.vp-timecode strong {
+  color: var(--accent);
+  font-size: 13px;
+}
+.vp-timecode span {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 /* ===== 视频抽帧编辑器 ===== */
@@ -1406,6 +1514,7 @@ input[type="range"] {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  cursor: pointer;
   box-shadow:
     0 0 0 2px var(--border),
     8px 8px 0 color-mix(in srgb, var(--border) 34%, transparent);
@@ -1441,23 +1550,6 @@ input[type="range"] {
 .ve-player-state.error > span {
   max-width: 440px;
   font-size: 12px;
-}
-.ve-center-play {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 58px;
-  height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent-contrast);
-  background: color-mix(in srgb, var(--accent) 90%, transparent);
-  border: none;
-  box-shadow:
-    4px 0 0 color-mix(in srgb, var(--accent) 55%, var(--bg)),
-    0 4px 0 color-mix(in srgb, var(--accent) 55%, var(--bg)),
-    0 0 24px color-mix(in srgb, var(--accent) 30%, transparent);
-  transform: translate(-50%, -50%);
 }
 .ve-transport {
   display: flex;
