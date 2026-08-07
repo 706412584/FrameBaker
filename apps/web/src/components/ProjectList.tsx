@@ -114,20 +114,25 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
 
       <div className="folder-content">
         <header className="home-header">
-          <h1>
-            <Clapperboard size={30} /> FrameBaker
-          </h1>
-          <p className="subtitle">{t("msg.pixel_frame_by_frame_editor_extract_generate_edit_export")}</p>
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="px-btn accent"
-            onClick={() => setShowModal(true)}
-          >
-            <Plus size={16} /> {t("msg.new_project")}
-          </motion.button>
-          <FileZoom value={zoom} onChange={setZoom} />
+          <div className="home-header-copy">
+            <span className="page-kicker">{t("page.projectsWorkspace")}</span>
+            <h1>
+              <Clapperboard size={30} /> FrameBaker
+            </h1>
+            <p className="subtitle">{t("msg.pixel_frame_by_frame_editor_extract_generate_edit_export")}</p>
+          </div>
+          <div className="home-header-actions">
+            <motion.button
+              type="button"
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.96 }}
+              className="px-btn accent"
+              onClick={() => setShowModal(true)}
+            >
+              <Plus size={16} /> {t("msg.new_project")}
+            </motion.button>
+            <FileZoom value={zoom} onChange={setZoom} />
+          </div>
         </header>
 
         <div className="folder-main">
@@ -143,14 +148,13 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
             </div>
           ) : (
             <div className="file-grid" style={{ ["--tile-min" as string]: `${zoom}px` }}>
-              {visible.map((p, i) => (
+              {visible.map((p) => (
                 <motion.div
                   key={p.id}
                   className="project-card"
-                  initial={{ opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(i * 0.06, 0.4) }}
-                  whileHover={{ y: -6 }}
+                  whileHover={{ y: -4 }}
+                  whileTap={{ scale: 0.985 }}
+                  layout
                   draggable
                   onDragStart={(e) => {
                     const de = e as unknown as React.DragEvent;

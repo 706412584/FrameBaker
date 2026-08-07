@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MotionConfig } from "motion/react";
 import ProjectList from "./components/ProjectList";
 import Editor from "./components/Editor";
 import MaterialsPage from "./components/MaterialsPage";
@@ -56,7 +57,7 @@ export default function App() {
   };
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       {view.page !== "editor" && <TopNav current={view.page} onNav={(p) => nav({ page: p })} />}
       {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
       {view.page === "materials" && <MaterialsPage />}
@@ -66,6 +67,6 @@ export default function App() {
       <JobPanel />
       {/* 全局通知条 + 确认弹窗（notice.ts） */}
       <AppModals />
-    </>
+    </MotionConfig>
   );
 }

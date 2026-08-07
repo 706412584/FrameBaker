@@ -147,7 +147,9 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
 
         {isVideo ? (
           <div className="mat-video-wrap">
-            <video className="mat-video" src={materialFileUrl(m.id, v, "raw")} controls playsInline preload="metadata" />
+            {!showExtract && (
+              <video className="mat-video" src={materialFileUrl(m.id, v, "raw")} controls playsInline preload="metadata" />
+            )}
             <div className="hint">{t("msg.video_no_extract_during_gen_split_to_images_here_then_ma")}</div>
             {showFullFps && (
               <>

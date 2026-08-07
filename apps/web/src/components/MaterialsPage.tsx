@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Package, Play, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -444,36 +444,41 @@ export default function MaterialsPage() {
 
       <div className="folder-content">
         <header className="home-header">
-          <h1>
-            <Package size={28} /> {t("msg.materials")}
-          </h1>
-          <p className="subtitle">
-            {t("msg.count_materials_generate_upload_matte_review_import_mod", {
-              count: visible.length,
-              mod: isMac ? "Cmd" : "Ctrl",
-            })}
-          </p>
-          <div className="mat-actions">
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="px-btn"
-              onClick={() => setImportTab("upload")}
-            >
-              <Upload size={16} /> {t("msg.upload_materials")}
-            </motion.button>
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="px-btn accent"
-              onClick={() => setImportTab("cli")}
-            >
-              <Sparkles size={16} /> {t("msg.ai_generate")}
-            </motion.button>
+          <div className="home-header-copy">
+            <span className="page-kicker">{t("page.assetsWorkspace")}</span>
+            <h1>
+              <Package size={28} /> {t("msg.materials")}
+            </h1>
+            <p className="subtitle">
+              {t("msg.count_materials_generate_upload_matte_review_import_mod", {
+                count: visible.length,
+                mod: isMac ? "Cmd" : "Ctrl",
+              })}
+            </p>
           </div>
-          <FileZoom value={zoom} onChange={setZoom} />
+          <div className="home-header-actions">
+            <div className="mat-actions">
+              <motion.button
+                type="button"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.96 }}
+                className="px-btn"
+                onClick={() => setImportTab("upload")}
+              >
+                <Upload size={16} /> {t("msg.upload_materials")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.96 }}
+                className="px-btn accent"
+                onClick={() => setImportTab("cli")}
+              >
+                <Sparkles size={16} /> {t("msg.ai_generate")}
+              </motion.button>
+            </div>
+            <FileZoom value={zoom} onChange={setZoom} />
+          </div>
         </header>
 
         <div className="folder-main">
@@ -489,14 +494,13 @@ export default function MaterialsPage() {
             </div>
           ) : (
             <div className="file-grid" style={{ ["--tile-min" as string]: `${zoom}px` }}>
-              {visible.map((m, i) => (
+              {visible.map((m) => (
                 <motion.div
                   key={m.id}
                   className={`project-card mat-card ${selectedIds.has(m.id) ? "selected" : ""}`}
-                  initial={{ opacity: 0, y: 24 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(i * 0.04, 0.4) }}
-                  whileHover={{ y: -6 }}
+                  whileHover={{ y: -4 }}
+                  whileTap={{ scale: 0.985 }}
+                  layout
                   draggable
                   onDragStart={(e) => {
                     const ids = selectedIds.has(m.id) ? [...selectedIds] : [m.id];
@@ -511,9 +515,14 @@ export default function MaterialsPage() {
                 >
                   <div className="thumb">
                     {m.kind === "video" ? (
-                      <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
+                      <>
+                        <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
+                        <span className="mat-video-play">
+                          <Play size={18} fill="currentColor" />
+                        </span>
+                      </>
                     ) : (
-                      <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
+                      <img src={materialImageUrl(m.id, v)} alt="" draggable={false} loading="lazy" />
                     )}
                     <span
                       className={`mat-check ${selectedIds.has(m.id) ? "on" : ""}`}
