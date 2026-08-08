@@ -11,6 +11,7 @@ serve({
     "/": index,
     "/project/:id": index, // 编辑器页复用同一 HTML，前端读 location.pathname
     "/materials": index, // 素材库页同
+    "/motions": index, // 动作工作台同
     "/settings": index, // 设置页同
   },
   fetch(req, server) {

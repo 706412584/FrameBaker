@@ -321,7 +321,7 @@ export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
 export const EXTRACT_TIMESTAMPS_MAX = 64;
 
 /** 拼图表最多格数（与网格切分上限对齐） */
-export const ACTION_SHEET_MAX_FRAMES = 8;
+export const ACTION_SHEET_MAX_FRAMES = 16;
 
 /** 视频模式：点选注入单个动作（不做拼图表那套 n 帧槽位） */
 export const ACTION_VIDEO_MAX_ACTIONS = 1;
@@ -334,7 +334,7 @@ export function suggestActionSheetGrid(frameCount: number): { cols: number; rows
   if (n === 3) return { cols: 3, rows: 1 };
   if (n === 4) return { cols: 4, rows: 1 }; // 连续帧优先单行，读序更直观
   if (n <= 6) return { cols: 3, rows: 2 };
-  return { cols: 4, rows: 2 };
+  return { cols: 4, rows: Math.ceil(n / 4) };
 }
 
 /**
@@ -582,6 +582,33 @@ export interface MaterialRow extends Omit<Material, "status" | "source" | "metad
   status: string;
   source: string;
   metadata: string;
+}
+
+// ===== 固定人形动作（humanoid-v1） =====
+
+export type MotionView = "front" | "back" | "left" | "right";
+export type HumanoidBoneId =
+  | "pelvis" | "chest" | "neck" | "head"
+  | "leftShoulder" | "leftElbow" | "leftWrist"
+  | "rightShoulder" | "rightElbow" | "rightWrist"
+  | "leftHip" | "leftKnee" | "leftAnkle"
+  | "rightHip" | "rightKnee" | "rightAnkle";
+
+/** 根节点平移 + 各骨骼相对父骨骼的局部弧度旋转。 */
+export interface MotionKeyframe {
+  id: string;
+  root: { x: number; y: number };
+  rotations: Record<HumanoidBoneId, number>;
+}
+
+export interface MotionClip {
+  id: string;
+  name: string;
+  rig: "humanoid-v1";
+  view: MotionView;
+  fps: number;
+  loop: boolean;
+  keyframes: MotionKeyframe[];
 }
 
 // ===== 请求 / 响应 =====

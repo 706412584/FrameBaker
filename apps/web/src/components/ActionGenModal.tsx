@@ -27,6 +27,7 @@ interface Props {
   v: number;
   onClose: () => void;
   onToast: (msg: string) => void;
+  initialPoseReferenceMaterialId?: string;
 }
 
 type SeqItem = { key: string; id: ActionPresetId };
@@ -46,7 +47,7 @@ function resolveFrames(seq: SeqItem[]) {
  * - 图片：引用图 + 有序帧序列 → 一次拼图表 → 网格切分
  * - 视频：点选动作注入提示词 → 文生视频素材 → 素材详情单独抽帧
  */
-export default function ActionGenModal({ material: m, v, onClose, onToast }: Props) {
+export default function ActionGenModal({ material: m, v, onClose, onToast, initialPoseReferenceMaterialId }: Props) {
   const t = useT();
   useModalEscClose(onClose);
   const slot = m.processed_path ? "processed" : "raw";
@@ -66,7 +67,9 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [poseReference, setPoseReference] = useState<ReferenceSelection | null>(null);
+  const [poseReference, setPoseReference] = useState<ReferenceSelection | null>(() =>
+    initialPoseReferenceMaterialId ? { kind: "material", id: initialPoseReferenceMaterialId } : null
+  );
   const [submitting, setSubmitting] = useState(false);
   const cfg = useServerConfig();
 

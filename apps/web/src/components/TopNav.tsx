@@ -1,21 +1,22 @@
 import { motion } from "motion/react";
-import { Clapperboard, Package, Settings } from "lucide-react";
+import { Clapperboard, Package, PersonStanding, Settings } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import LangToggle from "./LangToggle";
 import NoticeHistory from "./NoticeHistory";
 import { useT } from "../i18n";
 
 interface Props {
-  current: "home" | "materials" | "settings";
-  onNav: (page: "home" | "materials" | "settings") => void;
+  current: "home" | "materials" | "motions" | "settings";
+  onNav: (page: "home" | "materials" | "motions" | "settings") => void;
 }
 
-/** 顶部一级导航：项目 / 素材库 / 设置（编辑器页有自己的顶栏，不显示本导航） */
+/** 顶部一级导航：项目 / 素材库 / 动作 / 设置（编辑器页有自己的顶栏，不显示本导航） */
 export default function TopNav({ current, onNav }: Props) {
   const t = useT();
   const tabs = [
     { id: "home" as const, icon: Clapperboard, label: t("msg.projects") },
     { id: "materials" as const, icon: Package, label: t("msg.materials") },
+    { id: "motions" as const, icon: PersonStanding, label: t("msg.motions") },
     { id: "settings" as const, icon: Settings, label: t("msg.settings") },
   ];
 

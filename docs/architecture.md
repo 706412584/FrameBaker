@@ -5,10 +5,11 @@
 ```
                         ┌──────────────────────────────────────────────┐
                         │                浏览器（React 19）             │
-                        │  TopNav(项目/素材库/设置)                      │
+                        │  TopNav(项目/素材库/动作/设置)                  │
                         │  ProjectList   Editor ─ FrameEditor(PixiJS)  │
                         │  Timeline(DnD) PlaybackBar    ImportModal   │
                         │  MaterialsPage MaterialModal(对比滑杆/剪裁)   │
+                        │  MotionsPage ─ Quaternius 动作/FK 编辑/姿态表导出 │
                         │  CropModal ─ imageops/（Web Worker 图像处理） │
 │  JobPanel（右侧常驻任务队列，WS 驱动）          │
                         │        │ fetch /api        │ WebSocket /ws   │
@@ -16,7 +17,7 @@
                                  │                   │
 ┌────────────────────────────────▼───────────────────▼────────────────┐
 │                    Bun.serve（apps/server/src/index.ts）            │
-│  routes: "/" "/project/:id" "/materials" "/settings" → HTML import 打包 │
+│  routes: "/" "/project/:id" "/materials" "/motions" "/settings" → HTML │
 │  fetch:  /ws → server.upgrade ──────► ws.ts（clients 集合广播）      │
 │          其余 → Elysia app（app.ts）                                │
 │                                                                     │
@@ -65,7 +66,7 @@
 
 ## 关键设计
 
-- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/` 与 `/project/:id`；编辑器页前端读 `location.pathname` 恢复项目上下文（无路由库）。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
+- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 是固定 `humanoid-v1` 的 Pixi/FK 动作编辑器，可把 512×512 单元格姿态表上传为素材，并携该姿态参考进入 `ActionGenModal`。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
 - **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error/cancelled + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复，启动时统一把遗留的 queued/running 标记为 error（「服务重启，任务中断」）。`POST /api/jobs/:id/cancel` 可取消排队/运行中任务（AbortSignal → `runCmd` 杀进程 / API 轮询中断）。所有状态变化经 `ws.ts` 广播；前端由 `JobPanel`（右侧常驻面板，挂在 App 根部）经 WS `job_*` 事件 + `GET /api/jobs(/:id)` 兜底轮询展示进度，排队/运行中可点取消。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。

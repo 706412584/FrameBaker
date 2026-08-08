@@ -33,6 +33,7 @@
 - **素材库** —— 一级暂存区：生成/上传 → 抠图 → 对比 → 导入任意项目，支持单个与批量
 - **帧编辑器** —— PixiJS v8 画布：洋葱皮、网格、视图缩放、拖拽偏移、图片缩放/旋转/透明度、剪裁替换、帧时长与关键帧
 - **时间轴与批量操作** —— 拖拽换序，Cmd/Ctrl+点击与 Shift+点击多选，批量删除/复制/统一时长
+- **人形动作骨架** —— 选择采样为 8–16 帧的 CC0 Quaternius Universal Animation Library 现成动作后立即播放，可整段调节动作幅度、手臂摆幅、腿部步幅、身体起伏和前倾，再按需逐帧微调 FK 关节并导出姿态表
 - **精灵表导出** —— 纯前端 canvas 拼合，帧变换烘焙到对齐单元格 → `*.spritesheet.png` + `*.json`
 - **Cassette Futurism 双主题** —— 深色 Magnetic Night / 浅色 Beige Terminal；默认跟随系统，三态切换（跟随系统/浅色/深色）
 - **实时同步** —— WebSocket 广播任务进度与帧/素材变更
@@ -152,6 +153,12 @@ Bun workspaces monorepo：
 [MIT](LICENSE) © 2026 taotao7
 
 界面字体为 **Fusion Pixel 12px**（`apps/web/public/fonts/`），采用 SIL Open Font License 1.1 —— 详见 `apps/web/public/fonts/OFL.txt`。
+
+### 致谢与第三方项目
+
+- [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)（Quaternius，CC0 1.0 Universal）—— FrameBaker 从 Standard GLB 抽取、正交投影并重定向 `Idle_Loop`、`Walk_Loop`、`Sprint_Loop`、`Sword_Attack`、`Hit_Chest`、`Death01`、`Jump_Start` 和 `Jump_Land`，转换为内置二维局部旋转动作；跳跃预设把起跳和落地片段组合为紧凑的游戏动作轨迹，本仓库不打包原始 GLB。
+- [huchenlei/sd-webui-openpose-editor](https://github.com/huchenlei/sd-webui-openpose-editor)（Chenlei Hu，MIT License）—— 动作工作台设计时评估了其姿态操作流程与 COCO-18 约定；最终简单工作流没有嵌入该专业编辑器，本仓库也未打包其源码。
+- [ZhUyU1997/open-pose-editor](https://github.com/ZhUyU1997/open-pose-editor)（Yu Zhu，MIT License）—— 逐关节微调交互参考了其变换 gizmo 与姿态预览流程；本仓库未打包其源码。
 
 ## 已知限制
 
