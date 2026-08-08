@@ -450,3 +450,7 @@ type AnimationCapability =
 - provider 运行在一次性 CLI、常驻 sidecar 还是远程服务。
 
 这些选择必须服从已冻结边界：可迁移、可替换、可复现、无静默数据损失。
+
+### Phase B：RenderProfile 与本地烘焙草稿
+
+RenderProfile v1 已作为可编辑动画资产落库，描述透明画布尺寸、FPS、原点和世界缩放。动作工作区可选择同骨架 CharacterBinding 与 RenderProfile，在浏览器生成带 canonical RGBA SHA-256 摘要的 PNG 序列内存草稿并下载 ZIP。此项不扩展 `.fbanim` v1，也不代表 RasterSequence、服务端提交或完整 Phase B 已完成。

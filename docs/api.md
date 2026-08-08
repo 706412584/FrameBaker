@@ -403,3 +403,7 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
 - `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置、按 `style` 组装）：`{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；`style` 取共享常量 `ENHANCE_STYLES` 的 id（pixel/anime/illustration/3d/realistic/general），缺省或未知值按 `pixel` 处理；未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
 - `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）
+
+## RenderProfile 动画资产（Phase B 草稿）
+
+通用 `/api/animation-assets` CRUD 显式接受 `kind: "render-profile"`。v1 正文包含 `width`、`height`（1..4096 整数）、`fps`（1..120）、画布像素 `origin`、正数 `scale` 与固定 `background: "transparent"`；该资产没有 `skeleton_id`。`.fbanim` v1 仍只封装 Skeleton/MotionClip，拒绝 RenderProfile。

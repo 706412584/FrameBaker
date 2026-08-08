@@ -7,6 +7,7 @@ import {
   validateMotionClip,
   validateSkeleton,
   validateCharacterBinding,
+  validateRenderProfile,
   type CharacterBinding,
   type MotionClip,
   type Skeleton,
@@ -14,6 +15,7 @@ import {
 import Ajv2020 from "ajv/dist/2020";
 import commonSchema from "../packages/shared/schemas/animation/v1/common.schema.json";
 import characterBindingSchema from "../packages/shared/schemas/animation/v1/character-binding.schema.json";
+import renderProfileSchema from "../packages/shared/schemas/animation/v1/render-profile.schema.json";
 
 function ensure(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -89,6 +91,9 @@ ensure(validateCharacterBinding(binding, scaledSkeleton).ok, "角色绑定运行
 const ajv = new Ajv2020({ strict: true });
 ajv.addSchema(commonSchema);
 ensure(ajv.compile(characterBindingSchema)(binding), "CharacterBinding JSON Schema 校验失败");
+const profile = { schemaVersion: 1, kind: "render-profile", id: "check:profile", name: "Profile", width: 128, height: 128, fps: 12, origin: [64, 96], scale: 32, background: "transparent" };
+ensure(validateRenderProfile(profile).ok, "RenderProfile 运行时校验失败");
+ensure(ajv.compile(renderProfileSchema)(profile), "RenderProfile JSON Schema 校验失败");
 let rejectedNonFiniteTime = false;
 try { sampleMotionClip(stepClip, scaledSkeleton, Number.NaN); } catch { rejectedNonFiniteTime = true; }
 ensure(rejectedNonFiniteTime, "采样器未拒绝非有限时间");

@@ -3,6 +3,9 @@ import { validateBoundedJsonValue, type JsonNodeBudget, type JsonValue } from ".
 export const SKELETON_SCHEMA_VERSION = 1;
 export const MOTION_CLIP_SCHEMA_VERSION = 1;
 export const CHARACTER_BINDING_SCHEMA_VERSION = 1;
+export const RENDER_PROFILE_SCHEMA_VERSION = 1;
+export const MAX_BAKED_RASTER_FRAMES = 10_000;
+export const MAX_BAKED_RASTER_PIXELS = 67_108_864;
 export const ANIMATION_V1_LIMITS = {
   maxIdLength: 128,
   maxNameLength: 1_024,
@@ -168,8 +171,26 @@ export interface CharacterBinding extends AnimationAssetBase<"character-binding"
   attachments: RegionAttachment[];
 }
 
-/** 当前库可编辑、且已有 API 实现的动画资产。render-profile 仅预留 kind。 */
-export type EditableAnimationAsset = Skeleton | MotionClip | CharacterBinding;
+export interface RenderProfile extends AnimationAssetBase<"render-profile"> {
+  schemaVersion: typeof RENDER_PROFILE_SCHEMA_VERSION;
+  width: number;
+  height: number;
+  fps: number;
+  /** 骨架世界原点在输出画布中的像素坐标。 */
+  origin: [number, number];
+  scale: number;
+  background: "transparent";
+}
+
+/** 不包含浏览器 Blob 的烘焙草稿清单，可供后续服务端协议复用。 */
+export interface BakedRasterDraftManifest {
+  bakeEngine: "framebaker-canvas2d-v1";
+  source: { skeletonId: string; motionClipId: string; characterBindingId: string; renderProfileId: string };
+  profile: { width: number; height: number; fps: number; origin: [number, number]; scale: number; background: "transparent" };
+  frames: Array<{ index: number; time: number; pixelDigest: `sha256:${string}` }>;
+}
+
+export type EditableAnimationAsset = Skeleton | MotionClip | CharacterBinding | RenderProfile;
 export type AnimationAsset = EditableAnimationAsset;
 
 /** 动画资产在本地库中的组织信息；资产正文仍由各自 schema 负责。 */
@@ -529,6 +550,22 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
     else if (drawOrders.has(slot.drawOrder)) issues.push({ path: `${path}.drawOrder`, message: "绘制顺序重复" }); else drawOrders.add(slot.drawOrder);
   }
   return issues.length === 0 ? { ok: true, value: value as unknown as CharacterBinding, issues: [] } : { ok: false, issues };
+}
+
+export function validateRenderProfile(value: unknown): ValidationResult<RenderProfile> {
+  const issues: ValidationIssue[] = [];
+  const jsonBudget: JsonNodeBudget = { remaining: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes };
+  if (!isRecord(value)) return { ok: false, issues: [{ path: "$", message: "渲染配置必须是对象" }] };
+  rejectUnknown(value, ["schemaVersion", "kind", "id", "name", "extensions", "width", "height", "fps", "origin", "scale", "background"], "$", issues);
+  validateIdentity(value, "render-profile", RENDER_PROFILE_SCHEMA_VERSION, issues, jsonBudget);
+  for (const key of ["width", "height"] as const) {
+    if (!Number.isInteger(value[key]) || (value[key] as number) < 1 || (value[key] as number) > 4096) issues.push({ path: key, message: "必须是 1..4096 的整数" });
+  }
+  if (!isFiniteNumber(value.fps) || value.fps < 1 || value.fps > 120) issues.push({ path: "fps", message: "必须是 1..120 的有限正数" });
+  if (!isTuple(value.origin, 2)) issues.push({ path: "origin", message: "必须包含 2 个有限数值" });
+  if (!isFiniteNumber(value.scale) || value.scale <= 0) issues.push({ path: "scale", message: "必须是有限正数" });
+  if (value.background !== "transparent") issues.push({ path: "background", message: "v1 仅支持 transparent" });
+  return issues.length === 0 ? { ok: true, value: value as unknown as RenderProfile, issues: [] } : { ok: false, issues };
 }
 
 export function normalizeQuaternion(value: Quaternion): Quaternion {

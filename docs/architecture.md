@@ -200,3 +200,7 @@ storage/
 - `i18n.ts` + `i18n/zh.ts` / `i18n/en.ts`：界面语言（zh 默认 / en）；文案用稳定 key（如 `common.close`），`t(key)` / `useT()` 查表；localStorage `framebaker-lang` + settings `lang`
 - `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗
 - `api.ts`：fetch 封装 + WS 客户端（断线 3s 重连）
+
+### 浏览器 PNG 序列烘焙草稿
+
+`apps/web/src/animationBake.ts` 将 Skeleton、MotionClip、CharacterBinding 和 RenderProfile 在 Canvas2D 中组合。采样使用 `[0,duration)` 固定时刻（零时长一帧、最多 10000 帧），按 Slot.drawOrder 绘制并明确完成 Y-up 到 Canvas Y-down 与 Region pivot 映射。PNG 仅为下载载荷；确定性身份来自 `getImageData` RGBA 的 SHA-256，不承诺跨浏览器 PNG 编码字节一致。草稿只留内存并复用零依赖 ZIP helper，尚未形成 RasterSequence 服务端资产。

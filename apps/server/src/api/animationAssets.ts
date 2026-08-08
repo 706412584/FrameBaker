@@ -3,6 +3,7 @@ import {
   validateCharacterBinding,
   validateMotionClip,
   validateSkeleton,
+  validateRenderProfile,
   type AnimationAsset,
   type AnimationAssetKind,
   type AnimationAssetSummary,
@@ -97,7 +98,15 @@ async function validateAsset(value: unknown): Promise<{ asset: AnimationAsset } 
     const materialError = await validateBindingMaterials(result.value);
     return materialError ? { error: materialError } : { asset: result.value };
   }
-  return { error: "kind 须为 skeleton、motion-clip 或 character-binding" };
+  if ((value as { kind?: unknown }).kind === "render-profile") {
+    const result = validateRenderProfile(value);
+    return result.ok ? { asset: result.value } : { error: issueText(result.issues) };
+  }
+  return { error: "kind 须为 skeleton、motion-clip、character-binding 或 render-profile" };
+}
+
+function assetSkeletonId(asset: AnimationAsset): string | null {
+  return asset.kind === "motion-clip" || asset.kind === "character-binding" ? asset.skeletonId : null;
 }
 
 /** 骨架替换不能让已保存动作失效。 */
@@ -120,8 +129,8 @@ function validateDependents(skeleton: Skeleton): string | null {
 export const animationAssetsApi = new Elysia({ prefix: "/api" })
   .get("/animation-assets", ({ query, status }) => {
     const kind = query.kind;
-    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding") {
-      return status(400, "kind 须为 skeleton、motion-clip 或 character-binding");
+    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding" && kind !== "render-profile") {
+      return status(400, "kind 无效");
     }
     const rows = (kind
       ? db.query("SELECT * FROM animation_assets WHERE kind = ? ORDER BY updated_at DESC").all(kind)
@@ -140,7 +149,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       if (folderError) return status(400, folderError);
       const now = Date.now();
       db.query("INSERT INTO animation_assets (id, kind, name, skeleton_id, folder_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(asset.id, asset.kind, asset.name, asset.kind === "skeleton" ? null : asset.skeletonId, folderId, JSON.stringify(asset), now, now);
+        .run(asset.id, asset.kind, asset.name, assetSkeletonId(asset), folderId, JSON.stringify(asset), now, now);
       broadcast("animation_assets_changed", { id: asset.id, kind: asset.kind });
       return { animationAsset: { asset, folder_id: folderId, created_at: now, updated_at: now } };
     },
@@ -170,7 +179,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       if (folderError) return status(400, folderError);
       const updatedAt = Date.now();
       db.query("UPDATE animation_assets SET name = ?, skeleton_id = ?, folder_id = ?, data = ?, updated_at = ? WHERE id = ?")
-        .run(asset.name, asset.kind === "skeleton" ? null : asset.skeletonId, folderId, JSON.stringify(asset), updatedAt, asset.id);
+        .run(asset.name, assetSkeletonId(asset), folderId, JSON.stringify(asset), updatedAt, asset.id);
       broadcast("animation_assets_changed", { id: asset.id, kind: asset.kind });
       return { animationAsset: { asset, folder_id: folderId, created_at: current.created_at, updated_at: updatedAt } };
     },
