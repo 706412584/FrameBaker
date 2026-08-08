@@ -60,7 +60,7 @@
 | --- | --- | --- |
 | `@framebaker/server` | `apps/server` | Elysia API + 任务队列 + SQLite；同时经 Bun 全栈模式托管前端 |
 | `@framebaker/web` | `apps/web` | React 19 + PixiJS v8 前端，`index.html` 为打包入口，字体在 `public/fonts` |
-| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material` 与 API 类型；通用 `Skeleton`/`MotionClip`、坐标/四元数、运行时校验和连续时间 FK 采样；共享枚举、provider 与抠图设置 |
+| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material` 与 API 类型；通用 `Skeleton`/`MotionClip`/`CharacterBinding`、坐标/四元数、运行时校验和连续时间 FK 采样；共享枚举、provider 与抠图设置 |
 
 根 `tsconfig.base.json` 提供共享 compilerOptions（strict、moduleResolution: bundler、noEmit），各 app 的 `tsconfig.json` extends 后补自己的 lib/jsx/types。
 
@@ -170,7 +170,7 @@ storage/
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
-- `animation_assets(id, kind, name, skeleton_id, folder_id, data, created_at, updated_at)`：正式 Skeleton / MotionClip 资产；正文为通过共享 schema 校验的 JSON，`skeleton_id` 建立动作到骨架的可查询引用
+- `animation_assets(id, kind, name, skeleton_id, folder_id, data, created_at, updated_at)`：正式 Skeleton / MotionClip / CharacterBinding 资产（CHECK 同时预留 render-profile）；正文为通过共享 schema 校验的 JSON，`skeleton_id` 建立动作/绑定到骨架的可查询引用。旧 CHECK 由事务重建迁移并保留旧行。
 - `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目/动画多级目录（kind=`material`|`project`|`animation`）
 - `settings(key, value, updated_at)`：界面偏好（layout / theme / lang）与运行配置（genProvider / matting），服务端权威持久化；主题与语言前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
 

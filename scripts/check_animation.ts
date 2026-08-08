@@ -1,13 +1,19 @@
 import {
+  CHARACTER_BINDING_SCHEMA_VERSION,
   MOTION_CLIP_SCHEMA_VERSION,
   sampleMotionClip,
   SKELETON_SCHEMA_VERSION,
   transformPoint,
   validateMotionClip,
   validateSkeleton,
+  validateCharacterBinding,
+  type CharacterBinding,
   type MotionClip,
   type Skeleton,
 } from "../packages/shared/src/animation";
+import Ajv2020 from "ajv/dist/2020";
+import commonSchema from "../packages/shared/schemas/animation/v1/common.schema.json";
+import characterBindingSchema from "../packages/shared/schemas/animation/v1/character-binding.schema.json";
 
 function ensure(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -78,6 +84,11 @@ ensure(!validateSkeleton(invalidExtension).ok, "骨架校验器接受了未命�
 const invalidLoopEvent = structuredClone(loopStepClip);
 invalidLoopEvent.events = [{ time: invalidLoopEvent.duration, type: "marker", name: "end" }];
 ensure(!validateMotionClip(invalidLoopEvent, scaledSkeleton).ok, "动作校验器接受了循环区间终点事件");
+const binding: CharacterBinding = { schemaVersion: CHARACTER_BINDING_SCHEMA_VERSION, kind: "character-binding", id: "check:binding", name: "Binding", skeletonId: scaledSkeleton.id, attachments: [{ id: "body", name: "Body", type: "region", materialId: "material:body", imageSlot: "raw", size: [1, 2], pivot: [.5, .5], rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }], slots: [{ id: "body-slot", name: "Body", boneId: "root", attachmentId: "body", drawOrder: 0 }] };
+ensure(validateCharacterBinding(binding, scaledSkeleton).ok, "角色绑定运行时校验失败");
+const ajv = new Ajv2020({ strict: true });
+ajv.addSchema(commonSchema);
+ensure(ajv.compile(characterBindingSchema)(binding), "CharacterBinding JSON Schema 校验失败");
 let rejectedNonFiniteTime = false;
 try { sampleMotionClip(stepClip, scaledSkeleton, Number.NaN); } catch { rejectedNonFiniteTime = true; }
 ensure(rejectedNonFiniteTime, "采样器未拒绝非有限时间");

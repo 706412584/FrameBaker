@@ -2,10 +2,13 @@ import { validateBoundedJsonValue, type JsonNodeBudget, type JsonValue } from ".
 
 export const SKELETON_SCHEMA_VERSION = 1;
 export const MOTION_CLIP_SCHEMA_VERSION = 1;
+export const CHARACTER_BINDING_SCHEMA_VERSION = 1;
 export const ANIMATION_V1_LIMITS = {
   maxIdLength: 128,
   maxNameLength: 1_024,
   maxBones: 4_096,
+  maxCharacterSlots: 4_096,
+  maxRegionAttachments: 4_096,
   maxTracks: 16_384,
   maxKeyframesPerTrack: 100_000,
   maxTotalKeyframes: 1_000_000,
@@ -41,7 +44,7 @@ export const DEFAULT_ANIMATION_COORDINATE_SYSTEM: CoordinateSystem = {
   unit: "normalized",
 };
 
-export type AnimationAssetKind = "skeleton" | "motion-clip";
+export type AnimationAssetKind = "skeleton" | "motion-clip" | "character-binding" | "render-profile";
 
 export interface AnimationAssetBase<K extends AnimationAssetKind> {
   schemaVersion: number;
@@ -139,7 +142,35 @@ export interface MotionClip extends AnimationAssetBase<"motion-clip"> {
   provenance?: AssetProvenance;
 }
 
-export type AnimationAsset = Skeleton | MotionClip;
+export interface CharacterSlot {
+  id: string;
+  name: string;
+  boneId: string;
+  attachmentId: string;
+  drawOrder: number;
+}
+
+export interface RegionAttachment {
+  id: string;
+  name: string;
+  type: "region";
+  materialId: string;
+  imageSlot: "raw" | "processed";
+  size: [number, number];
+  pivot: [number, number];
+  rest: Transform;
+}
+
+export interface CharacterBinding extends AnimationAssetBase<"character-binding"> {
+  schemaVersion: typeof CHARACTER_BINDING_SCHEMA_VERSION;
+  skeletonId: string;
+  slots: CharacterSlot[];
+  attachments: RegionAttachment[];
+}
+
+/** 当前库可编辑、且已有 API 实现的动画资产。render-profile 仅预留 kind。 */
+export type EditableAnimationAsset = Skeleton | MotionClip | CharacterBinding;
+export type AnimationAsset = EditableAnimationAsset;
 
 /** 动画资产在本地库中的组织信息；资产正文仍由各自 schema 负责。 */
 export interface StoredAnimationAsset<T extends AnimationAsset = AnimationAsset> {
@@ -451,6 +482,53 @@ export function validateMotionClip(value: unknown, skeleton?: Skeleton): Validat
   if (value.rootMotion !== undefined && value.rootMotion !== "preserve" && value.rootMotion !== "in-place" && value.rootMotion !== "extracted") issues.push({ path: "rootMotion", message: "根运动策略无效" });
   if (value.provenance !== undefined) validateProvenance(value.provenance, "provenance", issues, jsonBudget);
   return issues.length === 0 ? { ok: true, value: value as unknown as MotionClip, issues: [] } : { ok: false, issues };
+}
+
+export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): ValidationResult<CharacterBinding> {
+  const issues: ValidationIssue[] = [];
+  const jsonBudget: JsonNodeBudget = { remaining: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes };
+  if (!isRecord(value)) return { ok: false, issues: [{ path: "$", message: "角色绑定必须是对象" }] };
+  rejectUnknown(value, ["schemaVersion", "kind", "id", "name", "extensions", "skeletonId", "slots", "attachments"], "$", issues);
+  validateIdentity(value, "character-binding", CHARACTER_BINDING_SCHEMA_VERSION, issues, jsonBudget);
+  if (typeof value.skeletonId !== "string" || !ID_PATTERN.test(value.skeletonId)) issues.push({ path: "skeletonId", message: "骨架 ID 无效" });
+  else if (skeleton && value.skeletonId !== skeleton.id) issues.push({ path: "skeletonId", message: "绑定与骨架不匹配" });
+  const boneIds = skeleton ? new Set(skeleton.bones.map((bone) => bone.id)) : undefined;
+  const attachmentIds = new Set<string>();
+  if (!Array.isArray(value.attachments) || value.attachments.length > ANIMATION_V1_LIMITS.maxRegionAttachments) issues.push({ path: "attachments", message: "必须是未超限的附件数组" });
+  else for (const [index, attachment] of value.attachments.entries()) {
+    const path = `attachments[${index}]`;
+    if (!isRecord(attachment)) { issues.push({ path, message: "必须是 Region 附件对象" }); continue; }
+    rejectUnknown(attachment, ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest"], path, issues);
+    if (typeof attachment.id !== "string" || !ID_PATTERN.test(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 无效" });
+    else if (attachmentIds.has(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 重复" });
+    else attachmentIds.add(attachment.id);
+    if (typeof attachment.name !== "string" || !attachment.name.trim()) issues.push({ path: `${path}.name`, message: "附件名称不能为空" });
+    else if ([...attachment.name].length > ANIMATION_V1_LIMITS.maxNameLength) issues.push({ path: `${path}.name`, message: `不能超过 ${ANIMATION_V1_LIMITS.maxNameLength} 个字符` });
+    if (attachment.type !== "region") issues.push({ path: `${path}.type`, message: "v1 仅支持 region" });
+    if (typeof attachment.materialId !== "string" || !ID_PATTERN.test(attachment.materialId)) issues.push({ path: `${path}.materialId`, message: "素材 ID 无效" });
+    if (attachment.imageSlot !== "raw" && attachment.imageSlot !== "processed") issues.push({ path: `${path}.imageSlot`, message: "图片槽位必须是 raw 或 processed" });
+    if (!isTuple(attachment.size, 2) || attachment.size.some((number) => number <= 0)) issues.push({ path: `${path}.size`, message: "尺寸必须包含 2 个正有限数值" });
+    if (!isTuple(attachment.pivot, 2) || attachment.pivot.some((number) => number < 0 || number > 1)) issues.push({ path: `${path}.pivot`, message: "轴心必须包含 2 个 [0, 1] 有限数值" });
+    validateTransform(attachment.rest, `${path}.rest`, issues);
+  }
+  const slotIds = new Set<string>(), drawOrders = new Set<number>();
+  if (!Array.isArray(value.slots) || value.slots.length > ANIMATION_V1_LIMITS.maxCharacterSlots) issues.push({ path: "slots", message: "必须是未超限的插槽数组" });
+  else for (const [index, slot] of value.slots.entries()) {
+    const path = `slots[${index}]`;
+    if (!isRecord(slot)) { issues.push({ path, message: "必须是插槽对象" }); continue; }
+    rejectUnknown(slot, ["id", "name", "boneId", "attachmentId", "drawOrder"], path, issues);
+    if (typeof slot.id !== "string" || !ID_PATTERN.test(slot.id)) issues.push({ path: `${path}.id`, message: "插槽 ID 无效" });
+    else if (slotIds.has(slot.id)) issues.push({ path: `${path}.id`, message: "插槽 ID 重复" }); else slotIds.add(slot.id);
+    if (typeof slot.name !== "string" || !slot.name.trim()) issues.push({ path: `${path}.name`, message: "插槽名称不能为空" });
+    else if ([...slot.name].length > ANIMATION_V1_LIMITS.maxNameLength) issues.push({ path: `${path}.name`, message: `不能超过 ${ANIMATION_V1_LIMITS.maxNameLength} 个字符` });
+    if (typeof slot.boneId !== "string" || !ID_PATTERN.test(slot.boneId)) issues.push({ path: `${path}.boneId`, message: "骨骼 ID 无效" });
+    else if (boneIds && !boneIds.has(slot.boneId)) issues.push({ path: `${path}.boneId`, message: "骨骼不存在" });
+    if (typeof slot.attachmentId !== "string" || !ID_PATTERN.test(slot.attachmentId)) issues.push({ path: `${path}.attachmentId`, message: "附件 ID 无效" });
+    else if (!attachmentIds.has(slot.attachmentId)) issues.push({ path: `${path}.attachmentId`, message: "附件不存在" });
+    if (!isFiniteNumber(slot.drawOrder) || !Number.isInteger(slot.drawOrder)) issues.push({ path: `${path}.drawOrder`, message: "绘制顺序必须是有限整数" });
+    else if (drawOrders.has(slot.drawOrder)) issues.push({ path: `${path}.drawOrder`, message: "绘制顺序重复" }); else drawOrders.add(slot.drawOrder);
+  }
+  return issues.length === 0 ? { ok: true, value: value as unknown as CharacterBinding, issues: [] } : { ok: false, issues };
 }
 
 export function normalizeQuaternion(value: Quaternion): Quaternion {

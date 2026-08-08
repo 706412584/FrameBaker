@@ -262,17 +262,17 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 ## 通用动画资产 /api/animation-assets
 
-Skeleton 与 MotionClip 以正式共享 schema 独立持久化。资产正文保持原始结构，数据库只额外保存文件夹与创建/更新时间；MotionClip 创建或替换时会对其引用的 Skeleton 做完整校验。
+Skeleton、MotionClip 与 CharacterBinding 以正式共享 schema 独立持久化。MotionClip/CharacterBinding 创建或替换时会对其引用的 Skeleton 做完整校验。CharacterBinding v1 仅支持 Region；每个 attachment 的 materialId 与显式 raw/processed 路径必须存在且具有 PNG 签名，不做槽位回退。
 
-### GET /api/animation-assets?kind=skeleton|motion-clip
+### GET /api/animation-assets?kind=skeleton|motion-clip|character-binding
 
 返回轻量索引 `{ "assets": [{ id, kind, name, skeleton_id, folder_id, created_at, updated_at }] }`；省略 `kind` 返回全部资产。
 
 ### POST /api/animation-assets
 
-`{ "asset": { /* Skeleton 或 MotionClip */ }, "folderId": null }` → `{ "animationAsset": { "asset": {…}, "folder_id": null, "created_at": 0, "updated_at": 0 } }`。
+`{ "asset": { /* Skeleton、MotionClip 或 CharacterBinding */ }, "folderId": null }` → `{ "animationAsset": { "asset": {…}, "folder_id": null, "created_at": 0, "updated_at": 0 } }`。
 
-ID 冲突返回 409；schema 非法、动画文件夹错误或 MotionClip 引用的骨架不存在返回 400。成功广播 `animation_assets_changed`。
+ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨骼/素材/PNG 槽位不存在返回 400。成功广播 `animation_assets_changed`。
 
 ### GET /api/animation-assets/:id
 
@@ -280,11 +280,11 @@ ID 冲突返回 409；schema 非法、动画文件夹错误或 MotionClip 引用
 
 ### PUT /api/animation-assets/:id
 
-请求同 POST。资产 ID 与种类不可修改；省略 `folderId` 保持原文件夹，传 `null` 移到未分组。替换骨架前会用新骨架重新校验全部依赖动作，任何动作失效时返回 409，不会部分写入。
+请求同 POST。资产 ID 与种类不可修改；省略 `folderId` 保持原文件夹，传 `null` 移到未分组。替换骨架前会用新骨架重新校验全部依赖动作和角色绑定，任何骨骼引用失效时返回 409，不会部分写入。
 
 ### DELETE /api/animation-assets/:id
 
-删除动作或未被引用的骨架。仍有 MotionClip 引用的骨架返回 409。
+删除动作、角色绑定或未被引用的骨架。仍有 MotionClip/CharacterBinding 引用的骨架返回 409；素材批量删除（含单项调用）若被 CharacterBinding Region 引用也返回 409。
 
 ## 文件夹 /api/folders
 

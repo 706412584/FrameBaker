@@ -3588,6 +3588,12 @@ body.resizing-row * {
 .animation-skeleton circle { fill: var(--text); }
 .animation-skeleton circle[role="button"] { cursor: pointer; }
 .animation-skeleton circle.selected { fill: var(--accent); stroke: var(--text); stroke-width: .04; }
+.binding-editor { display: grid; gap: 10px; border-top: 2px solid var(--border); padding-top: 10px; }
+.binding-preview { min-height: 260px; }
+.binding-create, .binding-editor .animation-editor-actions { display: flex; gap: 8px; align-items: center; }
+.binding-rows { display: grid; gap: 8px; }
+.binding-row { display: grid; grid-template-columns: minmax(90px, 1fr) repeat(3, minmax(80px, 1fr)) repeat(5, 70px) auto; gap: 6px; align-items: center; }
+.binding-row .px-input { min-width: 0; }
 .animation-controls input { flex: 1; min-width: 80px; }
 .animation-key-editor { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .animation-editor-actions { display: flex; align-items: flex-end; gap: 8px; }

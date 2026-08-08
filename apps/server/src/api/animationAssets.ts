@@ -1,15 +1,18 @@
 import { Elysia, t } from "elysia";
 import {
+  validateCharacterBinding,
   validateMotionClip,
   validateSkeleton,
   type AnimationAsset,
   type AnimationAssetKind,
   type AnimationAssetSummary,
+  type CharacterBinding,
   type MotionClip,
   type Skeleton,
   type StoredAnimationAsset,
   type ValidationIssue,
 } from "@framebaker/shared";
+import { existsSync } from "node:fs";
 import { db } from "../db";
 import { broadcast } from "../ws";
 
@@ -60,7 +63,19 @@ function validateFolder(folderId: string | null): string | null {
   return folder.kind === "animation" ? null : "文件夹类型不匹配";
 }
 
-function validateAsset(value: unknown): { asset: AnimationAsset } | { error: string } {
+async function validateBindingMaterials(binding: CharacterBinding): Promise<string | null> {
+  for (const attachment of binding.attachments) {
+    const row = db.query("SELECT raw_path, processed_path FROM materials WHERE id = ?").get(attachment.materialId) as { raw_path: string | null; processed_path: string | null } | null;
+    if (!row) return `附件「${attachment.name}」引用的素材不存在`;
+    const path = attachment.imageSlot === "raw" ? row.raw_path : row.processed_path;
+    if (!path || !existsSync(path)) return `附件「${attachment.name}」的 ${attachment.imageSlot} 图片不存在`;
+    const signature = new Uint8Array(await Bun.file(path).slice(0, 8).arrayBuffer());
+    if (![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => signature[index] === byte)) return `附件「${attachment.name}」的图片不是 PNG`;
+  }
+  return null;
+}
+
+async function validateAsset(value: unknown): Promise<{ asset: AnimationAsset } | { error: string }> {
   if (!value || typeof value !== "object") return { error: "资产必须是对象" };
   if ((value as { kind?: unknown }).kind === "skeleton") {
     const result = validateSkeleton(value);
@@ -73,7 +88,16 @@ function validateAsset(value: unknown): { asset: AnimationAsset } | { error: str
     const result = validateMotionClip(value, skeleton);
     return result.ok ? { asset: result.value } : { error: issueText(result.issues) };
   }
-  return { error: "kind 须为 skeleton 或 motion-clip" };
+  if ((value as { kind?: unknown }).kind === "character-binding") {
+    const skeletonId = (value as { skeletonId?: unknown }).skeletonId;
+    const skeleton = typeof skeletonId === "string" ? getSkeleton(skeletonId) : null;
+    if (!skeleton) return { error: "角色绑定引用的骨架不存在" };
+    const result = validateCharacterBinding(value, skeleton);
+    if (!result.ok) return { error: issueText(result.issues) };
+    const materialError = await validateBindingMaterials(result.value);
+    return materialError ? { error: materialError } : { asset: result.value };
+  }
+  return { error: "kind 须为 skeleton、motion-clip 或 character-binding" };
 }
 
 /** 骨架替换不能让已保存动作失效。 */
@@ -84,14 +108,20 @@ function validateDependents(skeleton: Skeleton): string | null {
     const result = validateMotionClip(clip, skeleton);
     if (!result.ok) return `骨架更新会使动作「${clip.name}」失效：${issueText(result.issues)}`;
   }
+  const bindings = db.query("SELECT data FROM animation_assets WHERE kind = 'character-binding' AND skeleton_id = ?").all(skeleton.id) as Array<{ data: string }>;
+  for (const row of bindings) {
+    const binding = JSON.parse(row.data) as CharacterBinding;
+    const result = validateCharacterBinding(binding, skeleton);
+    if (!result.ok) return `骨架更新会使角色绑定「${binding.name}」失效：${issueText(result.issues)}`;
+  }
   return null;
 }
 
 export const animationAssetsApi = new Elysia({ prefix: "/api" })
   .get("/animation-assets", ({ query, status }) => {
     const kind = query.kind;
-    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip") {
-      return status(400, "kind 须为 skeleton 或 motion-clip");
+    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding") {
+      return status(400, "kind 须为 skeleton、motion-clip 或 character-binding");
     }
     const rows = (kind
       ? db.query("SELECT * FROM animation_assets WHERE kind = ? ORDER BY updated_at DESC").all(kind)
@@ -100,8 +130,8 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
   })
   .post(
     "/animation-assets",
-    ({ body, status }) => {
-      const validation = validateAsset(body.asset);
+    async ({ body, status }) => {
+      const validation = await validateAsset(body.asset);
       if ("error" in validation) return status(400, validation.error);
       const asset = validation.asset;
       if (rowById(asset.id)) return status(409, "资产 ID 已存在");
@@ -110,7 +140,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       if (folderError) return status(400, folderError);
       const now = Date.now();
       db.query("INSERT INTO animation_assets (id, kind, name, skeleton_id, folder_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(asset.id, asset.kind, asset.name, asset.kind === "motion-clip" ? asset.skeletonId : null, folderId, JSON.stringify(asset), now, now);
+        .run(asset.id, asset.kind, asset.name, asset.kind === "skeleton" ? null : asset.skeletonId, folderId, JSON.stringify(asset), now, now);
       broadcast("animation_assets_changed", { id: asset.id, kind: asset.kind });
       return { animationAsset: { asset, folder_id: folderId, created_at: now, updated_at: now } };
     },
@@ -123,10 +153,10 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
   })
   .put(
     "/animation-assets/:id",
-    ({ params, body, status }) => {
+    async ({ params, body, status }) => {
       const current = rowById(params.id);
       if (!current) return status(404, "动画资产不存在");
-      const validation = validateAsset(body.asset);
+      const validation = await validateAsset(body.asset);
       if ("error" in validation) return status(400, validation.error);
       const asset = validation.asset;
       if (asset.id !== params.id) return status(400, "不能修改资产 ID");
@@ -140,7 +170,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       if (folderError) return status(400, folderError);
       const updatedAt = Date.now();
       db.query("UPDATE animation_assets SET name = ?, skeleton_id = ?, folder_id = ?, data = ?, updated_at = ? WHERE id = ?")
-        .run(asset.name, asset.kind === "motion-clip" ? asset.skeletonId : null, folderId, JSON.stringify(asset), updatedAt, asset.id);
+        .run(asset.name, asset.kind === "skeleton" ? null : asset.skeletonId, folderId, JSON.stringify(asset), updatedAt, asset.id);
       broadcast("animation_assets_changed", { id: asset.id, kind: asset.kind });
       return { animationAsset: { asset, folder_id: folderId, created_at: current.created_at, updated_at: updatedAt } };
     },
@@ -151,7 +181,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
     if (!row) return status(404, "动画资产不存在");
     if (row.kind === "skeleton") {
       const dependent = db.query("SELECT name FROM animation_assets WHERE skeleton_id = ? LIMIT 1").get(params.id) as { name: string } | null;
-      if (dependent) return status(409, `骨架仍被动作「${dependent.name}」引用`);
+      if (dependent) return status(409, `骨架仍被动画资产「${dependent.name}」引用`);
     }
     db.query("DELETE FROM animation_assets WHERE id = ?").run(params.id);
     broadcast("animation_assets_changed", { id: params.id, kind: row.kind });

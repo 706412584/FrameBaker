@@ -157,11 +157,10 @@ interface CharacterBinding extends AssetIdentity {
   skeletonId: string;
   slots: Slot[];
   attachments: Attachment[];
-  skins?: Skin[];
 }
 ```
 
-首个生产版本只要求 Region Attachment：PNG、Pivot、所属 Slot、Rest Transform 和默认绘制顺序。Mesh、权重、变形和物理是兼容扩展，不阻塞基本 cutout 工作流。
+v1 只包含 Region Attachment：显式 PNG 素材槽位、Size、Pivot、Rest Transform、Bone Slot 和唯一 Draw Order；不包含 skins、Mesh、权重、变形或物理。
 
 Slot/Attachment 与骨骼分离，以支持换皮、武器、正背面附件切换和 Draw Order。单张未切片角色图也可作为特殊绑定输入，但不能假装已经具备蒙皮能力。
 
@@ -387,7 +386,7 @@ type AnimationCapability =
 - [x] 动作时间轴改为连续时间轨道；当前完成通用骨骼选择、基础 2D TRS 关键帧写入/删除、即时持久化与覆盖全部 clip 编辑的会话内 Undo/Redo；
 - [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name 新增/删除、根运动策略选择与基础循环接缝修复；
 - [ ] 高级曲线与循环工具（不含于当前闭环：cubic、事件 payload UI、根运动提取算法/可视化及接触感知接缝）；
-- [ ] CharacterBinding 的 Region Attachment、Pivot、Slot 和 Draw Order；
+- [x] CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；
 - [ ] RenderProfile 与确定性 PNG 序列烘焙；
 - [ ] 烘焙版本与人工修帧保护策略。
 

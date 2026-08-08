@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { MaterialRow } from "@framebaker/shared";
+import type { CharacterBinding, MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
@@ -20,6 +20,15 @@ function extOf(filename: string): string {
 function isPng(bytes: Uint8Array): boolean {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   return bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
+}
+
+function bindingUsingMaterial(ids: Set<string>): string | null {
+  const rows = db.query("SELECT data FROM animation_assets WHERE kind = 'character-binding'").all() as Array<{ data: string }>;
+  for (const row of rows) {
+    const binding = JSON.parse(row.data) as CharacterBinding;
+    if (binding.attachments.some((attachment) => ids.has(attachment.materialId))) return binding.name;
+  }
+  return null;
 }
 
 /** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
@@ -346,7 +355,9 @@ export const materialsApi = new Elysia({ prefix: "/api" })
   // 批量删除
   .post(
     "/materials/batch-delete",
-    ({ body }) => {
+    ({ body, status }) => {
+      const dependent = bindingUsingMaterial(new Set(body.ids));
+      if (dependent) return status(409, `素材仍被角色绑定「${dependent}」引用`);
       const stmt = db.query("DELETE FROM materials WHERE id = ?");
       let deleted = 0;
       for (const id of body.ids) {

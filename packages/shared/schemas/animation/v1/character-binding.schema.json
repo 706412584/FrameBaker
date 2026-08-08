@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:framebaker:schema:animation:character-binding:1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "id", "name", "skeletonId", "slots", "attachments"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "character-binding" },
+    "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+    "extensions": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/extensions" },
+    "skeletonId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "slots": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "boneId", "attachmentId", "drawOrder"],
+        "properties": {
+          "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+          "boneId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "attachmentId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "drawOrder": { "type": "integer" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest"],
+        "properties": {
+          "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+          "type": { "const": "region" },
+          "materialId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "imageSlot": { "enum": ["raw", "processed"] },
+          "size": { "type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "number", "exclusiveMinimum": 0 }], "items": false },
+          "pivot": { "type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "number", "minimum": 0, "maximum": 1 }], "items": false },
+          "rest": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/transform" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

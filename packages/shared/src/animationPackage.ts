@@ -3,7 +3,6 @@ import {
   SKELETON_SCHEMA_VERSION,
   validateMotionClip,
   validateSkeleton,
-  type AnimationAssetKind,
   type MotionClip,
   type Skeleton,
   type ValidationIssue,
@@ -22,11 +21,12 @@ export const FBANIM_V1_LIMITS = {
 } as const;
 
 export type Sha256Digest = `sha256:${string}`;
+export type FbanimV1AssetKind = "skeleton" | "motion-clip";
 
 export interface FbanimToolIdentity { name: string; version: string }
-export interface FbanimAssetRef { kind: AnimationAssetKind; id: string }
+export interface FbanimAssetRef { kind: FbanimV1AssetKind; id: string }
 export interface FbanimAssetDescriptor {
-  kind: AnimationAssetKind;
+  kind: FbanimV1AssetKind;
   id: string;
   schemaVersion: number;
   path: string;
@@ -78,7 +78,8 @@ export function validateFbanimEntryPath(path: string, descriptor?: FbanimAssetDe
   if (encoder.encode(path).length > maxPathBytes) issues.push({ path: "path", message: `路径不能超过 ${maxPathBytes} 字节` });
   if (!PATH_PATTERN.test(path)) issues.push({ path: "path", message: "包路径必须是固定目录下以内容摘要命名的 ASCII JSON 文件" });
   if (descriptor) {
-    const root = descriptor.kind === "skeleton" ? "skeletons" : "motions";
+    const root = descriptor.kind === "skeleton" ? "skeletons" : descriptor.kind === "motion-clip" ? "motions" : null;
+    if (!root) return [...issues, { path: "path", message: "包版本 1 不支持该资产种类" }];
     const expected = `${root}/${descriptor.digest.slice(7)}.json`;
     if (path !== expected) issues.push({ path: "path", message: "路径必须与资产种类和内容摘要一致" });
   }
