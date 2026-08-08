@@ -4,9 +4,12 @@
 
 多来源素材导入（GIF/MP4 拆帧、PNG 上传、外部 CLI 生成），内置 rembg 抠图引擎一键去背，在素材库里对比确认效果，再用 PixiJS 洋葱皮编辑器逐帧调整，时间轴排序，播放预览，最后导出精灵表（spritesheet）。
 
+> 🚧 **开发中：**正在支持多轴帧动画与骨骼动画绑定。
+
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![核心单测覆盖率](https://img.shields.io/badge/%E6%A0%B8%E5%BF%83%E5%8D%95%E6%B5%8B%E8%A6%86%E7%9B%96%E7%8E%87-100%25-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 [English](README.md) | **中文**
@@ -89,6 +92,8 @@ bun start        # 生产
 
   **GPU 模式**需要 NVIDIA 显卡和匹配版本的 CUDA Toolkit。`onnxruntime-gpu` 版本必须与 CUDA 版本对应（如 onnxruntime-gpu 1.16 ↔ CUDA 11.8，1.17+ ↔ CUDA 12.x）。如果遇到 DLL 加载错误，请检查 CUDA 是否安装且版本匹配。CPU 和 GPU 之间切换：删除 `.venv-matting/` 后用对应参数重新运行脚本。
 - 类型检查：`bun run typecheck`
+- 单元测试：`bun run test`
+- 核心单测覆盖率报告：`bun run test:coverage`（当前覆盖共享规则、帧几何与 ZIP 导出）
 
 ### Windows 注意事项与常见问题
 

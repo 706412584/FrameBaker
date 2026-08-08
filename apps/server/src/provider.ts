@@ -143,6 +143,22 @@ export function getPromptEnhancers(): PromptEnhancer[] {
   return Array.isArray(saved) ? saved.map(normalizeEnhancer).filter((e): e is PromptEnhancer => e !== null) : [];
 }
 
+/**
+ * 解析加强模型关联的 provider。
+ * 旧数据仅保存了模型名时，若该名称在现有 API provider 的文本模型中唯一，则自动恢复关联。
+ * 名称重复时不猜测，仍要求用户在设置页明确选择连接。
+ */
+function resolveEnhancerProvider(e: PromptEnhancer): (RuntimeGenProvider & { type: EnhancerProviderType }) | null {
+  const providers = getGenProviders().filter(
+    (p): p is RuntimeGenProvider & { type: EnhancerProviderType } => p.type !== "cli"
+  );
+  if (e.providerId) return providers.find((p) => p.id === e.providerId) ?? null;
+
+  const model = (e.apiModel || e.model).trim();
+  const matches = providers.filter((p) => p.textModels.includes(model));
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function enhancerConfigured(e: PromptEnhancer): boolean {
   return resolveEnhancerRuntime(e) !== null;
 }
@@ -156,10 +172,10 @@ export interface EnhancerRuntime { baseUrl: string; apiKey: string; model: strin
  * baseUrl 为各厂商 /models 探测用的原始根地址；chat/completions 路径由 enhance.ts 按 providerType 拼接。
  */
 export function resolveEnhancerRuntime(e: PromptEnhancer): EnhancerRuntime | null {
-  if (e.providerId) {
-    const p = getGenProviders().find((item) => item.id === e.providerId);
+  const p = resolveEnhancerProvider(e);
+  if (p) {
     // CLI 无 chat/completions 端点，不支持；其余 API 系均可
-    if (!p || p.type === "cli" || !providerConfigured(p) || !e.model.trim()) return null;
+    if (!providerConfigured(p) || !e.model.trim()) return null;
     const base = p.apiBaseUrl.trim().replace(/\/+$/, "");
     if (p.type === "dashscope") {
       return { baseUrl: `${normalizeDashscopeRoot(base)}/compatible-mode/v1`, apiKey: p.apiKey.trim(), model: e.model.trim(), providerType: p.type };

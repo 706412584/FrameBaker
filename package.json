@@ -13,7 +13,9 @@
     "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "check:animation": "bun scripts/check_animation.ts && bun scripts/check_animation_package.ts",
-    "typecheck": "tsc -p apps/server && tsc -p apps/web"
+    "typecheck": "tsc -p apps/server && tsc -p apps/web",
+    "test": "bun test tests",
+    "test:coverage": "bun test tests --coverage --coverage-reporter=text"
   },
   "devDependencies": {
     "ajv": "8.17.1",
