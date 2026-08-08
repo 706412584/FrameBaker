@@ -12,6 +12,7 @@ export interface GenerationRequest {
   model?: string;
   size?: string;
   referencePath?: string;
+  poseReferencePath?: string;
   mediaKind?: "image" | "video";
 }
 
@@ -39,6 +40,9 @@ export function createProviderAdapter(
     throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
   if (req.mediaKind === "video" && provider.type !== "cli" && provider.videoModels.length === 0)
     throw new Error(`provider「${provider.name}」未配置视频模型`);
+  if (req.poseReferencePath && req.mediaKind === "video") throw new Error("视频生成暂不支持动作参考图");
+  if (req.poseReferencePath && provider.type === "cli") throw new Error("CLI 图片生成暂不支持独立动作参考图");
+  if (req.poseReferencePath && provider.type === "minimax") throw new Error("MiniMax 图片生成暂不支持独立动作参考图");
   if (provider.type !== "cli" && req.model?.trim() && capabilityModels.length > 0 && !capabilityModels.includes(req.model.trim()))
     throw new Error(`模型「${req.model.trim()}」不属于 provider「${provider.name}」的当前${req.mediaKind === "video" ? "视频" : "图片"}能力列表`);
 
@@ -76,14 +80,24 @@ export function createProviderAdapter(
       if (req.mediaKind === "video") {
         return generateVideoViaApi({ ...provider, apiSize: provider.videoSize }, req.prompt, model, output, progress, signal, req.referencePath, req.size);
       }
-      return generateViaApi({ ...provider, apiSize: provider.imageSize }, req.prompt, model, index, output, req.referencePath, req.size, signal);
+      return generateViaApi({ ...provider, apiSize: provider.imageSize }, req.prompt, model, index, output, req.referencePath, req.size, signal, req.poseReferencePath);
     },
   };
 }
 
-export function resolveReferencePath(opts: { referenceMaterialId?: string; referenceFrameId?: string; providerId?: string }) {
+export function resolveReferencePath(opts: {
+  referenceMaterialId?: string;
+  referenceFrameId?: string;
+  poseReferenceMaterialId?: string;
+  poseReferenceFrameId?: string;
+  providerId?: string;
+  mediaKind?: "image" | "video";
+}) {
   const { referenceMaterialId: mid, referenceFrameId: fid } = opts;
   if (mid && fid) return { error: "referenceMaterialId 与 referenceFrameId 只能二选一" };
+  const poseMid = opts.poseReferenceMaterialId;
+  const poseFid = opts.poseReferenceFrameId;
+  if (poseMid && poseFid) return { error: "poseReferenceMaterialId 与 poseReferenceFrameId 只能二选一" };
   const provider = resolveGenProvider(opts.providerId);
   if (!provider) return { error: "生成 provider 不存在或未配置，请到设置页添加" };
   let path: string | null = null;
@@ -104,7 +118,23 @@ export function resolveReferencePath(opts: { referenceMaterialId?: string; refer
     if (!provider.legacyTemplate && !provider.cliReferenceArg.trim())
       return { error: `provider「${provider.name}」未配置引用图参数名，请改用其他 provider 或取消引用图` };
   }
-  return { referencePath: path ?? undefined };
+  let posePath: string | null = null;
+  if (poseMid) {
+    const material = getMaterial(poseMid);
+    if (!material) return { error: `动作参考素材不存在: ${poseMid}` };
+    posePath = material.processed_path ?? material.raw_path;
+    if (!posePath || !existsSync(posePath)) return { error: `动作参考素材文件缺失: ${poseMid}` };
+  } else if (poseFid) {
+    const frame = getFrame(poseFid);
+    if (!frame) return { error: `动作参考帧不存在: ${poseFid}` };
+    posePath = frame.processed_path ?? frame.raw_path;
+    if (!posePath || !existsSync(posePath)) return { error: `动作参考帧文件缺失: ${poseFid}` };
+  }
+  if (posePath && !path) return { error: "动作参考图必须与角色/外观引用图一起使用" };
+  if (posePath && opts.mediaKind === "video") return { error: "视频生成暂不支持动作参考图" };
+  if (posePath && provider.type === "cli") return { error: "CLI 图片生成暂不支持独立动作参考图，请改用支持多图输入的 API provider" };
+  if (posePath && provider.type === "minimax") return { error: "MiniMax 图片生成暂不支持独立动作参考图，请改用其他 API provider" };
+  return { referencePath: path ?? undefined, poseReferencePath: posePath ?? undefined };
 }
 
 export function checkVideoSupport(opts: { mediaKind?: "image" | "video"; providerId?: string }): string | null {

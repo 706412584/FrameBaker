@@ -19,6 +19,7 @@ import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import PxSelect from "./PxSelect";
+import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 import SizePicker from "./SizePicker";
 
 interface Props {
@@ -65,6 +66,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
+  const [poseReference, setPoseReference] = useState<ReferenceSelection | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const cfg = useServerConfig();
 
@@ -167,6 +169,9 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         });
         onToast(t("msg.queued_action_video_action_open_it_in_materials_and_extr", { action: t(frames[0]!.label) }));
       } else {
+        const poseConstraint = poseReference
+          ? " The first image is only the character appearance reference. The second image is only the per-cell pose and action-structure reference. Strictly follow the second image's cell order and layout. Do not draw skeleton lines or joint markers."
+          : "";
         await api.generateMaterial({
           prompt: buildActionSheetPrompt({
             frames,
@@ -174,11 +179,12 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
             rows,
             characterPrompt,
             extra: extra.trim(),
-          }),
+          }) + poseConstraint,
           count: 1,
           autoMatting,
           name: `${base}_${nameTag}_${cols}x${rows}`,
           referenceMaterialId: m.id,
+          ...(poseReference?.kind === "material" ? { poseReferenceMaterialId: poseReference.id } : {}),
           folderId: m.folder_id,
           ...sel,
           ...(size ? { size } : {}),
@@ -348,6 +354,16 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
             onChange={(e) => setExtra(e.target.value)}
           />
         </div>
+
+        {!isVideo && (
+          <ReferencePicker
+            value={poseReference}
+            onChange={setPoseReference}
+            showFrames={false}
+            label={t("msg.action_reference_optional")}
+            description={t("msg.action_reference_description")}
+          />
+        )}
 
         {isVideo ? (
           <div className="hint">{t("msg.when_done_open_the_video_material_and_extract_frames_at")}</div>

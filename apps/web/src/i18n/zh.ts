@@ -1,6 +1,8 @@
 // 中文文案：key → 中文。勿把中文原文当 key。
 
 export const zh = {
+  "msg.action_reference_optional": "动作参考图（可选）",
+  "msg.action_reference_description": "从素材库选择姿态表、骨架表或动作截图。它仅用于姿态和布局；当前素材仍作为角色外观参考。",
   "action.attack": "攻击",
   "action.cast": "施法",
   "action.death": "死亡",

@@ -1,6 +1,8 @@
 // 英文文案：key → English。与 zh.ts 共用同一套 MsgKey。
 
 export const en = {
+  "msg.action_reference_optional": "Action reference (optional)",
+  "msg.action_reference_description": "Choose a pose sheet, skeleton sheet, or action screenshot from Materials. It is used only for pose and layout; the current material remains the character appearance reference.",
   "action.attack": "Attack",
   "action.cast": "Cast",
   "action.death": "Death",

@@ -56,6 +56,8 @@ interface GenerateBody {
   name?: string;
   referenceMaterialId?: string;
   referenceFrameId?: string;
+  poseReferenceMaterialId?: string;
+  poseReferenceFrameId?: string;
   providerId?: string;
   model?: string;
   /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */

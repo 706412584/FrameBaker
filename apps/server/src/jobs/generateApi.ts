@@ -65,6 +65,7 @@ async function generateViaOpenAI(
   model: string,
   outPath: string,
   referencePath?: string,
+  poseReferencePath?: string,
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -74,7 +75,13 @@ async function generateViaOpenAI(
   let res: Response;
   if (referencePath) {
     const form = new FormData();
-    form.append("image", new File([readFileSync(referencePath)], basename(referencePath), { type: "image/png" }));
+    const appearance = new File([readFileSync(referencePath)], basename(referencePath), { type: "image/png" });
+    if (poseReferencePath) {
+      form.append("image[]", appearance);
+      form.append("image[]", new File([readFileSync(poseReferencePath)], basename(poseReferencePath), { type: "image/png" }));
+    } else {
+      form.append("image", appearance);
+    }
     form.append("prompt", prompt);
     form.append("model", model);
     if (cfg.apiSize.trim()) form.append("size", cfg.apiSize.trim());
@@ -119,6 +126,7 @@ async function generateViaDashscope(
   model: string,
   outPath: string,
   referencePath?: string,
+  poseReferencePath?: string,
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -127,6 +135,10 @@ async function generateViaDashscope(
   const content: Array<Record<string, string>> = [];
   if (referencePath) {
     const b64 = readFileSync(referencePath).toString("base64");
+    content.push({ image: `data:image/png;base64,${b64}` });
+  }
+  if (poseReferencePath) {
+    const b64 = readFileSync(poseReferencePath).toString("base64");
     content.push({ image: `data:image/png;base64,${b64}` });
   }
   content.push({ text: prompt });
@@ -173,6 +185,7 @@ async function generateViaGemini(
   model: string,
   outPath: string,
   referencePath?: string,
+  poseReferencePath?: string,
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -182,6 +195,11 @@ async function generateViaGemini(
   if (referencePath) {
     parts.push({
       inlineData: { mimeType: "image/png", data: readFileSync(referencePath).toString("base64") },
+    });
+  }
+  if (poseReferencePath) {
+    parts.push({
+      inlineData: { mimeType: "image/png", data: readFileSync(poseReferencePath).toString("base64") },
     });
   }
   parts.push({ text: prompt });
@@ -276,14 +294,18 @@ export async function generateViaApi(
   outPath: string,
   referencePath?: string,
   sizeOverride?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  poseReferencePath?: string
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
-  if (eff.type === "dashscope") return generateViaDashscope(eff, prompt, model, outPath, referencePath, signal);
-  if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath, signal);
-  if (eff.type === "minimax") return generateViaMinimax(eff, prompt, model, outPath, referencePath, signal);
-  return generateViaOpenAI(eff, prompt, model, outPath, referencePath, signal);
+  if (eff.type === "dashscope") return generateViaDashscope(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
+  if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
+  if (eff.type === "minimax") {
+    if (poseReferencePath) throw new Error("MiniMax 图片生成暂不支持独立动作参考图");
+    return generateViaMinimax(eff, prompt, model, outPath, referencePath, signal);
+  }
+  return generateViaOpenAI(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
 }
 
 // ===== 视频生成（异步任务制：创建 → 轮询 → 下载 mp4；仅 dashscope / minimax）=====

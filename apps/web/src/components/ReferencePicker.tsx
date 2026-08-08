@@ -17,13 +17,16 @@ interface Props {
   showFrames: boolean;
   /** showFrames=true 时用于拉取项目帧 */
   projectId?: string;
+  /** 自定义标题与说明；缺省保持通用引用图文案 */
+  label?: string;
+  description?: string;
 }
 
 /**
  * 生成弹窗的引用图选择器：素材库 / 项目帧（可选）两个来源，网格单选。
  * 选中显示缩略图 + 清除按钮。
  */
-export default function ReferencePicker({ value, onChange, showFrames, projectId }: Props) {
+export default function ReferencePicker({ value, onChange, showFrames, projectId, label, description }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"materials" | "frames">("materials");
@@ -52,7 +55,8 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
 
   return (
     <div className="form-row">
-      <label>{t("msg.reference_image_optional_template_reference")}</label>
+      <label>{label ?? t("msg.reference_image_optional_template_reference")}</label>
+      {description && <div className="hint">{description}</div>}
       {value == null ? (
         <div className="file-drop" onClick={() => setOpen((o) => !o)}>
           <span className="ref-empty">

@@ -53,6 +53,8 @@ export interface GeneratePayload {
   name?: string;
   /** 引用图绝对路径（服务端按 id 解析，防注入） */
   referencePath?: string;
+  /** 第二张动作参考图绝对路径（服务端按 id 解析，防注入） */
+  poseReferencePath?: string;
   /** 生成时选择的 provider id（缺省用第一个已配置 provider） */
   providerId?: string;
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
