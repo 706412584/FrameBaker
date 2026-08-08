@@ -40,13 +40,31 @@
 
 ## 系统要求
 
-- **macOS** —— 目前唯一经过开发验证的平台
-- **Bun** 1.3+
-- **ffmpeg** —— GIF/MP4 拆帧依赖
-- **python3** —— 仅安装抠图引擎时需要（`scripts/setup_matting.sh`）
+- **Windows 10/11、macOS 或 Linux** —— Windows 已在真机通过服务启动、前端加载、API、SQLite 存储及 ffmpeg 体检验证
+- **Bun 1.3+** —— 必需；安装后需重新打开终端，确保 `bun --version` 可用
+- **ffmpeg** —— 仅 GIF/MP4 拆帧需要，PNG 导入和其他编辑功能不依赖它
+- **uv（推荐）或 Python 3** —— 仅安装内置抠图引擎时需要；uv 可自动下载隔离的 Python，无需预装系统 Python
 - 支持 WebGL 的现代浏览器（PixiJS v8 画布）
 
-> ⚠️ **Windows 尚未测试**：目前只在 macOS 上开发验证过。Windows 侧虽有兼容设计（`scripts/setup_matting.ps1`、`Scripts/rembg.exe` 探测），但从未在真机跑过，很可能有坑，欢迎反馈。Linux 与 macOS 同为 POSIX 路径，理论上可用，同样未专门测试。
+### Windows 前置环境（PowerShell）
+
+```powershell
+# 1. 安装 Bun（也可参考 https://bun.sh/docs/installation）
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# 2. 安装 ffmpeg（需要 GIF/MP4 拆帧时）
+winget install ffmpeg
+
+# 3. 安装 uv（需要抠图时；也可改装 python.org 的 Python 并加入 PATH）
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 安装后重新打开 PowerShell 并验证：
+bun --version
+ffmpeg -version
+uv --version
+```
+
+> `setup_matting.ps1` 优先使用 uv 创建 Python 3.12 隔离环境；没有 uv 时才回退 PATH 中的 Python。Microsoft Store 的 `python.exe` 应用执行别名不等同于已安装 Python。
 
 ## 快速开始
 
@@ -57,20 +75,39 @@ bun dev          # 开发模式（--hot）→ http://localhost:3000
 bun start        # 生产
 ```
 
-- 端口覆盖：`PORT=8080 bun dev`
 - 拆帧依赖 ffmpeg：`brew install ffmpeg`（macOS）/ `winget install ffmpeg`（Windows）
-- **抠图引擎**（本机已装好；新机器需要重新执行一次）：
+- **抠图引擎**（可选；每个新环境只需安装一次）：
   ```bash
   ./scripts/setup_matting.sh            # macOS / Linux
   # Windows（PowerShell）：
   powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
   ```
-  创建 `.venv-matting/`（python3 venv）并安装 `rembg[cli,cpu]`。u2net 模型在首次抠图时自动下载到 `storage/models`。不安装则抠图退化为 passthrough（复制原图并给出警告）。
+  创建 `.venv-matting/` 并安装 `rembg[cli,cpu]`；Windows 上优先使用 uv 管理 Python 3.12。u2net 模型在首次抠图时自动下载到 `storage/models`。不安装则抠图退化为 passthrough（复制原图并给出警告）。
 - 类型检查：`bun run typecheck`
+
+### Windows 注意事项与常见问题
+
+项目在 Windows 上可以正常运行，但有几个平台相关的坑需要注意：
+
+1. **`bun dev` 使用 `--watch` 而非 `--hot`** —— Bun 1.3 在 Windows 上的浏览器 HMR 会打乱 PixiJS 8 循环依赖的初始化顺序，导致画布空白。因此 dev 脚本改用 `--watch`（服务端文件变化自动重启，但前端不 HMR）。**前端改动后需要手动刷新浏览器**。macOS/Linux 仍保留完整 HMR。
+
+2. **PixiJS 从 CDN 加载，不走 npm 包** —— `apps/web/index.html` 通过 `<script>` 标签引入 `cdn.jsdelivr.net/npm/pixi.js@8.19.0/dist/pixi.min.js`，绕过 Bun 打包器对 PixiJS 循环 import 的错误处理。首次加载需要能访问 `cdn.jsdelivr.net`，之后使用浏览器缓存。如需离线使用，可将 `pixi.min.js` 下载到 `apps/web/public/` 并修改 `<script>` 路径。
+
+3. **服务端 dev 模式在 Windows 上被禁用** —— `apps/server/src/index.ts` 在 `win32` 下设 `development: false`，阻止 Bun 的 HTML dev server 注入会触发同样 PixiJS 问题的 HMR 脚本。不影响生产模式（`bun start`）。
+
+4. **每次拉取或依赖变更后必须 `bun install`** —— Bun 的隔离式 workspace 布局意味着本地 `@framebaker/shared` 包只有在 `bun install` 后才能解析。跳过这一步，Bun 可能从全局缓存加载第三方包，却无法解析 workspace，导致 import 报错。
+
+5. **PowerShell 环境变量语法** —— 用 `$env:PORT=8080; bun dev`（分号分隔，不是 `&&`）。旧版 PowerShell 不支持 `&&` 操作符。macOS/Linux 用 Bash 语法 `PORT=8080 bun dev`。
+
+6. **PowerShell 脚本执行策略** —— `setup_matting.ps1` 需要 `-ExecutionPolicy Bypass`（如 `powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1`）。脚本以纯 ASCII 编写，兼容 Windows PowerShell 5.1（无需 UTF-8 BOM）。
+
+7. **Microsoft Store 的 `python.exe` 不是真正的 Python** —— Windows 自带的「应用执行别名」`python.exe` 会打开 Microsoft Store 而非运行 Python。请从 [python.org](https://www.python.org/downloads/) 安装（勾选「Add to PATH」），或安装 [uv](https://docs.astral.sh/uv/)（可自动下载隔离 Python，无需系统安装）。`setup_matting.ps1` 优先使用 uv，仅在没有 uv 时才回退 PATH 中的 Python。
+
+8. **Windows 脚本路径用反斜杠** —— 在 PowerShell 或 cmd 中运行脚本时用 `scripts\setup_matting.ps1`，不要用正斜杠 `scripts/setup_matting.ps1`。
 
 ## 抠图引擎解析顺序
 
-服务启动时探测一次（可用 `GET /api/config` 查看）：
+服务按需实时探测（可用 `GET /api/config` 查看）：
 
 1. `FRAMEBAKER_MATTING_CLI` —— 自定义命令模板（占位符 `{input}` `{output}`，可选 `{model}`）
 2. `<repo>/.venv-matting` 内置 rembg（POSIX 为 `bin/rembg`，Windows 为 `Scripts/rembg.exe`）—— 由 `scripts/setup_matting.sh` / `setup_matting.ps1` 安装（engine = `rembg-bundled`）

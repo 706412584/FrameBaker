@@ -147,15 +147,25 @@ export function enhancerConfigured(e: PromptEnhancer): boolean {
   return resolveEnhancerRuntime(e) !== null;
 }
 
-export interface EnhancerRuntime { baseUrl: string; apiKey: string; model: string; providerType: "api" | "dashscope" }
+export type EnhancerProviderType = "api" | "dashscope" | "gemini" | "minimax";
 
-/** 窄运行时解析：新配置复用 provider；旧配置继续使用独立凭证。 */
+export interface EnhancerRuntime { baseUrl: string; apiKey: string; model: string; providerType: EnhancerProviderType }
+
+/**
+ * 窄运行时解析：新配置复用 provider；旧配置继续使用独立凭证。
+ * baseUrl 为各厂商 /models 探测用的原始根地址；chat/completions 路径由 enhance.ts 按 providerType 拼接。
+ */
 export function resolveEnhancerRuntime(e: PromptEnhancer): EnhancerRuntime | null {
   if (e.providerId) {
     const p = getGenProviders().find((item) => item.id === e.providerId);
-    if (!p || (p.type !== "api" && p.type !== "dashscope") || !providerConfigured(p) || !e.model.trim()) return null;
-    const root = p.type === "dashscope" ? `${normalizeDashscopeRoot(p.apiBaseUrl)}/compatible-mode/v1` : p.apiBaseUrl.trim().replace(/\/+$/, "");
-    return { baseUrl: root, apiKey: p.apiKey.trim(), model: e.model.trim(), providerType: p.type };
+    // CLI 无 chat/completions 端点，不支持；其余 API 系均可
+    if (!p || p.type === "cli" || !providerConfigured(p) || !e.model.trim()) return null;
+    const base = p.apiBaseUrl.trim().replace(/\/+$/, "");
+    if (p.type === "dashscope") {
+      return { baseUrl: `${normalizeDashscopeRoot(base)}/compatible-mode/v1`, apiKey: p.apiKey.trim(), model: e.model.trim(), providerType: p.type };
+    }
+    // api / gemini / minimax：baseUrl 保持原始根，chat 路径由 enhance.ts 按 type 拼接
+    return { baseUrl: base, apiKey: p.apiKey.trim(), model: e.model.trim(), providerType: p.type };
   }
   const baseUrl = e.apiBaseUrl?.trim().replace(/\/+$/, "") ?? "";
   const apiKey = e.apiKey?.trim() ?? "";

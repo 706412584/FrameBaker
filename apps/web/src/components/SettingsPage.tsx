@@ -142,7 +142,7 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "gemini",
       apiBaseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "",
-      imageModelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview", videoModelsText: "", textModelsText: "",
+      imageModelsText: "gemini-2.5-flash-image, gemini-3-pro-image-preview", videoModelsText: "", textModelsText: "gemini-2.5-flash",
       imageSize: "1:1", videoSize: "",
     },
   },
@@ -154,7 +154,7 @@ const PRESETS: Array<{ label: string; draft: Omit<ProviderDraft, "id"> }> = [
       type: "minimax",
       apiBaseUrl: "https://api.minimaxi.com",
       apiKey: "",
-      imageModelsText: "image-01", videoModelsText: "MiniMax-Hailuo-2.3, MiniMax-H3", textModelsText: "",
+      imageModelsText: "image-01", videoModelsText: "MiniMax-Hailuo-2.3, MiniMax-H3", textModelsText: "MiniMax-Text-01, abab6.5s-chat",
       imageSize: "1:1", videoSize: "16:9",
     },
   },
@@ -445,7 +445,7 @@ export default function SettingsPage() {
     try {
       const provider = drafts.find((d) => d.id === e.providerId);
       const result = await api.testProvider({
-        type: provider?.type === "dashscope" ? "dashscope" : "api",
+        type: provider && provider.type !== "cli" ? provider.type as "api" | "dashscope" | "gemini" | "minimax" : undefined,
         apiBaseUrl: provider?.apiBaseUrl ?? "",
         apiKey: provider?.apiKey ?? "",
         apiModel: e.model,
@@ -836,7 +836,7 @@ export default function SettingsPage() {
                       value={e.providerId}
                       options={[
                         { value: "", label: t("settings.selectConnection") },
-                        ...drafts.filter((d) => d.type === "api" || d.type === "dashscope").map((d) => ({ value: d.id, label: d.name })),
+                        ...drafts.filter((d) => d.type !== "cli").map((d) => ({ value: d.id, label: d.name })),
                       ]}
                       onChange={(v) => patchEnhancer(e.id, { providerId: v, legacy: false, model: "" })}
                     />

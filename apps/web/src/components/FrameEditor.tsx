@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Application, Assets, Container, Graphics, Sprite, Texture, type FederatedPointerEvent } from "pixi.js";
+import type * as Pixi from "pixi.js";
 import { frameImageUrl, type Frame, type FramePatch } from "../api";
 import { fitScaleForBounds, transformedFrameBounds } from "../frameGeometry";
 import { useT } from "../i18n";
 import { canvasColors, useTheme } from "../theme";
+
+const { Application, Assets, Container, Graphics, Sprite, Texture } = (
+  window as typeof window & { PIXI: typeof Pixi }
+).PIXI;
 
 interface Props {
   frame: Frame | null;
@@ -24,12 +28,12 @@ interface Props {
 }
 
 interface PixiCtx {
-  app: Application;
-  viewport: Container;
-  grid: Graphics;
-  main: Sprite;
-  prevS: Sprite;
-  nextS: Sprite;
+  app: Pixi.Application;
+  viewport: Pixi.Container;
+  grid: Pixi.Graphics;
+  main: Pixi.Sprite;
+  prevS: Pixi.Sprite;
+  nextS: Pixi.Sprite;
 }
 
 /** PixiJS 帧画布：拖拽改 offset、洋葱皮、网格、受控缩放（工具栏见 CanvasToolbar）；playing 时在画布内播放 */
@@ -118,17 +122,17 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       let drag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
       main.eventMode = "static";
       main.cursor = "grab";
-      main.on("pointerdown", (e: FederatedPointerEvent) => {
+      main.on("pointerdown", (e: Pixi.FederatedPointerEvent) => {
         if (playingRef.current) return; // 播放中禁用拖拽
         const p = viewport.toLocal(e.global);
         drag = { startX: p.x, startY: p.y, baseX: main.x, baseY: main.y };
         main.cursor = "grabbing";
       });
       // 点击画布空白（未命中当前帧精灵）→ 清空多选
-      app.stage.on("pointerdown", (e: FederatedPointerEvent) => {
+      app.stage.on("pointerdown", (e: Pixi.FederatedPointerEvent) => {
         if (e.target !== main) onCanvasBlankRef.current();
       });
-      app.stage.on("pointermove", (e: FederatedPointerEvent) => {
+      app.stage.on("pointermove", (e: Pixi.FederatedPointerEvent) => {
         if (!drag) return;
         const p = viewport.toLocal(e.global);
         main.position.set(drag.baseX + (p.x - drag.startX), drag.baseY + (p.y - drag.startY));
@@ -168,21 +172,21 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
     if (!p || !ready) return;
     let dead = false;
 
-    const applyTransform = (sprite: Sprite, f: Frame, isMain: boolean) => {
+    const applyTransform = (sprite: Pixi.Sprite, f: Frame, isMain: boolean) => {
       sprite.position.set(f.offset_x, f.offset_y);
       sprite.scale.set(f.scale);
       sprite.rotation = f.rotation;
       if (isMain) sprite.alpha = f.opacity;
     };
 
-    const loadInto = async (sprite: Sprite, f: Frame | null, isMain: boolean) => {
+    const loadInto = async (sprite: Pixi.Sprite, f: Frame | null, isMain: boolean) => {
       if (!f) {
         sprite.visible = false;
         return;
       }
       try {
         // 图片 URL 带 .png 后缀（服务端双路由别名），Assets 按扩展名命中 texture parser
-        const tex: Texture = await Assets.load(frameImageUrl(f.id, v));
+        const tex: Pixi.Texture = await Assets.load(frameImageUrl(f.id, v));
         if (dead) return;
         tex.source.scaleMode = "nearest"; // 像素风：最近邻缩放
         sprite.texture = tex;

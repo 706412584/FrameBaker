@@ -1,5 +1,5 @@
 import { ENHANCE_STYLES, type EnhancePromptRequest, type EnhancePromptResponse } from "@framebaker/shared";
-import { resolveEnhancer, resolveEnhancerRuntime } from "./provider";
+import { resolveEnhancer, resolveEnhancerRuntime, type EnhancerRuntime } from "./provider";
 
 // 加强用的系统提示词由这里按风格组装，用户无需手写任何模板
 
@@ -15,6 +15,15 @@ function buildSystem(style?: string, mediaKind: "image" | "video" = "image"): st
 - 只输出改写后的提示词本身：单行英文，不要解释、不要引号、不要任何前缀`;
 }
 
+/** 按 providerType 拼接各厂商 OpenAI 兼容 chat/completions 端点 */
+function chatCompletionsUrl(rt: EnhancerRuntime): string {
+  switch (rt.providerType) {
+    case "gemini": return `${rt.baseUrl}/v1beta/openai/chat/completions`;
+    case "minimax": return `${rt.baseUrl}/v1/chat/completions`;
+    default: return `${rt.baseUrl}/chat/completions`; // api / dashscope（baseUrl 已含 compatible-mode/v1）
+  }
+}
+
 /** 调用用户配置的加强模型（OpenAI 兼容 chat/completions）优化生图提示词 */
 export async function enhancePrompt(req: EnhancePromptRequest): Promise<EnhancePromptResponse> {
   const prompt = req.prompt.trim();
@@ -28,7 +37,7 @@ export async function enhancePrompt(req: EnhancePromptRequest): Promise<EnhanceP
 
   let res: Response;
   try {
-    res = await fetch(`${runtime.baseUrl}/chat/completions`, {
+    res = await fetch(chatCompletionsUrl(runtime), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

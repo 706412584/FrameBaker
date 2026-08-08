@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Copy, Crop, Download, Minus, Play, Plus, Scan, Star, Trash2, Upload } from "lucide-react";
-import { Assets } from "pixi.js";
+import type * as Pixi from "pixi.js";
 import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
 import { askConfirm, notify } from "../notice";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
@@ -29,6 +29,8 @@ import {
   saveLayout,
   type LayoutState,
 } from "../layout";
+
+const { Assets } = (window as typeof window & { PIXI: typeof Pixi }).PIXI;
 
 /** 帧点击修饰键（FrameList / Timeline 统一使用） */
 export interface FrameClickMods {

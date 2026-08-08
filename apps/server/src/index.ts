@@ -22,7 +22,9 @@ serve({
     return app.handle(req);
   },
   websocket: wsHandlers,
-  development: process.env.NODE_ENV !== "production",
+  // Bun 1.3 Windows 的浏览器 HMR 会打乱 PixiJS 聚合入口的循环依赖初始化顺序。
+  // Windows 使用稳定的前端 bundle；bun --watch 仍会重启服务端，前端改动后手动刷新。
+  development: process.env.NODE_ENV !== "production" && process.platform !== "win32",
 });
 
 console.log(`FrameBaker → http://localhost:${port}`);

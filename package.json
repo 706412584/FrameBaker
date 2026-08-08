@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun --hot apps/server/src/index.ts",
+    "dev": "bun --watch apps/server/src/index.ts",
     "start": "bun apps/server/src/index.ts",
     "typecheck": "tsc -p apps/server && tsc -p apps/web"
   },

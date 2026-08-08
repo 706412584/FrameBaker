@@ -40,13 +40,31 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 
 ## System Requirements
 
-- **macOS** — the only platform developed and verified on so far
-- **Bun** 1.3+
-- **ffmpeg** — required for GIF/MP4 frame extraction
-- **python3** — only needed to install the matting engine (`scripts/setup_matting.sh`)
+- **Windows 10/11, macOS, or Linux** — Windows has been verified on real hardware for server startup, frontend serving, APIs, SQLite storage, and ffmpeg detection
+- **Bun 1.3+** — required; reopen your terminal after installation and verify that `bun --version` works
+- **ffmpeg** — only required for GIF/MP4 frame extraction; PNG imports and editing do not need it
+- **uv (recommended) or Python 3** — only needed for the bundled matting engine; uv can download an isolated Python without a system Python installation
 - A modern browser with WebGL (PixiJS v8 canvas)
 
-> ⚠️ **Windows is untested.** Development and verification have only happened on macOS. Windows support exists on paper (`scripts/setup_matting.ps1`, `Scripts/rembg.exe` detection) but has never been run on a real Windows machine — expect rough edges, feedback welcome. Linux should behave like macOS (POSIX paths) but is likewise untested.
+### Windows prerequisites (PowerShell)
+
+```powershell
+# 1. Install Bun (or see https://bun.sh/docs/installation)
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# 2. Install ffmpeg when GIF/MP4 extraction is needed
+winget install ffmpeg
+
+# 3. Install uv when matting is needed (or install Python from python.org and add it to PATH)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Reopen PowerShell after installation, then verify:
+bun --version
+ffmpeg -version
+uv --version
+```
+
+> `setup_matting.ps1` prefers uv and creates an isolated Python 3.12 environment; it falls back to Python from `PATH` when uv is unavailable. The Microsoft Store `python.exe` app execution alias is not a Python installation.
 
 ## Quick Start
 
@@ -57,20 +75,39 @@ bun dev          # dev mode (--hot) → http://localhost:3000
 bun start        # production
 ```
 
-- Port: `PORT=8080 bun dev`
 - ffmpeg is required for frame extraction: `brew install ffmpeg` (macOS) / `winget install ffmpeg` (Windows)
-- **Matting engine** (already installed on this machine; required again on a fresh checkout):
+- **Matting engine** (optional; install once per new environment):
   ```bash
   ./scripts/setup_matting.sh            # macOS / Linux
   # Windows (PowerShell):
   powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
   ```
-  Creates `.venv-matting/` (python3 venv) and installs `rembg[cli,cpu]`. The u2net model downloads automatically to `storage/models` on first use. Skipping this leaves matting in passthrough mode (copies the original image with a warning).
+  Creates `.venv-matting/` and installs `rembg[cli,cpu]`; on Windows it prefers uv-managed Python 3.12. The u2net model downloads automatically to `storage/models` on first use. Skipping this leaves matting in passthrough mode (copies the original image with a warning).
 - Type check: `bun run typecheck`
+
+### Windows Notes & Gotchas
+
+The project runs on Windows but there are several platform-specific things to be aware of:
+
+1. **`bun dev` uses `--watch`, not `--hot`** — Bun 1.3 on Windows has a bug where browser HMR reorders PixiJS 8's circular-dependency initialization, causing a blank canvas. The dev script therefore uses `--watch` (server auto-restart on file changes, but no frontend HMR). **You must manually refresh the browser** after editing frontend code. macOS/Linux keep full HMR.
+
+2. **PixiJS is loaded from CDN, not from the npm package** — `apps/web/index.html` includes a `<script>` tag pointing to `cdn.jsdelivr.net/npm/pixi.js@8.19.0/dist/pixi.min.js`. This bypasses Bun's bundler, which mis-handles PixiJS's circular imports on Windows. The browser's first load needs internet access to `cdn.jsdelivr.net`; subsequent loads use the cache. If you need offline use, download `pixi.min.js` to `apps/web/public/` and point the `<script>` there.
+
+3. **Server dev mode is disabled on Windows** — `apps/server/src/index.ts` sets `development: false` on `win32` to prevent Bun's HTML dev server from injecting HMR scripts that trigger the same PixiJS bug. This does not affect production (`bun start`).
+
+4. **Run `bun install` after every fresh checkout or dependency change** — Bun's isolated workspace layout means the local `@framebaker/shared` package is only resolvable after `bun install`. Without it, Bun may load third-party packages from its global cache but fail to resolve the workspace, causing import errors.
+
+5. **PowerShell environment variables** — Use `$env:PORT=8080; bun dev` (semicolon, not `&&`). The `&&` operator is not supported in older PowerShell versions. Bash syntax `PORT=8080 bun dev` works on macOS/Linux.
+
+6. **PowerShell execution policy for setup scripts** — `setup_matting.ps1` requires `-ExecutionPolicy Bypass` (e.g. `powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1`). The script is written in ASCII to be parseable by Windows PowerShell 5.1 without a UTF-8 BOM.
+
+7. **Microsoft Store `python.exe` is not a real Python** — Windows ships an "App execution alias" called `python.exe` that opens the Microsoft Store instead of running Python. Install Python from [python.org](https://www.python.org/downloads/) (and check "Add to PATH"), or install [uv](https://docs.astral.sh/uv/) which can download an isolated Python without a system install. `setup_matting.ps1` prefers uv and only falls back to PATH Python when uv is absent.
+
+8. **Backslash paths for Windows scripts** — Use `scripts\setup_matting.ps1`, not `scripts/setup_matting.ps1`, when running from PowerShell or cmd.
 
 ## Matting Engine Resolution
 
-Detected once at server start (see `GET /api/config`):
+Detected on demand (see `GET /api/config`):
 
 1. `FRAMEBAKER_MATTING_CLI` — custom command template (`{input}` `{output}`, optional `{model}`)
 2. Bundled rembg in `<repo>/.venv-matting` (`bin/rembg` on POSIX, `Scripts/rembg.exe` on Windows) — installed by `scripts/setup_matting.sh` / `setup_matting.ps1` (engine = `rembg-bundled`)
