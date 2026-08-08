@@ -78,11 +78,15 @@ bun start        # production
 - ffmpeg is required for frame extraction: `brew install ffmpeg` (macOS) / `winget install ffmpeg` (Windows)
 - **Matting engine** (optional; install once per new environment):
   ```bash
-  ./scripts/setup_matting.sh            # macOS / Linux
+  ./scripts/setup_matting.sh            # macOS / Linux (CPU, default)
+  ./scripts/setup_matting.sh --gpu      # macOS / Linux (NVIDIA GPU via onnxruntime-gpu)
   # Windows (PowerShell):
-  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1           # CPU
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1 -Gpu      # GPU
   ```
-  Creates `.venv-matting/` and installs `rembg[cli,cpu]`; on Windows it prefers uv-managed Python 3.12. The u2net model downloads automatically to `storage/models` on first use. Skipping this leaves matting in passthrough mode (copies the original image with a warning).
+  Creates `.venv-matting/` and installs `rembg[cli,cpu]` (or `rembg[cli,gpu]`); on Windows it prefers uv-managed Python 3.12. The u2net model downloads automatically to `storage/models` on first use. Skipping this leaves matting in passthrough mode (copies the original image with a warning).
+
+  **GPU mode** requires an NVIDIA GPU and a matching CUDA Toolkit installation. `onnxruntime-gpu` version must align with your CUDA version (e.g. onnxruntime-gpu 1.16 ↔ CUDA 11.8, 1.17+ ↔ CUDA 12.x). If you get DLL load errors, verify CUDA is installed and the version matches. To switch between CPU and GPU, delete `.venv-matting/` and re-run the script with the other flag.
 - Type check: `bun run typecheck`
 
 ### Windows Notes & Gotchas

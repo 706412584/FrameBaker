@@ -1,16 +1,29 @@
 # FrameBaker bundled matting setup for Windows.
 # Keep this file ASCII-compatible so Windows PowerShell 5.1 can parse it without a UTF-8 BOM.
-# Usage: powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1           (CPU, default)
+#   powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1 -Gpu      (NVIDIA GPU via onnxruntime-gpu)
+param([switch]$Gpu)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 $Venv = ".venv-matting"
 $Rembg = Join-Path $Venv "Scripts\rembg.exe"
+# rembg extra: "cpu" installs onnxruntime (CPU-only); "gpu" installs onnxruntime-gpu (NVIDIA CUDA)
+$RembgExtra = if ($Gpu) { "gpu" } else { "cpu" }
+$RembgPkg = "rembg[cli,$RembgExtra]"
 
 if (Test-Path $Rembg) {
   Write-Host "rembg is already installed: $Rembg"
+  Write-Host "To reinstall with a different backend, delete $Venv and re-run."
   exit 0
+}
+
+if ($Gpu) {
+  Write-Host "GPU mode: will install onnxruntime-gpu (requires NVIDIA GPU + CUDA Toolkit)."
+  Write-Host "If you get DLL load errors, check that your CUDA version matches onnxruntime-gpu requirements."
+  Write-Host ""
 }
 
 $Uv = Get-Command uv -ErrorAction SilentlyContinue
@@ -20,8 +33,8 @@ if ($Uv) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   $VenvPython = Join-Path $Venv "Scripts\python.exe"
-  Write-Host "Installing rembg[cli,cpu] with uv (this can take a while)"
-  & $Uv.Source pip install --python $VenvPython --link-mode copy "rembg[cli,cpu]"
+  Write-Host "Installing $RembgPkg with uv (this can take a while)"
+  & $Uv.Source pip install --python $VenvPython --link-mode copy $RembgPkg
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
   $Python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
@@ -46,8 +59,8 @@ if ($Uv) {
   & $Pip install --upgrade pip
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-  Write-Host "Installing rembg[cli,cpu] (this can take a while)"
-  & $Pip install "rembg[cli,cpu]"
+  Write-Host "Installing $RembgPkg (this can take a while)"
+  & $Pip install $RembgPkg
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 

@@ -78,11 +78,15 @@ bun start        # 生产
 - 拆帧依赖 ffmpeg：`brew install ffmpeg`（macOS）/ `winget install ffmpeg`（Windows）
 - **抠图引擎**（可选；每个新环境只需安装一次）：
   ```bash
-  ./scripts/setup_matting.sh            # macOS / Linux
+  ./scripts/setup_matting.sh            # macOS / Linux（CPU，默认）
+  ./scripts/setup_matting.sh --gpu      # macOS / Linux（NVIDIA GPU，onnxruntime-gpu）
   # Windows（PowerShell）：
-  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1           # CPU
+  powershell -ExecutionPolicy Bypass -File scripts\setup_matting.ps1 -Gpu      # GPU
   ```
-  创建 `.venv-matting/` 并安装 `rembg[cli,cpu]`；Windows 上优先使用 uv 管理 Python 3.12。u2net 模型在首次抠图时自动下载到 `storage/models`。不安装则抠图退化为 passthrough（复制原图并给出警告）。
+  创建 `.venv-matting/` 并安装 `rembg[cli,cpu]`（或 `rembg[cli,gpu]`）；Windows 上优先使用 uv 管理 Python 3.12。u2net 模型在首次抠图时自动下载到 `storage/models`。不安装则抠图退化为 passthrough（复制原图并给出警告）。
+
+  **GPU 模式**需要 NVIDIA 显卡和匹配版本的 CUDA Toolkit。`onnxruntime-gpu` 版本必须与 CUDA 版本对应（如 onnxruntime-gpu 1.16 ↔ CUDA 11.8，1.17+ ↔ CUDA 12.x）。如果遇到 DLL 加载错误，请检查 CUDA 是否安装且版本匹配。CPU 和 GPU 之间切换：删除 `.venv-matting/` 后用对应参数重新运行脚本。
 - 类型检查：`bun run typecheck`
 
 ### Windows 注意事项与常见问题
