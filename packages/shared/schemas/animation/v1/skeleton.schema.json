@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:framebaker:schema:animation:skeleton:1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "id", "name", "coordinateSystem", "bones"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "skeleton" },
+    "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+    "extensions": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/extensions" },
+    "coordinateSystem": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/coordinateSystem" },
+    "bones": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "parentId", "rest"],
+        "properties": {
+          "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+          "parentId": { "anyOf": [{ "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" }, { "type": "null" }] },
+          "rest": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/transform" },
+          "tipOffset": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/vec3" },
+          "semantic": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "semanticProfile": {
+      "type": "object",
+      "required": ["id", "bones"],
+      "properties": {
+        "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+        "bones": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

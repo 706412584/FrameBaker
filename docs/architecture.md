@@ -60,13 +60,14 @@
 | --- | --- | --- |
 | `@framebaker/server` | `apps/server` | Elysia API + 任务队列 + SQLite；同时经 Bun 全栈模式托管前端 |
 | `@framebaker/web` | `apps/web` | React 19 + PixiJS v8 前端，`index.html` 为打包入口，字体在 `public/fonts` |
-| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material`/`FramePatch`/枚举（FRAME_STATUSES、FRAME_SOURCES、JOB_TYPES、JOB_STATUSES、MATERIAL_STATUSES、GEN_PROVIDER_TYPES、WS_EVENTS）/ SOURCE_COLORS / `GenProviderSettings` / `MattingSettings` / API 响应类型 |
+| `@framebaker/shared` | `packages/shared` | `Frame`/`Project`/`Job`/`Material` 与 API 类型；通用 `Skeleton`/`MotionClip`、坐标/四元数、运行时校验和连续时间 FK 采样；共享枚举、provider 与抠图设置 |
 
 根 `tsconfig.base.json` 提供共享 compilerOptions（strict、moduleResolution: bundler、noEmit），各 app 的 `tsconfig.json` extends 后补自己的 lib/jsx/types。
 
 ## 关键设计
 
-- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 是固定 `humanoid-v1` 的 Pixi/FK 动作编辑器，可把 512×512 单元格姿态表上传为素材，并携该姿态参考进入 `ActionGenModal`。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
+- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 当前是固定 `humanoid-v1` 的 Pixi/FK 动作编辑器，可把 512×512 单元格姿态表上传为素材，并携该姿态参考进入 `ActionGenModal`。它的状态只存在浏览器内存，不保留兼容记录；正式资产 UI 完成后直接替换数据模型。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
+- **通用动画内核（Phase A）**：`packages/shared/src/animation.ts` 定义 provider/格式无关的 Skeleton、连续时间 MotionClip、右/左手坐标声明、局部 TRS（四元数 `x,y,z,w`）、有界运行时校验、slerp 和 FK 求值；世界变换以列向量 `T * R * S` 的完整 4×4 矩阵为权威结果，正确保留层级非均匀缩放。`packages/shared/schemas/` 发布独立 Draft 2020-12 schema；`animationPackage.ts` 与 `json.ts` 实现 `.fbanim` v1 的逻辑 manifest、RFC 8785 规范字节、SHA-256 内容路径、依赖闭包、路径/大小限制与往返验证。ZIP 暂只视为后续受限传输层。`bun run check:animation` 同时检查矩阵 FK、时间边界、schema 严格编译、包篡改/路径攻击、确定性往返和 FK 等价。正式资产持久化与 UI 尚未实现。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
 - **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error/cancelled + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复，启动时统一把遗留的 queued/running 标记为 error（「服务重启，任务中断」）。`POST /api/jobs/:id/cancel` 可取消排队/运行中任务（AbortSignal → `runCmd` 杀进程 / API 轮询中断）。所有状态变化经 `ws.ts` 广播；前端由 `JobPanel`（右侧常驻面板，挂在 App 根部）经 WS `job_*` 事件 + `GET /api/jobs(/:id)` 兜底轮询展示进度，排队/运行中可点取消。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。

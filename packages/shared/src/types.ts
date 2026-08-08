@@ -601,16 +601,6 @@ export interface MotionKeyframe {
   rotations: Record<HumanoidBoneId, number>;
 }
 
-export interface MotionClip {
-  id: string;
-  name: string;
-  rig: "humanoid-v1";
-  view: MotionView;
-  fps: number;
-  loop: boolean;
-  keyframes: MotionKeyframe[];
-}
-
 // ===== 请求 / 响应 =====
 
 /** PATCH /api/frames/:id 可更新字段 */

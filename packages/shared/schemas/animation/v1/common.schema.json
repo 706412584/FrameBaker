@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:framebaker:schema:animation:common:1",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }],
+      "items": false
+    },
+    "quaternion": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }, { "type": "number" }],
+      "items": false
+    },
+    "transform": {
+      "type": "object",
+      "required": ["translation", "rotation", "scale"],
+      "properties": {
+        "translation": { "$ref": "#/$defs/vec3" },
+        "rotation": { "$ref": "#/$defs/quaternion" },
+        "scale": { "$ref": "#/$defs/vec3" }
+      },
+      "additionalProperties": false
+    },
+    "coordinateSystem": {
+      "type": "object",
+      "required": ["handedness", "upAxis", "forwardAxis", "unit"],
+      "properties": {
+        "handedness": { "enum": ["right", "left"] },
+        "upAxis": { "enum": ["x", "y", "z"] },
+        "forwardAxis": { "enum": ["+x", "-x", "+y", "-y", "+z", "-z"] },
+        "unit": { "enum": ["meter", "pixel", "normalized"] }
+      },
+      "additionalProperties": false
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9][A-Za-z0-9-]*)+$" }
+    }
+  }
+}

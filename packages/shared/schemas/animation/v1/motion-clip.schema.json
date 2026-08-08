@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:framebaker:schema:animation:motion-clip:1",
+  "$defs": {
+    "vec3Key": {
+      "type": "object",
+      "required": ["time", "value"],
+      "properties": { "time": { "type": "number", "minimum": 0 }, "value": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/vec3" } },
+      "additionalProperties": false
+    },
+    "quaternionKey": {
+      "type": "object",
+      "required": ["time", "value"],
+      "properties": { "time": { "type": "number", "minimum": 0 }, "value": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/quaternion" } },
+      "additionalProperties": false
+    },
+    "vec3Track": {
+      "type": "object",
+      "required": ["targetId", "property", "interpolation", "keyframes"],
+      "properties": {
+        "targetId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+        "property": { "enum": ["translation", "scale"] },
+        "interpolation": { "enum": ["step", "linear"] },
+        "keyframes": { "type": "array", "minItems": 1, "maxItems": 100000, "items": { "$ref": "#/$defs/vec3Key" } }
+      },
+      "additionalProperties": false
+    },
+    "rotationTrack": {
+      "type": "object",
+      "required": ["targetId", "property", "interpolation", "keyframes"],
+      "properties": {
+        "targetId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+        "property": { "const": "rotation" },
+        "interpolation": { "enum": ["step", "linear"] },
+        "keyframes": { "type": "array", "minItems": 1, "maxItems": 100000, "items": { "$ref": "#/$defs/quaternionKey" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["schemaVersion", "kind", "id", "name", "skeletonId", "duration", "loop", "tracks", "events"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "motion-clip" },
+    "id": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
+    "extensions": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/extensions" },
+    "skeletonId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "duration": { "type": "number", "minimum": 0 },
+    "loop": { "type": "boolean" },
+    "tracks": { "type": "array", "maxItems": 16384, "items": { "oneOf": [{ "$ref": "#/$defs/vec3Track" }, { "$ref": "#/$defs/rotationTrack" }] } },
+    "events": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": ["time", "type", "name"],
+        "properties": {
+          "time": { "type": "number", "minimum": 0 },
+          "type": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "payload": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "contacts": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "required": ["targetId", "intervals"],
+        "properties": {
+          "targetId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+          "intervals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["start", "end"],
+              "properties": { "start": { "type": "number", "minimum": 0 }, "end": { "type": "number", "minimum": 0 } },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rootMotion": { "enum": ["preserve", "in-place", "extracted"] },
+    "provenance": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": { "enum": ["manual", "import", "provider"] },
+        "adapter": { "type": "string" },
+        "adapterVersion": { "type": "string" },
+        "model": { "type": "string" },
+        "seed": { "type": "number" },
+        "inputHashes": { "type": "array", "items": { "type": "string" } },
+        "parameters": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,239 +1,451 @@
-# 动作参考、骨架与绑定系统计划
+# 通用动画资产与骨骼工作流规范
 
-> 状态：P2 编辑闭环已完成，真实 provider 验证与服务端持久化未完成；最后更新：2026-08-08。
+> 状态：架构基线、核心资产、独立 schema 与 `.fbanim` v1 逻辑包已实现，正式持久化与资产 UI 尚未实现；最后更新：2026-08-08。
 >
-> 本文记录动作一致性方向的产品判断、当前实现、验证方法和后续开发顺序，供换机器或换开发会话后继续推进。API 的已实现字段仍以 [`api.md`](./api.md) 为准。
+> 本文取代早期以固定人形姿态表和特定生成 provider 为中心的试验方案。它定义 FrameBaker 面向成熟工具的长期动画内核、交换格式、扩展边界、迁移路线和验收标准。已实现 API 仍以 [`api.md`](./api.md) 为准，当前运行架构以 [`architecture.md`](./architecture.md) 为准。
 
-## 1. 目标与边界
+## 1. 产品目标
 
-目标是把 AI 动画生成中的「动作结构」从纯 prompt 猜测改为显式条件，使同一个角色在连续帧中更稳定地完成待机、走、跑、攻击、受击、死亡等动作。
+FrameBaker 的目标不是某个 AI 模型、Spine 或逐帧图片生成器的前端，而是一个可长期维护的动画生产工具：
 
-骨架主要约束二维姿态和肢体轨迹，不能单独保证脸、服装、配色、武器、披风等外观一致。完整条件应拆为：
+- 用统一资产表达骨架、动作、角色绑定、约束和光栅结果；
+- 同时支持手工编辑、文件导入、程序化生成、AI 生成和动作捕捉；
+- 生成结果必须可编辑、可复现、可迁移，不能只得到一次性视频；
+- 骨骼编辑与逐帧像素润色并存，骨骼可以确定性烘焙为现有项目帧；
+- 外部格式、模型和运行时都通过 adapter 接入，可替换且不会污染项目数据；
+- 项目在 provider、模型或外部服务下线后仍可打开、编辑和导出；
+- 格式、任务、迁移、许可证和质量检查按可商业发布的软件要求设计。
 
-1. **角色参考**：回答「谁在演」，约束角色外观；
-2. **动作参考**：回答「演什么」，约束姿态、顺序和节奏；
-3. **生成配置**：回答「画成什么样」，约束模型、视角、风格、尺寸和布局。
+AI 在系统中的定位是**可选生产力来源**，不是动画数据的事实源。经用户确认和转换后的 FrameBaker 资产才是事实源。
 
-第一阶段不做图片蒙皮或任意骨架绑定。只为生成模型提供动作条件时，标准骨架渲染成姿态图即可；只有动作重定向、角色变形预览和失败帧补位才真正需要角色绑定与 puppet warp。
+## 2. 已冻结的架构决策
 
-## 2. 当前已实现：双参考图实验闭环
+以下决策是后续实现的约束；变更时必须修改本文并记录迁移影响。
 
-现有「多动作生成」图片模式支持：
+1. **通用内核优先**：不以 `humanoid-v1`、Spine、BVH、glTF 或任何模型输出作为内部唯一格式。
+2. **资产职责分离**：`Skeleton`、`MotionClip`、`CharacterBinding`、`ConstraintSet`、`RenderProfile`、`RasterSequence` 独立保存和引用。
+3. **动作与外观分离**：`MotionClip` 不包含角色图片、Slot 或 provider 请求；同一动作可重定向到多个角色。
+4. **源资产与派生产物分离**：姿态表、预览视频、PNG 序列和精灵图都是可再生成产物，不能替代骨架与动作源数据。
+5. **时间使用秒**：关键帧时间以秒表示；FPS 是预览或烘焙策略，不是动作数据的时间单位。
+6. **局部变换为主**：骨骼轨道保存相对父骨骼的局部 TRS；世界坐标由 FK 求值，不逐帧持久化为事实源。
+7. **统一三维变换**：2D 与 3D 骨架共用 `translation[3] + quaternion[4] + scale[3]`，2D 资产通常令 `z=0`。UI 可显示角度，但持久化不用欧拉角作为标准旋转。
+8. **稳定 ID 优先**：层级、轨道和绑定引用稳定 ID，不通过骨骼显示名称建立关系。人体语义标签是可选映射，不限制拓扑。
+9. **约束可烘焙**：IK、接触和角度约束独立于基础轨道；目标格式不支持时可以烘焙成关键帧，但必须报告有损转换。
+10. **开放包格式**：建立版本化、可校验、可迁移的 FrameBaker Animation Package；首版采用 ZIP + JSON + PNG，规范公开。
+11. **格式 adapter 隔离**：BVH、glTF、Spine、DragonBones 和模型专用格式只存在于导入、导出或 provider adapter。
+12. **能力而非厂商建模**：Provider 按 `text-to-motion`、`video-to-motion`、`auto-rigging` 等能力声明，不在核心类型中加入厂商分支。
+13. **持久任务**：动作生成、动作捕捉、重定向和批量烘焙进入可恢复任务系统，不能长期依赖前端等待或仅内存 payload。
+14. **转换不静默丢失**：导入导出必须产生兼容性报告；无法表达的特性需明确降级、烘焙或拒绝。
+15. **光栅编辑语义不变**：现有 `Frame.offset_x/y`、`rotation`、`scale`、`opacity` 只表示整张帧图片变换，骨骼数据不得写入这些字段或长期塞入 metadata。
 
-- 第一张图：当前素材，作为角色外观参考；
-- 第二张图：从素材库选择的动作参考，可使用骨架表、姿态表、动作截图或已有精灵动作表；
-- 文本提示：声明两张图的用途，要求按第二张图的格子顺序和布局生成，且不画出骨架线和关节点。
+## 3. 当前实现与替换策略
 
-请求字段：
+`/motions` 当前实现是一个有效的交互原型，但不是最终数据模型：
 
-- `referenceMaterialId` / `referenceFrameId`：角色或普通参考，二选一；
-- `poseReferenceMaterialId` / `poseReferenceFrameId`：动作参考，二选一；
-- 动作参考不能脱离第一张角色/普通参考单独提交。
+- 固定 `humanoid-v1` 人形拓扑；
+- 根节点二维平移和逐骨骼弧度旋转；
+- PixiJS FK、关节拖拽、镜像、视角和动作参数；
+- Quaternius CC0 动作采样成 8–16 帧预设；
+- 动作关键帧编辑、循环播放和 512×512 姿态表导出；
+- 姿态表上传素材库后可作为现有图片生成链路的第二张参考图。
 
-当前 provider 行为：
+当前 `MotionKeyframe` 和 `HumanoidBoneId` 只服务该页面的内存状态，未持久化为用户资产，不做格式兼容、迁移器或历史记录。现有骨骼编辑、内置动作和姿态表功能继续保留；正式动画资产 UI 完成后直接改用通用 `Skeleton + MotionClip`，届时删除不再使用的固定人形类型和计算代码。已有姿态表工作流可继续作为一种 `RenderProfile` 输出。
 
-| Provider | 动作参考 | 输入顺序 / 限制 |
-| --- | --- | --- |
-| DashScope / 百炼 | 已接入 | 角色图 → 动作图 → 文本；具体模型仍需支持多图理解 |
-| Gemini | 已接入 | 两个 `inlineData` 后跟文本；具体模型仍需支持图片生成与多图输入 |
-| OpenAI 兼容 | 已接入 | 双图使用两个有序的 `image[]`；兼容网关不一定实现该格式 |
-| MiniMax | 不支持 | 请求创建时返回 400，避免静默丢弃动作参考 |
-| CLI | 不支持 | 尚无独立动作图参数，携带动作参考时返回 400 |
-| 视频生成 | 不支持 | 当前视频链路仍只有单参考语义，携带动作参考时返回 400 |
+现有双参考图属于普通多图语义引导，不等同于强姿态控制。它是通用动作资产的一个下游消费者，不再决定骨架系统是否成立。
 
-关键实现位置：
+## 4. 领域模型
 
-- 前端请求类型：`apps/web/src/api.ts` 的 `GenerateBody`；
-- 动作参考 UI 与提示词：`apps/web/src/components/ActionGenModal.tsx`；
-- 通用素材选择器：`apps/web/src/components/ReferencePicker.tsx`；
-- API 校验与任务载荷：`apps/server/src/api/import.ts`、`apps/server/src/api/materials.ts`；
-- 引用文件解析和 provider 限制：`apps/server/src/providerAdapter.ts`；
-- 任务类型：`apps/server/src/jobs/extract.ts` 的 `GeneratePayload`；
-- 厂商多图请求：`apps/server/src/jobs/generateApi.ts`。
+以下类型描述语义边界，不要求实现时逐字照抄字段名；冻结的是职责、坐标和引用关系。
 
-当前实现属于**普通多图语义引导**，不是 ControlNet/OpenPose 的强姿态控制。骨架编辑器是否值得投入，必须先用真实模型验证第二张图的服从度。
-
-### 2.1 已实现的动作骨架工作台
-
-`/motions` 已不是旧的 Action 生成入口，而是独立的 `humanoid-v1` 动作编辑系统：
-
-- 固定人形拓扑、根节点平移与逐骨骼局部旋转，使用 FK 作为唯一姿态事实源；
-- PixiJS 关节拖拽、视角切换、镜像、重置，以及待机/走/跑/攻击/受击/死亡/跳跃预设；预设来自 Quaternius Universal Animation Library Standard GLB 的 CC0 骨骼动画，每段按动作类型采样为 8–16 帧并重定向为二维局部旋转；
-- 关键帧增删复制排序、fps、循环播放和局部旋转插值；
-- 512×512 姿态表导出、素材库上传，并注入动作生成弹窗作为独立姿态参考；
-- 选择动作预设后立即播放，并可用动作幅度、手臂摆幅、腿部步幅、身体起伏和前倾五个参数调整整段 clip；只有需要精修时才停止播放并逐帧拖动关节。
-
-曾评估直接嵌入成熟 OpenPose 编辑器，但其 COCO-18、JSON、人物分组等专业概念增加了普通用户的操作成本，因此没有保留在主工作流中。参考项目和实际复用边界记录在中英文 README。
-
-## 3. 当前试验方法
-
-### 3.1 准备同一组对照输入
-
-1. 选择一个细节适中的角色素材；
-2. 准备一张 8–16 帧动作参考表；
-3. 动作参考表的行列、阅读顺序与目标精灵表一致；
-4. 每格只放一个清晰姿态，人物大小和中心位置尽量一致；
-5. 先测试走路或跑步，再测试持武器攻击；
-6. 同一 provider、模型、尺寸和 prompt 分别生成「无动作参考」与「有动作参考」版本。
-
-姿态图不要直接制作成 32×32 或 64×64。应按生成模型的输入尺寸绘制，再在产物入库后切格和下采样。
-
-### 3.2 记录指标
-
-每个模型至少生成 3 组，记录：
-
-- 动作顺序命中率；
-- 肢体方向和落脚点错误帧数；
-- 角色脸、服装、武器明显漂移帧数；
-- 骨架线或参考图元素污染帧数；
-- 可直接使用的帧比例；
-- 获得一套可用动作所需的重生成次数；
-- 洋葱皮校正所需时间。
-
-进入下一阶段的建议门槛：动作参考版本相较纯 prompt，在动作错误帧数或人工校正时间上至少降低约 30%，且外观漂移没有明显恶化。若多图模型经常忽略第二张图，优先接入真正的 pose/control endpoint，而不是先开发骨架 UI。
-
-## 4. 分阶段实施计划
-
-### P0 — 双参考图可行性验证（当前）
-
-- [x] 多动作生成增加独立动作参考选择；
-- [x] 前后端贯通 `poseReferenceMaterialId` / `poseReferenceFrameId`；
-- [x] DashScope、Gemini、OpenAI 兼容 API 发送有序双图；
-- [x] CLI、MiniMax、视频链路显式拒绝，不静默忽略；
-- [ ] 按第 3 节完成真实模型 A/B 测试并记录结果；
-- [ ] 确定首个可靠的 pose-capable provider / 模型。
-
-### P1 — Provider 能力与强姿态控制
-
-先解决模型协议，再做编辑器：
-
-- 在共享 `GenProvider` / `GenProviderInfo` 中声明动作控制能力，不根据 provider 类型猜测；
-- 最低需要表达：是否支持多图、是否支持独立 pose/control image、最大参考图数量、支持的媒体类型；
-- `/api/config` 将能力下发前端，`ProviderModelPicker` 只展示可用组合；
-- 优先评估 ControlNet OpenPose、Pose Adapter、IP-Adapter + ControlNet 或可配置 ComfyUI 工作流；
-- CLI 若接入动作控制，使用结构化 `cliPoseArg`，服务端组 argv，禁止恢复手写 shell 模板；
-- 对不兼容模型在提交前提示，而不是等任务执行后失败。
-
-### P2 — 固定人形骨架与动作预设编辑器
-
-确认模型端有效后，先支持 `humanoid-v1`，不立即支持任意拓扑：
-
-- [x] 固定关节：根/骨盆、胸、颈、头、左右肩肘腕、左右髋膝踝；
-- [x] Pixi 独立 FK 骨架编辑画布：拖动根/关节、复制姿态、左右镜像、恢复默认；
-- [x] 动作时间轴：新增/复制/删除（至少一帧）/左右排序，设置 fps 与循环；
-- [x] 播放时对局部旋转与根节点位移线性插值；
-- [x] 按时间线渲染 512×512 单元格姿态表，上传素材库后可作为生成动作参考；
-- [x] 内置来自 Quaternius Universal Animation Library CC0 动画的 8–16 帧待机、走、跑、攻击、受击、死亡、跳跃预设与 front/back/left/right 视角；
-- [x] 预设选择后自动播放，以及作用于完整 clip 的五项高层动作参数；
-- [ ] 动作 clip 服务端持久化、IK、约束、缓动、首尾连续性检查；
-- [ ] 真实 provider 的姿态服从度 smoke / A/B 验证；
-- 生成时优先一次生成 8–16 帧短精灵表，复杂动作拆成多个 clip。
-
-### P3 — 骨架、动作与角色比例解耦
-
-将数据拆为三类独立资产：
-
-1. `SkeletonDefinition`：关节拓扑、父子关系、标准骨长和约束；
-2. `MotionClip`：兼容骨架类型、视角、fps、循环、根位移和逐帧局部旋转；
-3. `CharacterBinding`：角色参考素材、rest pose、角色骨长比例、关键锚点和附件点。
-
-同一 `MotionClip` 应可重定向到不同身体比例。第一版绑定只标注角色比例和锚点，不切割图片、不计算蒙皮权重。
-
-建议的共享类型方向（实现时再根据交互收敛，不直接照抄）：
+### 4.1 公共约定
 
 ```ts
-interface MotionClip {
+interface AssetIdentity {
+  schemaVersion: number;
+  kind: "skeleton" | "motion-clip";
   id: string;
   name: string;
-  rigType: "humanoid-v1";
-  view: "front" | "back" | "left" | "right" | "three-quarter";
-  fps: number;
-  loop: boolean;
-  frames: Array<{
-    root: { x: number; y: number };
-    joints: Record<string, {
-      rotation: number;
-      visible?: boolean;
-      depth?: number;
-    }>;
-  }>;
+  extensions?: Record<string, unknown>;
+}
+
+interface Transform {
+  translation: [number, number, number];
+  rotation: [number, number, number, number]; // quaternion: x, y, z, w
+  scale: [number, number, number];
+}
+
+interface CoordinateSystem {
+  handedness: "right" | "left";
+  upAxis: "x" | "y" | "z";
+  forwardAxis: "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
+  unit: "meter" | "pixel" | "normalized";
 }
 ```
 
-动作不应存为每帧绝对屏幕坐标：根节点保存整体位移，动作保存局部旋转，骨长来自骨架或角色绑定。`view` 必须是结构化字段，不能只写进 prompt。
+规范默认采用右手系、Y 向上、Z 向前、四元数顺序 `x,y,z,w`。外部 adapter 必须显式转换；2D 画布 Y 向下只属于渲染映射，不改变资产坐标。局部矩阵采用列向量 `T * R * S`；轨道值替换对应 Rest Transform 通道，不是增量值。层级非均匀缩放可能产生剪切，因此 FK 的权威世界结果必须是完整 4×4 仿射矩阵，不能用拆分后的 world TRS 代替。
 
-### P4 — 自定义骨架与双向利用（远期）
+### 4.2 Skeleton
 
-- 自定义关节拓扑和动作兼容映射；
-- 四足、尾巴、翅膀、多足和机械结构；
-- 从图片或视频估计初始姿态；
-- 图片切片、mesh、蒙皮权重和 puppet warp 预览；
-- AI 失败帧使用变形结果临时补位；
-- 武器、披风、裙摆等附件点/自由跟随点。
+`Skeleton` 只描述层级和 Rest Pose，不包含动作与图片：
 
-该阶段复杂度显著高于生成条件图，必须由前面阶段的真实使用需求驱动。
+```ts
+interface Skeleton extends AssetIdentity {
+  coordinateSystem: CoordinateSystem;
+  bones: Bone[];
+  semanticProfile?: SkeletonSemanticProfile;
+}
 
-## 5. 数据与模块边界
+interface Bone {
+  id: string;
+  name: string;
+  parentId: string | null;
+  rest: Transform;
+  tipOffset?: [number, number, number];
+  semantic?: string;
+}
+```
 
-- 骨架和关节数据不得写入现有 `Frame.offset_x/y`、`rotation`、`scale`、`opacity`；这些字段只表示整张图片的统一帧变换；
-- 不把长期骨架结构塞入 `Frame.metadata` 或 `Material.metadata`；验证通过后使用独立表和共享类型；
-- 动作模板应是可跨项目复用资产，项目只保存引用或生成后的帧；
-- 姿态图是可再生成的派生产物，源骨架/动作数据才是事实源；
-- provider-specific 请求格式留在 `apps/server/src/jobs/generateApi.ts` 或独立 adapter，不泄漏到前端数据模型；
-- 任务依赖继续保持 `queue.ts` → `jobs/*` 单向；
-- 若为骨架资产增加文件夹，需同步扩展共享 `FolderKind`、服务端文件夹资源映射和前端 `FolderTree`，不要伪装成普通 material folder。
+要求：
 
-初步持久化候选：
+- 支持任意拓扑，包括人体、四足、尾巴、翅膀、多足、机械和道具；
+- 至少一个根骨骼，禁止父子环；
+- 骨架是 joint-origin 层级，子骨骼原点只由子骨骼的 `rest.translation` 确定，不从父骨长推导；
+- `tipOffset` 只是骨骼本地坐标中的可选显示骨端，不参与拓扑，可表达 BVH End Site 的任意方向；
+- 语义标签如 `hips`、`leftFoot` 用于重定向，不作为骨骼 ID；
+- Rest Pose 是绑定和重定向依据，导入时必须保留或明确推导来源。
 
-- `skeletons`：骨架定义；
-- `motion_clips`：动作基本信息和关键帧 JSON；
-- `character_bindings`：骨架 × 角色素材的比例和锚点；
-- 大量关键帧或需要局部更新时，再考虑拆出 `motion_keyframes`。
+### 4.3 MotionClip
 
-P2 初期可只用设置表或单个 JSON 验证交互，但进入可复用资产阶段前必须迁移为正式表，不能长期依赖浏览器 localStorage。
+`MotionClip` 是与外观无关的连续时间动作：
 
-## 6. 验收标准
+```ts
+interface MotionClip extends AssetIdentity {
+  skeletonId: string;
+  duration: number;
+  loop: boolean;
+  tracks: MotionTrack[];
+  events: MotionEvent[];
+  contacts?: ContactTrack[];
+  rootMotion?: RootMotionPolicy;
+  provenance?: AssetProvenance;
+}
 
-### P1 验收
+interface MotionTrack {
+  targetId: string;
+  property: "translation" | "rotation" | "scale";
+  interpolation: "step" | "linear"; // cubic 留待后续 schema 版本定义
+  keyframes: Array<{ time: number; value: number[] }>;
+}
+```
 
-- UI 能准确区分普通多图理解与真正 pose/control 能力；
-- 不支持的 provider/model 无法提交动作参考任务；
-- 至少一个后端能稳定接受角色参考和动作条件；
-- 同一测试集相较纯 prompt 达到第 3.2 节的收益门槛。
+要求：
 
-### P2 验收
+- `time` 范围为 `0..duration` 秒且有序；
+- 旋转插值使用最短路径 slerp，导入欧拉角时先完成解卷绕；
+- 根运动可保留、提取为独立轨道或转换为原地动作；
+- 事件、脚底接触、命中点不能依赖光栅帧序号；
+- FPS 只在预览、采样和烘焙配置中出现；
+- 非循环采样钳制到闭区间 `[0, duration]`；循环采样使用半开区间 `[0, duration)`，`duration` 映射回 `0`；
+- 循环轨道允许在 `duration` 放置首帧副本以定义接缝插值，但循环事件必须位于 `[0, duration)`，接触区间可以结束于 `duration`。
 
-- 用户可从内置动作开始，拖动关节并编辑 8–16 帧动作；
-- 导出的姿态表格子顺序、行列和生成请求一致；
-- 正面、背面、左右视角不会误复用；
-- 动作编辑、生成、网格切分、抠图和项目导入形成完整闭环；
-- `bun run typecheck` 通过，并完成一次真实 provider 冒烟。
+### 4.4 CharacterBinding
 
-### P3 验收
+`CharacterBinding` 连接骨架与可渲染外观：
 
-- 同一人形动作可应用到至少两种明显不同的角色比例；
-- 动作资产与角色绑定可以独立保存、复制和删除；
-- 删除被引用资产时有明确引用检查或解除策略；
-- 现有帧编辑、预览和导出几何语义不受影响。
+```ts
+interface CharacterBinding extends AssetIdentity {
+  skeletonId: string;
+  slots: Slot[];
+  attachments: Attachment[];
+  skins?: Skin[];
+}
+```
 
-## 7. 跨机器继续开发清单
+首个生产版本只要求 Region Attachment：PNG、Pivot、所属 Slot、Rest Transform 和默认绘制顺序。Mesh、权重、变形和物理是兼容扩展，不阻塞基本 cutout 工作流。
 
-1. 拉取代码并执行 `bun install`；
-2. 配置至少一个支持图片生成和多图输入的 DashScope、Gemini 或 OpenAI 兼容 provider；
-3. 执行 `bun run typecheck`，确认基线通过；
-4. 根据第 3 节准备角色图和动作表，先完成 P0 A/B 测试；
-5. 把测试所用 provider、模型、尺寸、输入图、成功率和失败模式补充到本文；
-6. 若第二张图服从度不足，直接进入 P1 接强姿态协议，不要先做 P2 UI；
-7. 若效果达到门槛，从 P2 的固定 `humanoid-v1` 开始，不先做任意骨架；
-8. API 字段变化同步 `docs/api.md`，架构或目录变化同步 `docs/architecture.md` 和 `AGENTS.md`；
-9. 完成改动后至少运行 `bun run typecheck`；真实生成冒烟会产生费用，执行前确认 provider 与模型。
+Slot/Attachment 与骨骼分离，以支持换皮、武器、正背面附件切换和 Draw Order。单张未切片角色图也可作为特殊绑定输入，但不能假装已经具备蒙皮能力。
 
-## 8. 已知风险与待决策项
+### 4.5 ConstraintSet
 
-- OpenAI 兼容网关对 `image[]` 的实现不统一，可能需要 provider 级 multipart 字段配置；
-- DashScope/Gemini 能接收多图不等于能严格遵循姿态，需要以具体模型实测；
-- 整表生成外观通常更一致，但姿态控制可能弱于逐帧生成；后续需保留两种策略的实验空间；
-- 逐帧生成可精确控制姿态，但角色外观可能漂移，需要 subject reference、IP-Adapter、LoRA、固定 seed 或后处理配合；
-- 低分辨率姿态信息不足，应高分辨率生成后再像素化，不把骨架直接压到最终精灵尺寸；
-- 武器、披风、裙摆不是刚性人体骨架能完整约束的内容，后续可能需要附件点或人工洋葱皮校正；
-- 任意骨架的动作重定向规则尚未确定，在固定人形方案验证前不要冻结通用 schema。
+约束作为独立可复用资产或绑定内引用，至少预留：
+
+- two-bone IK；
+- transform/aim constraint；
+- 关节角度限制；
+- 脚底和手部接触；
+- look-at；
+- path；
+- attachment 跟随与切换规则。
+
+约束求值顺序必须版本化。导出到不支持约束的格式时，按指定采样率烘焙并记录误差。
+
+### 4.6 RenderProfile 与 RasterSequence
+
+```ts
+interface RenderProfile extends AssetIdentity {
+  camera: CameraSettings;
+  outputFps: number;
+  canvasSize: [number, number];
+  origin: [number, number];
+  sampling: "nearest" | "linear";
+  pixelSnap: boolean;
+  frameSelection: "uniform" | "key-pose" | "contact-aware";
+  paletteId?: string;
+}
+```
+
+`RasterSequence` 记录烘焙来源、帧文件、每帧时长、公共原点、画布和校验值，并可导入现有项目帧。骨骼资产和烘焙帧之间保留来源关系；重新烘焙默认创建新版本，不静默覆盖人工修过的帧。
+
+## 5. FrameBaker Animation Package
+
+建议扩展名为 `.fbanim`，逻辑布局如下：
+
+```text
+character.fbanim
+├── manifest.json
+├── skeletons/
+│   └── <sha256>.json
+├── motions/
+│   └── <sha256>.json
+│
+│   # 以下目录由后续独立资产 schema 启用，v1 暂不接受
+├── bindings/
+│   └── default.json
+├── constraints/
+│   └── feet.json
+├── render-profiles/
+│   └── pixel-side-view.json
+├── textures/
+│   ├── body.png
+│   └── sword.png
+├── previews/
+└── provenance.json
+```
+
+### 5.1 包规范要求
+
+- `manifest.json` 包含包版本、资产索引、依赖关系、内容哈希和创建工具版本；
+- v1 资产文件名是规范 JSON 内容的 SHA-256，摘要与字节数都针对未压缩的 RFC 8785 UTF-8 字节；
+- 当前实现以 `{ path, bytes }` 逻辑条目建立、验证和往返，ZIP 仅是后续传输层；在具备重复路径、压缩炸弹、CRC、大小与压缩比防护的读取器前，不复用现有仅导出用途的 ZIP 写入器；
+- 路径必须相对包根且禁止 `..`，解包时防止路径穿越和压缩炸弹；
+- JSON 使用正式 schema 校验，未知可选扩展在往返保存时尽量保留；
+- 纹理使用 PNG；预览文件不是必需且不参与事实源计算；
+- 包内 ID 保持稳定，导入数据库发生冲突时生成映射而不是改写内部引用失败；
+- 首版优先可读性和迁移能力，性能确有需要时再为密集关键帧增加可选二进制块；
+- 数据库 schemaVersion、`.fbanim` packageVersion 和各资产 schemaVersion 分开演进。
+
+### 5.2 扩展机制
+
+通用扩展使用反向域名命名空间，例如 `extensions["org.example.feature"]`，值必须可序列化为 JSON。核心不能依赖未知扩展才能完成基本 FK 和播放；进入核心的能力需要升级正式 schema。Skeleton 与 MotionClip 使用独立的版本常量和 `kind` 判别字段，迁移器按资产种类分派；未知扩展往返保存时原样保留。
+
+## 6. 外部格式策略
+
+不存在一种行业格式能同时完整表达 3D 动作、2D Slot/Draw Order、像素渲染和 FrameBaker 编辑状态，因此采用多 adapter，而不是强行选一个外部格式做数据库模型。
+
+| 格式 | 主要用途 | 基线策略 |
+| --- | --- | --- |
+| glTF 2.0 | 通用 3D 骨架、Skin、动画交换 | 优先标准；支持导入导出并报告扩展缺失 |
+| BVH | 动捕和人体动作交换 | 优先导入；保留层级、帧率和根运动 |
+| FBX | DCC 生态交换 | 经 Blender/独立转换器接入，不自行实现完整解析器 |
+| Spine JSON | 2D 商业生态 | 可选 adapter；运行时和许可证独立评估 |
+| DragonBones JSON | 2D cutout 交换 | 可选 adapter |
+| PNG 序列 + JSON | 稳定光栅交付 | 完整支持，保持公共原点与每帧时长 |
+| GIF/APNG/WebM | 预览与分享 | 不作为可编辑源资产 |
+
+Adapter 输出 `CompatibilityReport`，至少包含 `info/warning/error`、受影响资产、发生的烘焙或丢失。禁止静默丢弃 Mesh、约束、事件、Draw Order、曲线或根运动。
+
+## 7. Provider 与任务边界
+
+Provider 按能力声明，而不是按厂商名称扩展核心联合类型：
+
+```ts
+type AnimationCapability =
+  | "text-to-motion"
+  | "video-to-motion"
+  | "pose-to-motion"
+  | "motion-inpainting"
+  | "motion-retargeting"
+  | "auto-rigging"
+  | "character-reskinning"
+  | "motion-rendering";
+```
+
+标准输出是 `AnimationArtifact`，可包含 Skeleton、MotionClip、Binding、RasterSequence、预览、来源和兼容警告。厂商参数保存在 provenance/request snapshot，不进入 MotionClip。
+
+每次生成必须记录：
+
+- provider adapter 与版本；
+- 模型、checkpoint 或服务版本；
+- prompt、seed、时长和完整有效参数；
+- 输入资产 ID 与内容哈希；
+- 原始产物；
+- 坐标转换和骨架映射版本；
+- 后处理、IK、平滑、循环修复和采样参数；
+- 许可证来源与用户确认状态。
+
+动作任务需要独立 job 类型，payload 持久化并支持重启恢复、取消、超时、阶段进度、临时目录隔离、原子提交和失败清理。调度依赖继续保持 `queue.ts → jobs/*` 单向。
+
+## 8. 编辑与渲染工作流
+
+成熟工作流按非破坏方式组织：
+
+```text
+导入/生成 MotionClip
+  → 坐标标准化与骨架映射
+  → 重定向到目标 Skeleton
+  → FK/IK、接触、曲线和循环编辑
+  → CharacterBinding 预览
+  → RenderProfile 确定性烘焙
+  → RasterSequence 版本
+  → 导入现有帧编辑器做像素级润色
+```
+
+骨骼轨道负责大范围动作修改，光栅轨道负责最终像素质量。人工修帧后再次烘焙必须由用户选择新建版本、覆盖未修改帧或显式覆盖全部，不能自动破坏人工成果。
+
+## 9. 像素动画要求
+
+骨骼动作流畅不代表像素动画可用。烘焙器必须支持：
+
+- 最近邻采样和关闭抗锯齿；
+- 根节点、Pivot 和主要关节的整数像素吸附；
+- 可选旋转量化；
+- 固定调色板与透明度规则；
+- 6/8/10/12 FPS 等低帧率采样；
+- contact-aware/key-pose 采样，保护落脚、蓄力、命中和极值姿势；
+- 公共原点、地面线和统一单元格；
+- 近重复帧删除；
+- 首尾循环误差、一像素抖动、透明接缝和裁边检查；
+- 对 Draw Order 频繁切换增加迟滞，避免前后肢体闪烁。
+
+## 10. 持久化与模块边界
+
+目标资产使用独立表或等价的正式存储：
+
+- `skeletons`；
+- `motion_clips`；
+- `character_bindings`；
+- `constraint_sets`；
+- `render_profiles`；
+- `raster_sequences`；
+- `asset_dependencies`；
+- `animation_jobs` 或扩展后的统一 jobs payload。
+
+大量关键帧是否拆表由性能测量决定；首版可存版本化 JSON，但必须支持事务、引用检查和迁移。骨架、动作和绑定应成为独立文件夹资产类型，不伪装成 material。
+
+删除资产必须处理引用关系：阻止删除、级联删除派生产物或显式解除引用。导入包和任务提交均需原子化，不能留下半个可见资产。
+
+## 11. 质量与兼容性门禁
+
+### 11.1 数据门禁
+
+- schema 校验通过；
+- ID 唯一且引用有效；
+- 骨架无环，Transform 数值有限；
+- 关键帧时间合法且有序；
+- quaternion 非零并归一化；
+- 包路径与大小安全；
+- 迁移前后 FK 采样误差在阈值内。
+
+### 11.2 动作门禁
+
+- 骨长不随帧异常变化；
+- 根节点无非预期突跳；
+- 关节速度和角度不越限；
+- 脚底接触段滑动在阈值内；
+- 循环首尾姿态、速度和根位移满足策略；
+- 重定向后缺失/额外骨骼有明确报告；
+- 事件、命中点和接触点在重采样后保持时间语义。
+
+### 11.3 光栅门禁
+
+- 无空帧、非法尺寸和画布裁切；
+- 公共原点稳定；
+- 调色板和透明边符合 profile；
+- 无非预期一像素抖动和 Slot 顺序闪烁；
+- 帧数、时长与采样配置一致；
+- 同一输入、版本和参数重复烘焙得到相同结果。
+
+## 12. 实施路线
+
+### Phase A — 固化通用内核
+
+- [x] 定义坐标、时间、TRS、ID 和扩展规范；
+- [x] 建立正式共享类型与 Skeleton / MotionClip 运行时校验；
+- [x] 补充独立 JSON schema 文件及其版本发布流程；
+- [x] 实现 FK 求值、连续时间采样和基础 schema 校验；
+- [x] 实现 `.fbanim` v1 manifest、逻辑条目构建与完整性验证；未知版本直接拒绝，不建立无用户数据的旧格式迁移层；
+- [x] 保留现有骨骼动画功能，不增加无使用方的兼容层或旧格式记录；
+- [x] 建立矩阵 FK、时间边界和非法输入检查；
+- [x] 为 `.fbanim` 建立规范编码、摘要、路径安全、往返、确定性与 FK 等价检查；
+
+验收：不依赖任何 AI provider，通用 Skeleton/MotionClip 可以保存、重开、播放、导出再导入且采样结果一致。
+
+### Phase B — 正式资产与编辑闭环
+
+- [ ] 独立持久化、文件夹、引用关系和 CRUD API；
+- [ ] 动作时间轴改为连续时间轨道；
+- [ ] Undo/Redo、曲线、事件、根运动和循环工具；
+- [ ] CharacterBinding 的 Region Attachment、Pivot、Slot 和 Draw Order；
+- [ ] RenderProfile 与确定性 PNG 序列烘焙；
+- [ ] 烘焙版本与人工修帧保护策略。
+
+验收：同一动作可驱动至少两个不同角色绑定，并可重复烘焙后进入现有帧编辑器。
+
+### Phase C — 通用交换与重定向
+
+- [ ] BVH 导入与标准化；
+- [ ] glTF 2.0 导入导出；
+- [ ] 语义骨骼映射和人工映射 UI；
+- [ ] Rest Pose 对齐、比例缩放、根运动和局部轴转换；
+- [ ] compatibility report；
+- [ ] 基础 IK、脚底接触、关键帧简化和循环修复。
+
+验收：至少两个外部来源动作可无厂商特例地映射到同一 FrameBaker 骨架，所有降级均可见。
+
+### Phase D — 通用生成 Provider
+
+- [ ] 定义 capability、request、artifact 和 provenance 协议；
+- [ ] 持久化动作任务与恢复机制；
+- [ ] 接入至少一个本地或远程动作来源作为 adapter；
+- [ ] 候选比较、原始产物保留和质量报告；
+- [ ] 视频动作捕捉、文本动作等能力可独立扩展；
+- [ ] 模型安装、doctor、资源预算和许可证确认流程。
+
+验收：移除或替换 provider 后，已创建资产仍可完整编辑和烘焙。
+
+### Phase E — 生态与高级形变
+
+- [ ] Spine/DragonBones 等可选 adapter；
+- [ ] Mesh、蒙皮权重和 deform；
+- [ ] 高级约束、附件切换和次级运动；
+- [ ] 四足与自定义语义 profile；
+- [ ] 批量生产、质量回归和插件 SDK。
+
+该阶段由实际生产需求驱动，不允许反向破坏通用内核。
+
+## 13. 非目标与避免事项
+
+- 不把某个研究仓库直接嵌入核心数据层；
+- 不把 Spine 当作 FrameBaker 项目格式；
+- 不因首个模型只支持人体而冻结人形专用 schema；
+- 不用每帧绝对关节坐标替代可编辑的局部轨道；
+- 不把预览 MP4、姿态表或生成 PNG 当作动作源文件；
+- 不为通过单个模型测试而硬编码骨骼名、帧数或输出目录；
+- 不在没有兼容性报告时做有损导入导出；
+- 不在许可不清晰时捆绑模型、checkpoint、运行时或训练数据；
+- 不承诺骨骼可以单独解决脸、服装、武器、披风和像素风格一致性。
+
+## 14. 尚未冻结的实现细节
+
+以下内容应通过原型和测量后决定，不妨碍上述架构实施：
+
+- JSON schema 库与运行时校验实现；
+- 关键帧 JSON 与二进制块的性能分界；
+- 数据库是按资产整块存 JSON 还是拆分高频轨道；
+- cubic curve 的具体控制点编码；
+- Mesh/权重的首个正式 schema；
+- glTF 扩展与 2D Draw Order 的映射策略；
+- 多角色、场景级动作编排是否进入同一包格式；
+- provider 运行在一次性 CLI、常驻 sidecar 还是远程服务。
+
+这些选择必须服从已冻结边界：可迁移、可替换、可复现、无静默数据损失。

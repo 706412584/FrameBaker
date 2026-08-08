@@ -24,7 +24,8 @@
 - 任务面板（JobPanel）：右侧常驻任务队列，WS `job_*` 事件驱动 + 轮询兜底；生成提交即关窗不阻塞；素材抠图统一走任务队列（不再同步挂起）；服务重启自动标记遗留任务中断
 - 多宫格精灵图网格切分：素材详情按行×列（1–8）逐格切成独立素材（网格线预览、可选自动抠图），复用 imageops worker，原素材保留
 - 多动作生成：素材详情以当前素材为引用图，**按序追加连续帧**（可重复同一动作，如走路×4），一次生成连续动作拼图表（`buildActionSheetPrompt` 强调帧间连续性），再「网格切分」拆格
-- 动作一致性实验：多动作生成支持独立动作参考图，角色外观与姿态按有序双图传给支持的 API provider；完整骨架、动作预设和角色绑定路线见 [`pose-motion-system.md`](./pose-motion-system.md)
+- 动作工作台：多动作生成支持独立动作参考图；`/motions` 提供固定人形 FK、CC0 动作预设和姿态表导出。现有功能继续保留但内存数据不做兼容记录，正式资产 UI 完成后直接改用 [`pose-motion-system.md`](./pose-motion-system.md) 的通用动画体系
+- 通用动画 Phase A：冻结 provider/外部格式无关的 Skeleton / MotionClip、连续时间与局部 TRS，发布严格 JSON Schema；实现矩阵 FK、RFC 8785 规范 JSON、SHA-256 内容寻址和 `.fbanim` v1 逻辑包的有界验证与确定性往返
 - 素材搜索：项目导入弹窗素材库 Tab 按素材名 / prompt 本地过滤
 - AI 视频生成逐帧切割：生成弹窗「图片 / 视频」切换——CLI 产物按魔数检测自动拆帧（任何模式）、百炼（万相）与 MiniMax 视频 API 异步任务轮询 → mp4 → ffmpeg 按 fps 抽帧入库
 - 帧右键菜单：通用 `ContextMenu` 组件（视口边缘收拢、Esc/外点/滚动关闭）；帧列表/时间轴右键——单帧菜单（关键帧/时长 ±1/剪裁/复制/删除），多选内右键出批量菜单（复用 BatchBar handler）
@@ -34,6 +35,7 @@
 | 优先级 | 事项 | 说明 / 来源 |
 | --- | --- | --- |
 | P0 | 任务队列持久化 | 现状：队列与负载在内存，重启后 queued/running 任务丢失。方案：启动时扫描 jobs 表恢复，或将负载序列化进 jobs 表 |
+| P0 | 通用动画资产 Phase B | 在已完成的通用内核和 `.fbanim` v1 逻辑包上建立独立持久化、引用关系、CRUD API 与正式资产 UI；不保留未持久化原型的兼容层，详见 [`pose-motion-system.md`](./pose-motion-system.md) |
 | P1 | 非 PNG 单图转换 | 现状：单图导入按字节直接落盘为 .png 命名。方案：非 PNG 时过一道 `ffmpeg -i in out.png` |
 | P1 | 导出精灵帧 trim | 裁掉透明边缘，JSON 记录 sourceSize/offset，减小体积 |
 | P1 | 旋转/缩放/透明度编辑 UI | 字段与 PATCH 已就绪，画布工具栏只暴露了 offset 拖拽 |

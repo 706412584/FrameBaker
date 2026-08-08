@@ -50,7 +50,8 @@ export default function MotionRigCanvas(props: Props) {
         const colors = rigColors();
         const pts = forward(current);
         const flip = currentView === "back" || currentView === "left" ? -1 : 1;
-        viewport.scale.set(flip * 1.45, 1.45);
+        const scale = Math.min(1.45, Math.max(0.82, (app.screen.height - 48) / 300));
+        viewport.scale.set(flip * scale, scale);
         const g = rig;
         g.clear();
         const w = app.screen.width / 2 + 80;
@@ -117,8 +118,12 @@ export default function MotionRigCanvas(props: Props) {
         }
       };
       ctx.current = { app, rig, viewport, draw };
-      // humanoid-v1 的下肢长于上身；按人体包围盒中点上移，窄屏也不会裁掉脚。
-      const center = () => { viewport.position.set(app.screen.width / 2, app.screen.height / 2 - 65); draw(); };
+      // 画布随工作区高度缩放，紧凑视口中仍保留完整人体和足部操作空间。
+      const center = () => {
+        const scale = Math.min(1.45, Math.max(0.82, (app.screen.height - 48) / 300));
+        viewport.position.set(app.screen.width / 2, app.screen.height / 2 - 45 * scale);
+        draw();
+      };
       app.renderer.on("resize", center);
       center();
       app.stage.eventMode = "static";
