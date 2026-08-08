@@ -3586,12 +3586,22 @@ body.resizing-row * {
 .animation-skeleton line { stroke: var(--accent); stroke-width: .06; stroke-linecap: round; }
 .animation-skeleton line.tip { stroke: var(--text-muted); stroke-dasharray: .08 .05; }
 .animation-skeleton circle { fill: var(--text); }
+.animation-skeleton circle[role="button"] { cursor: pointer; }
+.animation-skeleton circle.selected { fill: var(--accent); stroke: var(--text); stroke-width: .04; }
 .animation-controls input { flex: 1; min-width: 80px; }
+.animation-key-editor { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.animation-editor-actions { display: flex; align-items: flex-end; gap: 8px; }
+.animation-editor-actions > label { flex: 1; }
+.animation-transform-fields { display: grid; grid-template-columns: repeat(5, minmax(72px, 1fr)); gap: 6px; }
+.animation-transform-fields label { color: var(--text-muted); }
+.animation-transform-fields input { width: 100%; margin-top: 3px; }
 .animation-tracks { display: grid; gap: 4px; margin-top: 18px; overflow: hidden; }
 .animation-tracks > div { position: relative; height: 24px; border-bottom: 1px solid var(--border); }
 .animation-tracks span { display: inline-block; max-width: 45%; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
-.animation-tracks i { position: absolute; bottom: 2px; width: 7px; height: 7px; background: var(--accent); transform: translateX(-50%); }
-.animation-tracks .events i { border-radius: 50%; background: var(--text); }
+.animation-key-dot { position: absolute; z-index: 2; bottom: 2px; width: 9px; height: 9px; padding: 0; border: 0; background: var(--accent); transform: translateX(-50%); cursor: pointer; }
+.animation-tracks .events .animation-key-dot { border-radius: 50%; background: var(--text); }
+.animation-playhead { position: absolute; z-index: 1; top: 0; bottom: 0; width: 1px; background: var(--danger); pointer-events: none; }
+@media (max-width: 760px) { .animation-transform-fields { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 980px) { .animation-assets-page { padding-top: 72px; } .animation-workspace { grid-template-columns: 190px 1fr; } .animation-preview { grid-column: 1 / -1; } .motion-heading-side { align-items: flex-end; flex-direction: column; } }
 @media (max-width: 620px) { .animation-workspace { display: flex; flex-direction: column; } }
 

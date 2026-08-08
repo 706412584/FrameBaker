@@ -463,6 +463,54 @@ export function quaternionFromZRotation(angle: number): Quaternion {
   return [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)];
 }
 
+/** 返回规范四元数表示的 Z 轴旋转角（弧度，范围为 [-π, π]）。 */
+export function zRotationFromQuaternion(value: Quaternion): number {
+  const [x, y, z, w] = normalizeQuaternion(value);
+  return Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+}
+
+export const MOTION_KEY_TIME_EPSILON = 1e-4;
+
+/** 不可变地插入或覆盖单条连续时间轨道关键帧。 */
+export function upsertMotionKeyframe(
+  clip: MotionClip,
+  targetId: string,
+  property: MotionTrack["property"],
+  time: number,
+  value: Vec3 | Quaternion,
+  epsilon = MOTION_KEY_TIME_EPSILON,
+): MotionClip {
+  const index = clip.tracks.findIndex((track) => track.targetId === targetId && track.property === property);
+  const normalizedValue = property === "rotation" ? normalizeQuaternion(value as Quaternion) : [...value] as Vec3;
+  const old = index >= 0 ? clip.tracks[index]! : undefined;
+  const keyframes = [...(old?.keyframes ?? [])]
+    .filter((key) => Math.abs(key.time - time) > epsilon)
+    .concat({ time, value: normalizedValue } as never)
+    .sort((a, b) => a.time - b.time);
+  const track = { targetId, property, interpolation: old?.interpolation ?? "linear", keyframes } as MotionTrack;
+  const tracks = [...clip.tracks];
+  if (index >= 0) tracks[index] = track;
+  else tracks.push(track);
+  return { ...clip, tracks };
+}
+
+/** 不可变地删除目标骨骼指定通道在该时刻的 key；空轨道同时移除。 */
+export function deleteMotionKeyframe(
+  clip: MotionClip,
+  targetId: string,
+  properties: MotionTrack["property"] | MotionTrack["property"][],
+  time: number,
+  epsilon = MOTION_KEY_TIME_EPSILON,
+): MotionClip {
+  const wanted = new Set(Array.isArray(properties) ? properties : [properties]);
+  const tracks = clip.tracks.flatMap((track) => {
+    if (track.targetId !== targetId || !wanted.has(track.property)) return [track];
+    const keyframes = track.keyframes.filter((key) => Math.abs(key.time - time) > epsilon);
+    return keyframes.length ? [{ ...track, keyframes } as MotionTrack] : [];
+  });
+  return tracks.length === clip.tracks.length && tracks.every((track, index) => track === clip.tracks[index]) ? clip : { ...clip, tracks };
+}
+
 export function multiplyQuaternions(a: Quaternion, b: Quaternion): Quaternion {
   return normalizeQuaternion([
     a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
