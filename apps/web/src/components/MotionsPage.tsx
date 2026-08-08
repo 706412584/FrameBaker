@@ -8,6 +8,7 @@ import { DEFAULT_MOTION_TUNING, forward, interpolate, makeFrame, mirrorFrame, MO
 import ActionGenModal from "./ActionGenModal";
 import MotionRigCanvas from "./MotionRigCanvas";
 import PxSelect from "./PxSelect";
+import AnimationAssetsWorkspace from "./AnimationAssetsWorkspace";
 
 const clone = (frame: MotionKeyframe) => ({ ...frame, id: crypto.randomUUID(), root: { ...frame.root }, rotations: { ...frame.rotations } });
 
@@ -43,7 +44,7 @@ function renderSheet(frames: MotionKeyframe[], view: MotionView) {
   return { canvas, grid };
 }
 
-export default function MotionsPage() {
+export function LegacyMotionsPage({ onShowAssets }: { onShowAssets: () => void }) {
   const t = useT();
   const initialClip = useRef<MotionKeyframe[] | null>(null);
   initialClip.current ??= MOTION_PRESETS.idle();
@@ -109,7 +110,7 @@ export default function MotionsPage() {
   const jointLabel = t(`motion.joint.${selectedBone}` as Parameters<typeof t>[0]);
 
   return <div className="page motions-page">
-    <header className="motion-heading"><div><span className="page-kicker">{t("motion.rigName")}</span><h1>{t("motion.editorTitle")}</h1></div><p>{t("motion.editorHint")}</p></header>
+    <header className="motion-heading"><div><span className="page-kicker">{t("motion.rigName")}</span><h1>{t("motion.editorTitle")}</h1></div><div className="motion-heading-side"><p>{t("motion.editorHint")}</p><button className="px-btn" onClick={onShowAssets}>{t("animation.officialAssets")}</button></div></header>
     <div className="pixel-panel motion-commandbar">
       <div className="motion-presets"><span>{t("motion.preset")}</span>{(Object.keys(MOTION_PRESETS) as MotionPresetId[]).map((id) => <button className={`motion-chip${id === presetId ? " active" : ""}`} key={id} onClick={() => choosePreset(id)}>{t(`action.${id}` as Parameters<typeof t>[0])}</button>)}</div>
       <div className="motion-playback"><PxSelect value={view} onChange={(next) => setView(next as MotionView)} options={(["front", "back", "left", "right"] as const).map((next) => ({ value: next, label: t(`motion.view.${next}` as Parameters<typeof t>[0]) }))} /><label>{t("motion.fps")}<input className="px-input" type="number" min="1" max="30" value={fps} onChange={(event) => setFps(Math.max(1, Math.min(30, +event.target.value || 1)))} /></label><label className="px-check"><input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />{t("motion.loop")}</label><button className="px-btn accent" onClick={() => setPlaying((value) => !value)}>{playing ? <Pause size={15} /> : <Play size={15} />}{playing ? t("motion.stop") : t("motion.play")}</button></div>
@@ -135,4 +136,11 @@ export default function MotionsPage() {
     </section>
     {generate && character && poseId && <ActionGenModal material={character} v={0} initialPoseReferenceMaterialId={poseId} onClose={() => setGenerate(false)} onToast={(message) => notify(message, "info")} />}
   </div>;
+}
+
+export default function MotionsPage() {
+  const t = useT();
+  const [mode, setMode] = useState<"assets" | "legacy">("assets");
+  if (mode === "legacy") return <LegacyMotionsPage onShowAssets={() => setMode("assets")} />;
+  return <div className="page animation-assets-page"><div className="motion-mode-switch"><button className="px-btn accent">{t("animation.officialAssets")}</button><button className="px-btn" onClick={() => setMode("legacy")}>{t("animation.posePrototype")}</button></div><AnimationAssetsWorkspace /></div>;
 }

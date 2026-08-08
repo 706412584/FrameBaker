@@ -56,8 +56,10 @@ function validateParent(kind: FolderKind, parentId: string | null, selfId?: stri
   return null;
 }
 
-function itemTable(kind: FolderKind): "materials" | "projects" {
-  return kind === "material" ? "materials" : "projects";
+function itemTable(kind: FolderKind): "materials" | "projects" | "animation_assets" {
+  if (kind === "material") return "materials";
+  if (kind === "project") return "projects";
+  return "animation_assets";
 }
 
 export const foldersApi = new Elysia({ prefix: "/api" })
@@ -159,6 +161,7 @@ export const foldersApi = new Elysia({ prefix: "/api" })
         moved++;
       }
       if (body.kind === "material") broadcast("materials_changed", {});
+      else if (body.kind === "animation") broadcast("animation_assets_changed", {});
       else broadcast("folders_changed", { kind: body.kind }); // 项目列表前端靠 load 刷新
       return { ok: true, moved };
     },
@@ -170,4 +173,3 @@ export const foldersApi = new Elysia({ prefix: "/api" })
       }),
     }
   );
-

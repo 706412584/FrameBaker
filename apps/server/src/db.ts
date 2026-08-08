@@ -79,6 +79,19 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS animation_assets (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('skeleton', 'motion-clip')),
+  name TEXT NOT NULL,
+  skeleton_id TEXT,
+  folder_id TEXT,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_animation_assets_kind_folder ON animation_assets(kind, folder_id);
+CREATE INDEX IF NOT EXISTS idx_animation_assets_skeleton ON animation_assets(skeleton_id);
 `);
 
 // 存量库补列（CREATE IF NOT EXISTS 不会改已有表）

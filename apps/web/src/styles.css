@@ -3569,6 +3569,32 @@ body.resizing-row * {
   }
 }
 
+/* ===== 正式动画资产工作台 ===== */
+.animation-assets-page { max-width: 1560px; margin: 0 auto; padding-top: 72px; overflow-y: auto; }
+.motion-mode-switch { display: flex; gap: 8px; margin-bottom: 12px; }
+.motion-heading-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.motion-heading-side p { margin: 0; }
+.animation-workspace { display: grid; grid-template-columns: 220px minmax(260px, 340px) minmax(360px, 1fr); gap: 12px; min-height: 680px; }
+.animation-folders, .animation-library, .animation-preview { padding: 12px; min-width: 0; }
+.animation-library > header, .animation-preview > header, .animation-library > header > div, .animation-preview > header > div, .animation-controls { display: flex; align-items: center; gap: 8px; }
+.animation-library > header, .animation-preview > header { justify-content: space-between; flex-wrap: wrap; }
+.animation-list { display: grid; gap: 6px; margin-top: 12px; }
+.animation-list > button { display: flex; justify-content: space-between; gap: 8px; padding: 9px; color: var(--text); background: var(--surface); border: 1px solid var(--border); text-align: left; }
+.animation-list > button.on { border-color: var(--accent); box-shadow: 2px 2px 0 var(--accent); }
+.animation-list span { color: var(--text-muted); }
+.animation-skeleton { width: 100%; height: 390px; margin: 12px 0; overflow: visible; }
+.animation-skeleton line { stroke: var(--accent); stroke-width: .06; stroke-linecap: round; }
+.animation-skeleton line.tip { stroke: var(--text-muted); stroke-dasharray: .08 .05; }
+.animation-skeleton circle { fill: var(--text); }
+.animation-controls input { flex: 1; min-width: 80px; }
+.animation-tracks { display: grid; gap: 4px; margin-top: 18px; overflow: hidden; }
+.animation-tracks > div { position: relative; height: 24px; border-bottom: 1px solid var(--border); }
+.animation-tracks span { display: inline-block; max-width: 45%; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.animation-tracks i { position: absolute; bottom: 2px; width: 7px; height: 7px; background: var(--accent); transform: translateX(-50%); }
+.animation-tracks .events i { border-radius: 50%; background: var(--text); }
+@media (max-width: 980px) { .animation-assets-page { padding-top: 72px; } .animation-workspace { grid-template-columns: 190px 1fr; } .animation-preview { grid-column: 1 / -1; } .motion-heading-side { align-items: flex-end; flex-direction: column; } }
+@media (max-width: 620px) { .animation-workspace { display: flex; flex-direction: column; } }
+
 /* ===== Tooltip ===== */
 .tip {
   z-index: 99999;

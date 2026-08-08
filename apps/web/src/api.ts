@@ -27,6 +27,10 @@ import type {
   ProviderModelsRequest,
   ProviderModelsResponse,
   ServerConfig,
+  AnimationAsset,
+  AnimationAssetKind,
+  AnimationAssetResponse,
+  AnimationAssetsResponse,
   WSMessage,
 } from "@framebaker/shared";
 
@@ -163,6 +167,17 @@ export const api = {
       method: "POST",
       ...json({ kind, ids, folderId }),
     }),
+
+  // ---- 通用动画资产 ----
+  listAnimationAssets: (kind?: AnimationAssetKind) =>
+    req<AnimationAssetsResponse>(`/api/animation-assets${kind ? `?kind=${kind}` : ""}`).then((r) => r.assets),
+  getAnimationAsset: (id: string) =>
+    req<AnimationAssetResponse>(`/api/animation-assets/${id}`).then((r) => r.animationAsset),
+  createAnimationAsset: (asset: AnimationAsset, folderId?: string | null) =>
+    req<AnimationAssetResponse>("/api/animation-assets", { method: "POST", ...json({ asset, folderId: folderId ?? null }) }).then((r) => r.animationAsset),
+  putAnimationAsset: (id: string, asset: AnimationAsset, folderId?: string | null) =>
+    req<AnimationAssetResponse>(`/api/animation-assets/${id}`, { method: "PUT", ...json({ asset, ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
+  deleteAnimationAsset: (id: string) => req<OkResponse>(`/api/animation-assets/${id}`, { method: "DELETE" }),
 };
 
 /** 帧图片 URL（.png 后缀：Pixi Assets 按扩展名命中 texture parser；v 变化可破缓存） */

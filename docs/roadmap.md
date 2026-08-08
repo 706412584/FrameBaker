@@ -35,7 +35,7 @@
 | 优先级 | 事项 | 说明 / 来源 |
 | --- | --- | --- |
 | P0 | 任务队列持久化 | 现状：队列与负载在内存，重启后 queued/running 任务丢失。方案：启动时扫描 jobs 表恢复，或将负载序列化进 jobs 表 |
-| P0 | 通用动画资产 Phase B | 在已完成的通用内核和 `.fbanim` v1 逻辑包上建立独立持久化、引用关系、CRUD API 与正式资产 UI；不保留未持久化原型的兼容层，详见 [`pose-motion-system.md`](./pose-motion-system.md) |
+| P0 | 通用动画资产 Phase B | 独立持久化、动画文件夹、引用保护和 CRUD API 已完成；下一步建立正式资产 UI 与连续时间轨道编辑，不保留未持久化原型的兼容层，详见 [`pose-motion-system.md`](./pose-motion-system.md) |
 | P1 | 非 PNG 单图转换 | 现状：单图导入按字节直接落盘为 .png 命名。方案：非 PNG 时过一道 `ffmpeg -i in out.png` |
 | P1 | 导出精灵帧 trim | 裁掉透明边缘，JSON 记录 sourceSize/offset，减小体积 |
 | P1 | 旋转/缩放/透明度编辑 UI | 字段与 PATCH 已就绪，画布工具栏只暴露了 offset 拖拽 |

@@ -1,6 +1,6 @@
 # 通用动画资产与骨骼工作流规范
 
-> 状态：架构基线、核心资产、独立 schema 与 `.fbanim` v1 逻辑包已实现，正式持久化与资产 UI 尚未实现；最后更新：2026-08-08。
+> 状态：架构基线、核心资产、独立 schema、`.fbanim` v1 逻辑包、正式资产持久化 API 与基础资产 UI 已实现；最后更新：2026-08-08。
 >
 > 本文取代早期以固定人形姿态表和特定生成 provider 为中心的试验方案。它定义 FrameBaker 面向成熟工具的长期动画内核、交换格式、扩展边界、迁移路线和验收标准。已实现 API 仍以 [`api.md`](./api.md) 为准，当前运行架构以 [`architecture.md`](./architecture.md) 为准。
 
@@ -382,7 +382,8 @@ type AnimationCapability =
 
 ### Phase B — 正式资产与编辑闭环
 
-- [ ] 独立持久化、文件夹、引用关系和 CRUD API；
+- [x] 独立持久化、文件夹、引用关系和 CRUD API；
+- [x] 正式资产 UI 的基础浏览、文件夹管理、JSON 导入、改名/删除与连续时间只读预览；
 - [ ] 动作时间轴改为连续时间轨道；
 - [ ] Undo/Redo、曲线、事件、根运动和循环工具；
 - [ ] CharacterBinding 的 Region Attachment、Pivot、Slot 和 Draw Order；

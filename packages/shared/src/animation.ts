@@ -139,6 +139,34 @@ export interface MotionClip extends AnimationAssetBase<"motion-clip"> {
   provenance?: AssetProvenance;
 }
 
+export type AnimationAsset = Skeleton | MotionClip;
+
+/** 动画资产在本地库中的组织信息；资产正文仍由各自 schema 负责。 */
+export interface StoredAnimationAsset<T extends AnimationAsset = AnimationAsset> {
+  asset: T;
+  folder_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AnimationAssetSummary {
+  id: string;
+  kind: AnimationAssetKind;
+  name: string;
+  skeleton_id: string | null;
+  folder_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AnimationAssetsResponse {
+  assets: AnimationAssetSummary[];
+}
+
+export interface AnimationAssetResponse {
+  animationAsset: StoredAnimationAsset;
+}
+
 export interface ValidationIssue {
   path: string;
   message: string;

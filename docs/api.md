@@ -260,11 +260,37 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 取消排队中或运行中的任务 → `{ "ok": true }`。`queued` 直接出队标 `cancelled`；`running` 触发 AbortSignal（杀掉 `runCmd` 子进程 / 打断 API 轮询）。已结束状态返回 409。广播 `job_cancelled`。
 
+## 通用动画资产 /api/animation-assets
+
+Skeleton 与 MotionClip 以正式共享 schema 独立持久化。资产正文保持原始结构，数据库只额外保存文件夹与创建/更新时间；MotionClip 创建或替换时会对其引用的 Skeleton 做完整校验。
+
+### GET /api/animation-assets?kind=skeleton|motion-clip
+
+返回轻量索引 `{ "assets": [{ id, kind, name, skeleton_id, folder_id, created_at, updated_at }] }`；省略 `kind` 返回全部资产。
+
+### POST /api/animation-assets
+
+`{ "asset": { /* Skeleton 或 MotionClip */ }, "folderId": null }` → `{ "animationAsset": { "asset": {…}, "folder_id": null, "created_at": 0, "updated_at": 0 } }`。
+
+ID 冲突返回 409；schema 非法、动画文件夹错误或 MotionClip 引用的骨架不存在返回 400。成功广播 `animation_assets_changed`。
+
+### GET /api/animation-assets/:id
+
+返回完整资产正文与存储元数据；不存在返回 404。
+
+### PUT /api/animation-assets/:id
+
+请求同 POST。资产 ID 与种类不可修改；省略 `folderId` 保持原文件夹，传 `null` 移到未分组。替换骨架前会用新骨架重新校验全部依赖动作，任何动作失效时返回 409，不会部分写入。
+
+### DELETE /api/animation-assets/:id
+
+删除动作或未被引用的骨架。仍有 MotionClip 引用的骨架返回 409。
+
 ## 文件夹 /api/folders
 
-素材库与项目列表共用多级文件夹（`kind`: `material` | `project`）。资源通过 `folder_id` 归属；删除文件夹时内容上移到父级（不删资源）。
+素材库、项目列表与动画资产共用多级文件夹（`kind`: `material` | `project` | `animation`）。资源通过 `folder_id` 归属；删除文件夹时内容上移到父级（不删资源）。
 
-### GET /api/folders?kind=material|project
+### GET /api/folders?kind=material|project|animation
 
 → `{ "folders": [ { id, kind, parent_id, name, sort, created_at }, … ] }`（扁平列表，前端组树）。
 
@@ -298,6 +324,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 | `frame_updated` | PATCH / 替换 / 帧抠图完成 |
 | `frames_changed` | 导入完成 / 复制 / 删除 / 素材导入项目 |
 | `frames_reordered` | 换序 |
+| `animation_assets_changed` | 动画资产创建 / 替换 / 删除 / 移动 |
 | `project_deleted` | 删除项目 |
 | `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
 | `materials_changed` | 素材上传 / 生成 / 批量删除 / 移动文件夹 |

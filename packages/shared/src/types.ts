@@ -27,7 +27,7 @@ export type JobStatus = (typeof JOB_STATUSES)[number];
 export const MATERIAL_STATUSES = ["raw", "matted"] as const;
 export type MaterialStatus = (typeof MATERIAL_STATUSES)[number];
 
-export const FOLDER_KINDS = ["material", "project"] as const;
+export const FOLDER_KINDS = ["material", "project", "animation"] as const;
 export type FolderKind = (typeof FOLDER_KINDS)[number];
 
 /** 抠图引擎（服务端启动时探测一次，解析顺序 a→d） */
@@ -475,6 +475,7 @@ export const WS_EVENTS = [
   "project_deleted",
   "material_updated",
   "materials_changed",
+  "animation_assets_changed",
   "folders_changed",
   "settings_changed",
 ] as const;

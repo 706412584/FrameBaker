@@ -66,8 +66,8 @@
 
 ## 关键设计
 
-- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 当前是固定 `humanoid-v1` 的 Pixi/FK 动作编辑器，可把 512×512 单元格姿态表上传为素材，并携该姿态参考进入 `ActionGenModal`。它的状态只存在浏览器内存，不保留兼容记录；正式资产 UI 完成后直接替换数据模型。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
-- **通用动画内核（Phase A）**：`packages/shared/src/animation.ts` 定义 provider/格式无关的 Skeleton、连续时间 MotionClip、右/左手坐标声明、局部 TRS（四元数 `x,y,z,w`）、有界运行时校验、slerp 和 FK 求值；世界变换以列向量 `T * R * S` 的完整 4×4 矩阵为权威结果，正确保留层级非均匀缩放。`packages/shared/schemas/` 发布独立 Draft 2020-12 schema；`animationPackage.ts` 与 `json.ts` 实现 `.fbanim` v1 的逻辑 manifest、RFC 8785 规范字节、SHA-256 内容路径、依赖闭包、路径/大小限制与往返验证。ZIP 暂只视为后续受限传输层。`bun run check:animation` 同时检查矩阵 FK、时间边界、schema 严格编译、包篡改/路径攻击、确定性往返和 FK 等价。正式资产持久化与 UI 尚未实现。
+- **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 默认进入正式 Skeleton / MotionClip 资产工作台，支持动画目录、JSON 导入、连续时间采样与通用 SVG 骨架预览；“姿态表原型”切换项仍按需挂载固定 `humanoid-v1` Pixi/FK 编辑器，不迁移其浏览器内存数据。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
+- **通用动画内核（Phase A）**：`packages/shared/src/animation.ts` 定义 provider/格式无关的 Skeleton、连续时间 MotionClip、右/左手坐标声明、局部 TRS（四元数 `x,y,z,w`）、有界运行时校验、slerp 和 FK 求值；世界变换以列向量 `T * R * S` 的完整 4×4 矩阵为权威结果，正确保留层级非均匀缩放。`packages/shared/schemas/` 发布独立 Draft 2020-12 schema；`animationPackage.ts` 与 `json.ts` 实现 `.fbanim` v1 的逻辑 manifest、RFC 8785 规范字节、SHA-256 内容路径、依赖闭包、路径/大小限制与往返验证。ZIP 暂只视为后续受限传输层。`bun run check:animation` 同时检查矩阵 FK、时间边界、schema 严格编译、包篡改/路径攻击、确定性往返和 FK 等价。正式资产已具备持久化 CRUD 与基础浏览、导入、连续时间只读预览，轨道编辑与烘焙仍待后续阶段实现。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
 - **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error/cancelled + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复，启动时统一把遗留的 queued/running 标记为 error（「服务重启，任务中断」）。`POST /api/jobs/:id/cancel` 可取消排队/运行中任务（AbortSignal → `runCmd` 杀进程 / API 轮询中断）。所有状态变化经 `ws.ts` 广播；前端由 `JobPanel`（右侧常驻面板，挂在 App 根部）经 WS `job_*` 事件 + `GET /api/jobs(/:id)` 兜底轮询展示进度，排队/运行中可点取消。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。
@@ -151,7 +151,7 @@
 
 ```
 storage/
-  framebaker.db            # SQLite（WAL）：projects / frames / jobs / materials
+  framebaker.db            # SQLite（WAL）：项目、帧、任务、素材、动画资产与设置
   projects/<projectId>/
     raw/frame_0000.png ... # 拆帧/生成的原图（dup_<uuid>.png 复制帧、mat_<uuid>.png 素材导入帧）
     processed/<frameId>.png        # 抠图或替换后的图
@@ -170,7 +170,8 @@ storage/
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
-- `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目多级目录（kind=`material`|`project`）
+- `animation_assets(id, kind, name, skeleton_id, folder_id, data, created_at, updated_at)`：正式 Skeleton / MotionClip 资产；正文为通过共享 schema 校验的 JSON，`skeleton_id` 建立动作到骨架的可查询引用
+- `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目/动画多级目录（kind=`material`|`project`|`animation`）
 - `settings(key, value, updated_at)`：界面偏好（layout / theme / lang）与运行配置（genProvider / matting），服务端权威持久化；主题与语言前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
 
 ## 前端页面与组件
