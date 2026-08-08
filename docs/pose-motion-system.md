@@ -384,8 +384,9 @@ type AnimationCapability =
 
 - [x] 独立持久化、文件夹、引用关系和 CRUD API；
 - [x] 正式资产 UI 的基础浏览、文件夹管理、JSON 导入、改名/删除与连续时间只读预览；
-- [x] 动作时间轴改为连续时间轨道；当前完成通用骨骼选择、基础 2D TRS 关键帧写入/删除、即时持久化与会话内 Undo/Redo；
-- [ ] 曲线编辑、事件编辑、根运动与完整循环工具（当前仅可切换 clip.loop）；
+- [x] 动作时间轴改为连续时间轨道；当前完成通用骨骼选择、基础 2D TRS 关键帧写入/删除、即时持久化与覆盖全部 clip 编辑的会话内 Undo/Redo；
+- [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name 新增/删除、根运动策略选择与基础循环接缝修复；
+- [ ] 高级曲线与循环工具（不含于当前闭环：cubic、事件 payload UI、根运动提取算法/可视化及接触感知接缝）；
 - [ ] CharacterBinding 的 Region Attachment、Pivot、Slot 和 Draw Order；
 - [ ] RenderProfile 与确定性 PNG 序列烘焙；
 - [ ] 烘焙版本与人工修帧保护策略。

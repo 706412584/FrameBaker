@@ -471,6 +471,22 @@ export function zRotationFromQuaternion(value: Quaternion): number {
 
 export const MOTION_KEY_TIME_EPSILON = 1e-4;
 
+/** 不可变地添加并按时间排序事件；同一时刻事件保持原有先后顺序。 */
+export function addMotionEvent(clip: MotionClip, event: MotionEvent): MotionClip {
+  const normalized = { ...event, type: event.type.trim(), name: event.name.trim() };
+  if (!normalized.type || !normalized.name) throw new Error("事件类型和名称不能为空");
+  if (!Number.isFinite(normalized.time) || normalized.time < 0 || normalized.time > clip.duration || (clip.loop && normalized.time >= clip.duration)) {
+    throw new Error("事件时间超出动作范围");
+  }
+  return { ...clip, events: [...clip.events, normalized].sort((a, b) => a.time - b.time) };
+}
+
+/** 按当前有序事件数组的明确索引不可变删除。 */
+export function deleteMotionEvent(clip: MotionClip, index: number): MotionClip {
+  if (!Number.isInteger(index) || index < 0 || index >= clip.events.length) return clip;
+  return { ...clip, events: clip.events.filter((_, eventIndex) => eventIndex !== index) };
+}
+
 /** 不可变地插入或覆盖单条连续时间轨道关键帧。 */
 export function upsertMotionKeyframe(
   clip: MotionClip,
@@ -509,6 +525,20 @@ export function deleteMotionKeyframe(
     return keyframes.length ? [{ ...track, keyframes } as MotionTrack] : [];
   });
   return tracks.length === clip.tracks.length && tracks.every((track, index) => track === clip.tracks[index]) ? clip : { ...clip, tracks };
+}
+
+/** 把每条现有轨道在 t=0 的通道值复制到 duration，形成基础循环接缝。 */
+export function closeMotionLoopSeam(clip: MotionClip, skeleton: Skeleton): MotionClip {
+  if (!clip.loop || clip.duration <= 0 || clip.tracks.length === 0) return clip;
+  const pose = sampleMotionClip(clip, skeleton, 0);
+  let result = clip;
+  for (const track of clip.tracks) {
+    const transform = pose.local[track.targetId];
+    if (!transform) continue;
+    const value = track.property === "translation" ? transform.translation : track.property === "rotation" ? transform.rotation : transform.scale;
+    result = upsertMotionKeyframe(result, track.targetId, track.property, clip.duration, value);
+  }
+  return result;
 }
 
 export function multiplyQuaternions(a: Quaternion, b: Quaternion): Quaternion {

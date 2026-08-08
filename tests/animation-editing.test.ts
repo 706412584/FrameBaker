@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deleteMotionKeyframe, quaternionFromZRotation, sampleMotionClip, upsertMotionKeyframe, zRotationFromQuaternion, type MotionClip, type Skeleton } from "../packages/shared/src";
+import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, quaternionFromZRotation, sampleMotionClip, upsertMotionKeyframe, validateMotionClip, zRotationFromQuaternion, type MotionClip, type Skeleton } from "../packages/shared/src";
 
 const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: "s", name: "S", coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "normalized" }, bones: [{ id: "b", name: "Bone", parentId: null, rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }] };
 const clip = (): MotionClip => ({ schemaVersion: 1, kind: "motion-clip", id: "c", name: "C", skeletonId: "s", duration: 2, loop: false, tracks: [], events: [] });
@@ -26,5 +26,28 @@ describe("连续时间轨道编辑", () => {
     const sampled = sampleMotionClip(value, skeleton, 0).local.b!.rotation;
     expect(Math.hypot(...sampled)).toBeCloseTo(1, 10);
     expect(zRotationFromQuaternion(sampled)).toBeCloseTo(angle, 10);
+  });
+
+  test("事件添加会 trim 并按时间排序，删除使用排序后的明确索引", () => {
+    let value = addMotionEvent(clip(), { time: 1.5, type: " marker ", name: " end " });
+    value = addMotionEvent(value, { time: 0.25, type: "sound", name: "start", payload: { volume: 1 } });
+    expect(value.events.map((event) => [event.time, event.type, event.name])).toEqual([[0.25, "sound", "start"], [1.5, "marker", "end"]]);
+    value = deleteMotionEvent(value, 0);
+    expect(value.events).toEqual([{ time: 1.5, type: "marker", name: "end" }]);
+    expect(validateMotionClip(value, skeleton).ok).toBe(true);
+    expect(() => addMotionEvent({ ...clip(), loop: true }, { time: 2, type: "marker", name: "seam" })).toThrow("事件时间超出动作范围");
+  });
+
+  test("循环接缝在 duration 写入 t=0 值并保留插值", () => {
+    let value = upsertMotionKeyframe({ ...clip(), loop: true }, "b", "translation", 0, [1, 2, 3]);
+    value = upsertMotionKeyframe(value, "b", "translation", 1, [9, 8, 7]);
+    value.tracks[0]!.interpolation = "step";
+    value = closeMotionLoopSeam(value, skeleton);
+    const track = value.tracks[0]!;
+    expect(track.interpolation).toBe("step");
+    expect(track.keyframes.at(-1)).toEqual({ time: 2, value: [1, 2, 3] });
+    expect(track.keyframes[0]!.value).toEqual(track.keyframes.at(-1)!.value);
+    expect(validateMotionClip(value, skeleton).ok).toBe(true);
+    expect(closeMotionLoopSeam({ ...value, loop: false }, skeleton).tracks).toBe(value.tracks);
   });
 });
