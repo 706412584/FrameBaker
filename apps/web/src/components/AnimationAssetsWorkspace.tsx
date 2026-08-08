@@ -43,11 +43,25 @@ function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding
   const t = useT(), [draft, setDraft] = useState(binding);
   useEffect(() => setDraft(binding), [binding]);
   const pose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [skeleton]);
+  const previewViewBox = useMemo(() => {
+    const points = draft.slots.flatMap((slot) => {
+      const attachment = draft.attachments.find((item) => item.id === slot.attachmentId), bone = pose.worldMatrices[slot.boneId];
+      if (!attachment || !bone) return [];
+      const world = multiplyMatrices(bone, transformToMatrix(attachment.rest)), [w, h] = attachment.size, [px, py] = attachment.pivot;
+      const left = -px * w, bottom = -(1 - py) * h;
+      return [[left, bottom, 0], [left + w, bottom, 0], [left, bottom + h, 0], [left + w, bottom + h, 0]].map((point) => transformPoint(world, point as [number, number, number]));
+    });
+    if (!points.length) return "-2 -2 4 4";
+    const minX = Math.min(...points.map((point) => point[0])), maxX = Math.max(...points.map((point) => point[0]));
+    const minY = Math.min(...points.map((point) => point[1])), maxY = Math.max(...points.map((point) => point[1]));
+    const pad = Math.max(.25, Math.max(maxX - minX, maxY - minY) * .15);
+    return `${minX - pad} ${-(maxY + pad)} ${Math.max(.5, maxX - minX + pad * 2)} ${Math.max(.5, maxY - minY + pad * 2)}`;
+  }, [draft, pose]);
   const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => ({ ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) }));
   const patchSlot = (index: number, patch: Partial<CharacterBinding["slots"][number]>) => setDraft((old) => ({ ...old, slots: old.slots.map((item, i) => i === index ? { ...item, ...patch } : item) }));
-  const addRow = () => { const id = uid("region"), order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0; setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [64, 64], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId: skeleton.bones[0]?.id ?? "", attachmentId: id, drawOrder: order }] })); };
+  const addRow = () => { const id = uid("region"), order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0; setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [1, 1], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId: skeleton.bones[0]?.id ?? "", attachmentId: id, drawOrder: order }] })); };
   return <section className="binding-editor">
-    <article className="binding-preview-card"><h3>{t("animation.binding.restPreview")}</h3><svg className="animation-skeleton binding-preview" viewBox="-128 -128 256 256">
+    <article className="binding-preview-card"><h3>{t("animation.binding.restPreview")}</h3><svg className="animation-skeleton binding-preview" viewBox={previewViewBox}>
       <g transform="scale(1 -1)">{[...draft.slots].sort((a, b) => a.drawOrder - b.drawOrder).map((slot) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId), matrix = pose.worldMatrices[slot.boneId]; if (!attachment || !matrix) return null; const world = multiplyMatrices(matrix, transformToMatrix(attachment.rest)); const [w, h] = attachment.size, [px, py] = attachment.pivot; return <image key={slot.id} href={materialImageUrl(attachment.materialId, undefined, attachment.imageSlot)} x={-px * w} y={-(1 - py) * h} width={w} height={h} preserveAspectRatio="none" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} />; })}</g>
     </svg><p>{t("animation.binding.yUp")}</p></article>
     <div className="binding-rows">{draft.slots.map((slot, index) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId)!; const material = materials.find((item) => item.id === attachment?.materialId); const field = (label: string, child: React.ReactNode, key?: React.Key) => <label key={key}>{label}{child}</label>; return <article className="binding-slot-card" key={slot.id}>
@@ -58,7 +72,7 @@ function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding
       {field(t("animation.binding.imageSlot"), <PxSelect value={attachment.imageSlot} options={[{ value: "raw", label: "raw" }, { value: "processed", label: "processed", disabled: !material?.processed_path }]} onChange={(imageSlot) => patchRegion(attachment.id, { imageSlot: imageSlot as "raw" | "processed" })} />)}
       {field(t("animation.binding.drawOrder"), <input className="px-input" type="number" step="1" value={slot.drawOrder} onChange={(e) => patchSlot(index, { drawOrder: +e.target.value })} />)}</div></section>
       <section><h4>{t("animation.binding.geometry")}</h4><div className="binding-field-grid">
-      {[0, 1].map((axis) => field(axis ? t("animation.binding.height") : t("animation.binding.width"), <input className="px-input" type="number" min="0.01" step="1" value={attachment.size[axis]} onChange={(e) => { const size = [...attachment.size] as [number, number]; size[axis] = +e.target.value; patchRegion(attachment.id, { size }); }} />, `size-${axis}`))}
+      {[0, 1].map((axis) => field(axis ? t("animation.binding.height") : t("animation.binding.width"), <input className="px-input" type="number" min="0.01" step="0.1" value={attachment.size[axis]} onChange={(e) => { const size = [...attachment.size] as [number, number]; size[axis] = +e.target.value; patchRegion(attachment.id, { size }); }} />, `size-${axis}`))}
       {[0, 1].map((axis) => field(axis ? t("animation.binding.pivotY") : t("animation.binding.pivotX"), <input className="px-input" type="number" min="0" max="1" step="0.05" value={attachment.pivot[axis]} onChange={(e) => { const pivot = [...attachment.pivot] as [number, number]; pivot[axis] = +e.target.value; patchRegion(attachment.id, { pivot }); }} />, `pivot-${axis}`))}
       </div></section><section><h4>{t("animation.binding.restTransform")}</h4><div className="binding-field-grid">
       {[0, 1].map((axis) => field(axis ? t("animation.binding.translationY") : t("animation.binding.translationX"), <input className="px-input" type="number" step="0.1" value={attachment.rest.translation[axis]} onChange={(e) => { const translation = [...attachment.rest.translation] as [number, number, number]; translation[axis] = +e.target.value; patchRegion(attachment.id, { rest: { ...attachment.rest, translation } }); }} />, `translation-${axis}`))}
