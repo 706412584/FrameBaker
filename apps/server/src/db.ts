@@ -11,6 +11,7 @@ export const STORAGE_ROOT = join(REPO_ROOT, "storage");
 mkdirSync(join(STORAGE_ROOT, "projects"), { recursive: true });
 mkdirSync(join(STORAGE_ROOT, "staging"), { recursive: true });
 mkdirSync(join(STORAGE_ROOT, "materials"), { recursive: true });
+mkdirSync(join(STORAGE_ROOT, "raster-sequences"), { recursive: true });
 
 export const db = new Database(join(STORAGE_ROOT, "framebaker.db"), { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
@@ -92,6 +93,15 @@ CREATE TABLE IF NOT EXISTS animation_assets (
 );
 CREATE INDEX IF NOT EXISTS idx_animation_assets_kind_folder ON animation_assets(kind, folder_id);
 CREATE INDEX IF NOT EXISTS idx_animation_assets_skeleton ON animation_assets(skeleton_id);
+
+CREATE TABLE IF NOT EXISTS raster_sequences (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id TEXT,
+  manifest TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_raster_sequences_created ON raster_sequences(created_at);
 `);
 
 // SQLite 无法原地修改 CHECK；安全重建旧版动画资产表并保留全部行。

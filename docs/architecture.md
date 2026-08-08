@@ -203,4 +203,6 @@ storage/
 
 ### 浏览器 PNG 序列烘焙草稿
 
-`apps/web/src/animationBake.ts` 将 Skeleton、MotionClip、CharacterBinding 和 RenderProfile 在 Canvas2D 中组合。采样使用 `[0,duration)` 固定时刻（零时长一帧、最多 10000 帧），按 Slot.drawOrder 绘制并明确完成 Y-up 到 Canvas Y-down 与 Region pivot 映射。PNG 仅为下载载荷；确定性身份来自 `getImageData` RGBA 的 SHA-256，不承诺跨浏览器 PNG 编码字节一致。草稿只留内存并复用零依赖 ZIP helper，尚未形成 RasterSequence 服务端资产。
+`apps/web/src/animationBake.ts` 将 Skeleton、MotionClip、CharacterBinding 和 RenderProfile 在 Canvas2D 中组合。采样使用 `[0,duration)` 固定时刻（零时长一帧、最多 10000 帧），按 Slot.drawOrder 绘制并明确完成 Y-up 到 Canvas Y-down 与 Region pivot 映射。RGBA canonical SHA-256 与 PNG bytes SHA-256 分别记录。
+
+提交后服务端在专用 `raster_sequences` 表与 `storage/raster-sequences/<uuid>/frames/` 建立不可变版本；源资产正文使用 canonical JSON 摘要固化。写入先落 `.staging-<uuid>`，SQLite transaction 内插行并 rename，失败清除目录和可见行。导入项目另行复制 PNG、生成新 Frame ID 并事务追加，因此重烘焙、删除序列都不会覆盖或破坏人工修帧。

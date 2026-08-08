@@ -187,8 +187,31 @@ export interface BakedRasterDraftManifest {
   bakeEngine: "framebaker-canvas2d-v1";
   source: { skeletonId: string; motionClipId: string; characterBindingId: string; renderProfileId: string };
   profile: { width: number; height: number; fps: number; origin: [number, number]; scale: number; background: "transparent" };
-  frames: Array<{ index: number; time: number; pixelDigest: `sha256:${string}` }>;
+  frames: Array<{ index: number; time: number; pixelDigest: `sha256:${string}`; pngDigest: `sha256:${string}` }>;
 }
+
+export type RasterSequenceFrame = BakedRasterDraftManifest["frames"][number] & { path: string };
+export interface RasterSequenceManifest {
+  id: string;
+  name: string;
+  schemaVersion: 1;
+  kind: "raster-sequence";
+  bakeEngine: BakedRasterDraftManifest["bakeEngine"];
+  source: BakedRasterDraftManifest["source"];
+  sourceDigests: Record<keyof BakedRasterDraftManifest["source"], `sha256:${string}`>;
+  profile: BakedRasterDraftManifest["profile"];
+  frameCount: number;
+  frames: RasterSequenceFrame[];
+  createdAt: number;
+  parentId: string | null;
+}
+export interface RasterSequenceSummary {
+  id: string; name: string; parentId: string | null; frameCount: number; createdAt: number;
+  source: BakedRasterDraftManifest["source"];
+  sourceDigests: RasterSequenceManifest["sourceDigests"];
+}
+export interface RasterSequenceResponse { rasterSequence: RasterSequenceManifest }
+export interface RasterSequencesResponse { rasterSequences: RasterSequenceSummary[] }
 
 export type EditableAnimationAsset = Skeleton | MotionClip | CharacterBinding | RenderProfile;
 export type AnimationAsset = EditableAnimationAsset;

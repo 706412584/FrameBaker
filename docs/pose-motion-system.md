@@ -387,8 +387,8 @@ type AnimationCapability =
 - [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name 新增/删除、根运动策略选择与基础循环接缝修复；
 - [ ] 高级曲线与循环工具（不含于当前闭环：cubic、事件 payload UI、根运动提取算法/可视化及接触感知接缝）；
 - [x] CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；
-- [ ] RenderProfile 与确定性 PNG 序列烘焙；
-- [ ] 烘焙版本与人工修帧保护策略。
+- [x] RenderProfile 与确定性 PNG 序列烘焙；
+- [x] 不可变 RasterSequence 版本、源摘要固化、追加导入与人工修帧保护策略。
 
 验收：同一动作可驱动至少两个不同角色绑定，并可重复烘焙后进入现有帧编辑器。
 

@@ -407,3 +407,9 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
 ## RenderProfile 动画资产（Phase B 草稿）
 
 通用 `/api/animation-assets` CRUD 显式接受 `kind: "render-profile"`。v1 正文包含 `width`、`height`（1..4096 整数）、`fps`（1..120）、画布像素 `origin`、正数 `scale` 与固定 `background: "transparent"`；该资产没有 `skeleton_id`。`.fbanim` v1 仍只封装 Skeleton/MotionClip，拒绝 RenderProfile。
+
+## RasterSequence（Phase B）
+
+RasterSequence 是独立、不可变的派生资产，不属于 `animation_assets`，也不进入 `.fbanim` v1。`POST /api/raster-sequences` 接收 multipart：`name`、可选 `parentId`、`manifest`（JSON）及同名 `frames` PNG 文件；服务端验证源资产、规范 JSON 摘要、profile 快照、固定半开采样、PNG IHDR/尺寸与 PNG SHA-256 后创建全新 UUID。另有 `GET /api/raster-sequences`、`GET /api/raster-sequences/:id`、`DELETE /api/raster-sequences/:id`，没有 PUT/PATCH。
+
+`POST /api/raster-sequences/:id/import-project` body `{ "projectId": "…" }` 将 PNG 独立复制为全新项目帧并追加到末尾，`source=raster`，metadata 固化 sequence/frame/digest；重复导入继续追加，不覆盖已有帧、processed 图片或人工变换。

@@ -70,7 +70,8 @@ export async function bakeAnimationPngSequence(input: { skeleton: Skeleton; clip
       context.setTransform(1, 0, 0, 1, 0, 0);
       const rgba = new Uint8Array(context.getImageData(0, 0, canvas.width, canvas.height).data);
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PNG 编码失败")), "image/png"));
-      frames.push({ index, time, pixelDigest: await sha256(rgba), png: new Uint8Array(await blob.arrayBuffer()) });
+      const png = new Uint8Array(await blob.arrayBuffer());
+      frames.push({ index, time, pixelDigest: await sha256(rgba), pngDigest: await sha256(png), png });
       input.onProgress?.(index + 1, times.length);
     }
   } finally { for (const image of images.values()) image.close(); }

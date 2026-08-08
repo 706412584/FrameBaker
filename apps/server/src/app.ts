@@ -14,6 +14,7 @@ import { materialsApi } from "./api/materials";
 import { settingsApi } from "./api/settings";
 import { foldersApi } from "./api/folders";
 import { animationAssetsApi } from "./api/animationAssets";
+import { rasterSequencesApi } from "./api/rasterSequences";
 import { cancelJob } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
@@ -159,6 +160,7 @@ export const app = new Elysia()
   .use(materialsApi)
   .use(foldersApi)
   .use(animationAssetsApi)
+  .use(rasterSequencesApi)
   .use(settingsApi);
 
 export type App = typeof app;

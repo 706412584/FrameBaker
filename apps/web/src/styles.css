@@ -3596,13 +3596,13 @@ body.resizing-row * {
 .binding-row .px-input { min-width: 0; }
 .animation-controls input { flex: 1; min-width: 80px; }
 .animation-key-editor { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
-.animation-editor-actions { display: flex; align-items: flex-end; gap: 8px; }
+.animation-editor-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; min-width: 0; }
 .animation-editor-actions > label { flex: 1; }
 .animation-transform-fields { display: grid; grid-template-columns: repeat(5, minmax(72px, 1fr)); gap: 6px; }
 .animation-transform-fields label { color: var(--text-muted); }
 .animation-transform-fields input { width: 100%; margin-top: 3px; }
 .animation-clip-tools { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
-.animation-event-form, .animation-event-list > div { display: flex; gap: 6px; align-items: center; }
+.animation-event-form, .animation-event-list > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .animation-event-form input { min-width: 0; flex: 1; }
 .animation-event-list { display: grid; gap: 4px; }
 .animation-event-list > div > button:first-child { flex: 1; padding: 4px; color: var(--text); background: transparent; border: 0; text-align: left; cursor: pointer; }

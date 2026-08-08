@@ -15,6 +15,7 @@ export const FRAME_SOURCES = [
   "image",
   "extract",
   "duplicate",
+  "raster",
 ] as const;
 export type FrameSource = (typeof FRAME_SOURCES)[number];
 
@@ -503,6 +504,7 @@ export const SOURCE_COLORS: Record<FrameSource, string> = {
   image: "#a4ffff",
   extract: "#8be9fd",
   duplicate: "#caa9fa",
+  raster: "#caa9fa",
 };
 
 // ===== 实体（API 输出形态：tags/metadata 已解析为 JSON）=====
