@@ -33,12 +33,12 @@ export function createProviderAdapter(
   if (!providerConfigured(provider)) throw new Error(`生成 provider「${provider.name}」配置不完整，请到「设置」页补齐`);
   const capabilityModels = req.mediaKind === "video" ? provider.videoModels : provider.imageModels;
   const model = req.model?.trim() || capabilityModels[0] || "";
-  if (provider.type !== "cli" && !model)
-    throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   if (req.mediaKind === "video" && !PROVIDER_VIDEO_SUPPORT[provider.type])
     throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
   if (req.mediaKind === "video" && provider.type !== "cli" && provider.videoModels.length === 0)
     throw new Error(`provider「${provider.name}」未配置视频模型`);
+  if (provider.type !== "cli" && !model)
+    throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   if (provider.type !== "cli" && req.model?.trim() && capabilityModels.length > 0 && !capabilityModels.includes(req.model.trim()))
     throw new Error(`模型「${req.model.trim()}」不属于 provider「${provider.name}」的当前${req.mediaKind === "video" ? "视频" : "图片"}能力列表`);
 

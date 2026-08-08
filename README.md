@@ -9,6 +9,7 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![Core unit coverage](https://img.shields.io/badge/core%20unit%20coverage-100%25-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 **English** | [中文](README.zh-CN.md)
@@ -90,6 +91,8 @@ bun start        # production
 
   **GPU mode** requires an NVIDIA GPU and a matching CUDA Toolkit installation. `onnxruntime-gpu` version must align with your CUDA version (e.g. onnxruntime-gpu 1.16 ↔ CUDA 11.8, 1.17+ ↔ CUDA 12.x). If you get DLL load errors, verify CUDA is installed and the version matches. To switch between CPU and GPU, delete `.venv-matting/` and re-run the script with the other flag.
 - Type check: `bun run typecheck`
+- Unit tests: `bun run test`
+- Core unit-test coverage report: `bun run test:coverage` (currently covers shared rules, frame geometry, and ZIP export)
 
 ### Windows Notes & Gotchas
 
