@@ -279,8 +279,13 @@ export default function SettingsPage() {
         const enh = Array.isArray(s["promptEnhancers"]) ? (s["promptEnhancers"] as PromptEnhancer[]) : [];
         setEnhancers(
           enh.map((e) => {
-            const match = e.providerId || list.find((p) => e.apiBaseUrl && e.apiKey && p.apiBaseUrl === e.apiBaseUrl && p.apiKey === e.apiKey)?.id || "";
-            return { id: e.id, name: e.name, providerId: match, model: e.model || e.apiModel || "", legacy: !match && !!e.apiBaseUrl };
+            const model = e.model || e.apiModel || "";
+            const modelMatches = list.filter((p) => p.type !== "cli" && (p.textModels ?? []).includes(model));
+            const match = e.providerId
+              || list.find((p) => e.apiBaseUrl && e.apiKey && p.apiBaseUrl === e.apiBaseUrl && p.apiKey === e.apiKey)?.id
+              // 旧记录没有 providerId/凭证时，仅在模型名唯一时恢复关联，避免错用连接。
+              || (modelMatches.length === 1 ? modelMatches[0].id : "");
+            return { id: e.id, name: e.name, providerId: match, model, legacy: !match && !!e.apiBaseUrl };
           })
         );
       })

@@ -4,6 +4,8 @@
 
 Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI generation), cut out backgrounds with the built-in rembg matting engine, review results in the materials library, then edit frames on a PixiJS onion-skin canvas, arrange the timeline, preview playback, and export a spritesheet.
 
+> 🚧 **In progress:** support for multi-axis frame animation and skeletal-animation binding is under active development.
+
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
 ![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
