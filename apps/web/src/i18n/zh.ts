@@ -44,6 +44,8 @@ export const zh = {
   "animation.binding.restPreview": "静止姿势预览", "animation.binding.yUp": "世界空间 Y 轴向上；预览已明确转换为屏幕 Y 轴向下。",
   "animation.binding.addRegion": "添加插槽与区域附件", "animation.binding.width": "宽度", "animation.binding.height": "高度",
   "animation.binding.pivotX": "轴心 X", "animation.binding.pivotY": "轴心 Y", "animation.binding.drawOrder": "绘制顺序",
+  "animation.binding.translationX": "附件位移 X", "animation.binding.translationY": "附件位移 Y", "animation.binding.rotation": "附件旋转 Z（度）",
+  "animation.binding.scaleX": "附件缩放 X", "animation.binding.scaleY": "附件缩放 Y",
   "animation.profile.kind": "渲染配置", "animation.profile.create": "新建渲染配置", "animation.profile.newName": "新渲染配置",
   "animation.profile.createFailed": "创建渲染配置失败：{msg}", "animation.profile.saved": "渲染配置已保存",
   "animation.profile.width": "画布宽度", "animation.profile.height": "画布高度", "animation.profile.fps": "帧率", "animation.profile.scale": "世界缩放",

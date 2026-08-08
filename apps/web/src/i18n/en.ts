@@ -44,6 +44,8 @@ export const en = {
   "animation.raster.failed": "Raster sequence operation failed: {msg}", "animation.raster.immutableHint": "Every commit creates a new immutable version. Import only appends copied frames and never overwrites manual edits.",
   "animation.raster.import": "Import to project (append)", "animation.raster.imported": "Appended {count} copied frames", "animation.raster.deleteConfirm": "Delete this entire raster sequence version? Imported project frames remain available.",
   "animation.binding.pivotX": "Pivot X", "animation.binding.pivotY": "Pivot Y", "animation.binding.drawOrder": "Draw order",
+  "animation.binding.translationX": "Attachment translation X", "animation.binding.translationY": "Attachment translation Y", "animation.binding.rotation": "Attachment rotation Z (deg)",
+  "animation.binding.scaleX": "Attachment scale X", "animation.binding.scaleY": "Attachment scale Y",
   "animation.bone": "Bone",
   "animation.translationX": "Translation X", "animation.translationY": "Translation Y",
   "animation.rotationZ": "Rotation Z (°)", "animation.scaleX": "Scale X", "animation.scaleY": "Scale Y",
