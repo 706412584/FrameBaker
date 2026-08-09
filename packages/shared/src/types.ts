@@ -31,6 +31,9 @@ export type MaterialStatus = (typeof MATERIAL_STATUSES)[number];
 export const FOLDER_KINDS = ["material", "project", "animation"] as const;
 export type FolderKind = (typeof FOLDER_KINDS)[number];
 
+export const PROJECT_KINDS = ["frame", "skeletal"] as const;
+export type ProjectKind = (typeof PROJECT_KINDS)[number];
+
 /** 抠图引擎（服务端启动时探测一次，解析顺序 a→d） */
 export const MATTING_ENGINES = ["custom-cli", "rembg-bundled", "rembg-path", "none"] as const;
 export type MattingEngine = (typeof MATTING_ENGINES)[number];
@@ -512,6 +515,7 @@ export const SOURCE_COLORS: Record<FrameSource, string> = {
 export interface Project {
   id: string;
   name: string;
+  kind: ProjectKind;
   folder_id: string | null;
   created_at: number;
   frame_count?: number;

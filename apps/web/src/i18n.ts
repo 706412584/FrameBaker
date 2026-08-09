@@ -16,8 +16,8 @@ export const LANG_KEY = "framebaker-lang";
 const DICTS: Record<Lang, Record<string, string>> = { zh, en };
 
 const TITLES: Record<Lang, string> = {
-  zh: "FrameBaker · 像素逐帧动画编辑器",
-  en: "FrameBaker · Pixel Frame-by-Frame Editor",
+  zh: "FrameBaker · 像素动画编辑器",
+  en: "FrameBaker · Pixel Animation Editor",
 };
 
 const listeners = new Set<(l: Lang) => void>();

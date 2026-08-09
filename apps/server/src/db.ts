@@ -19,6 +19,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'frame',
   folder_id TEXT,
   created_at INTEGER NOT NULL
 );
@@ -130,6 +131,7 @@ function ensureColumn(table: string, column: string, decl: string) {
   }
 }
 ensureColumn("projects", "folder_id", "TEXT");
+ensureColumn("projects", "kind", "TEXT NOT NULL DEFAULT 'frame'");
 ensureColumn("materials", "folder_id", "TEXT");
 
 // 视频/GIF 抽帧入库曾误标 source=mp4|gif；PNG 产物改为 extract

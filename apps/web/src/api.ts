@@ -20,6 +20,7 @@ import type {
   MaterialsResponse,
   OkResponse,
   Project,
+  ProjectKind,
   ProjectResponse,
   ProjectsResponse,
   ProviderTestRequest,
@@ -37,7 +38,7 @@ import type {
   WSMessage,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, WSMessage } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -79,10 +80,10 @@ interface GenerateBody {
 
 export const api = {
   listProjects: () => req<ProjectsResponse>("/api/projects").then((r) => r.projects),
-  createProject: (name: string, folderId?: string | null) =>
-    req<{ id: string; name: string }>("/api/projects", {
+  createProject: (name: string, kind: ProjectKind = "frame", folderId?: string | null) =>
+    req<{ id: string; name: string; kind: ProjectKind }>("/api/projects", {
       method: "POST",
-      ...json({ name, folderId: folderId ?? null }),
+      ...json({ name, kind, folderId: folderId ?? null }),
     }),
   getProject: (id: string) => req<ProjectResponse>(`/api/projects/${id}`).then((r) => r.project),
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),

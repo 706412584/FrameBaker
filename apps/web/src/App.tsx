@@ -5,10 +5,12 @@ import Editor from "./components/Editor";
 import MaterialsPage from "./components/MaterialsPage";
 import MotionsPage from "./components/MotionsPage";
 import SettingsPage from "./components/SettingsPage";
+import SkeletalProjectEditor from "./components/SkeletalProjectEditor";
 import TopNav from "./components/TopNav";
 import AppModals from "./components/AppModals";
 import JobPanel from "./components/JobPanel";
-import { wsClient } from "./api";
+import { api, wsClient, type Project } from "./api";
+import { useT } from "./i18n";
 
 type View =
   | { page: "home" }
@@ -23,6 +25,26 @@ function viewFromLocation(): View {
   if (/^\/settings/.test(location.pathname)) return { page: "settings" };
   const m = /^\/project\/([\w-]+)/.exec(location.pathname);
   return m ? { page: "editor", projectId: m[1] } : { page: "home" };
+}
+
+function ProjectEditorRoute({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+  const t = useT();
+  const [project, setProject] = useState<Project | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setProject(null);
+    setError("");
+    api.getProject(projectId).then((value) => active && setProject(value)).catch((e) => active && setError((e as Error).message));
+    return () => { active = false; };
+  }, [projectId]);
+
+  if (error) return <div className="project-route-state"><p>{t("project.loadFailed", { msg: error })}</p><button type="button" className="px-btn" onClick={onBack}>{t("msg.back_to_projects")}</button></div>;
+  if (!project) return <div className="project-route-state">{t("project.loading")}</div>;
+  return project.kind === "skeletal"
+    ? <SkeletalProjectEditor project={project} onBack={onBack} />
+    : <Editor projectId={projectId} onBack={onBack} />;
 }
 
 export default function App() {
@@ -72,7 +94,7 @@ export default function App() {
       {view.page === "materials" && <MaterialsPage />}
       {view.page === "motions" && <MotionsPage />}
       {view.page === "settings" && <SettingsPage />}
-      {view.page === "editor" && <Editor projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
+      {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
       {/* 右侧常驻任务队列面板（有任务时才显示） */}
       <JobPanel />
       {/* 全局通知条 + 确认弹窗（notice.ts） */}

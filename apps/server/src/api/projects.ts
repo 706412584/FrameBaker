@@ -1,8 +1,13 @@
 import { Elysia, t } from "elysia";
+import { PROJECT_KINDS, type ProjectKind } from "@framebaker/shared";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
+
+function isProjectKind(value: string): value is ProjectKind {
+  return (PROJECT_KINDS as readonly string[]).includes(value);
+}
 
 export const projectsApi = new Elysia({ prefix: "/api" })
   // 项目列表（含帧数与首帧 id，供卡片缩略图用）
@@ -22,6 +27,8 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     ({ body, status }) => {
       const id = uid();
       const name = body.name.trim() || "未命名项目";
+      const kind = body.kind ?? "frame";
+      if (!isProjectKind(kind)) return status(400, "项目类型无效");
       const folderId = body.folderId ?? null;
       if (folderId) {
         const f = db.query("SELECT id, kind FROM folders WHERE id = ?").get(folderId) as
@@ -29,17 +36,24 @@ export const projectsApi = new Elysia({ prefix: "/api" })
           | null;
         if (!f || f.kind !== "project") return status(400, "文件夹不存在");
       }
-      db.query("INSERT INTO projects (id, name, folder_id, created_at) VALUES (?, ?, ?, ?)").run(
+      db.query("INSERT INTO projects (id, name, kind, folder_id, created_at) VALUES (?, ?, ?, ?, ?)").run(
         id,
         name,
+        kind,
         folderId,
         Date.now()
       );
       mkdirSync(join(STORAGE_ROOT, "projects", id, "raw"), { recursive: true });
       mkdirSync(join(STORAGE_ROOT, "projects", id, "processed"), { recursive: true });
-      return { id, name, folder_id: folderId };
+      return { id, name, kind, folder_id: folderId };
     },
-    { body: t.Object({ name: t.String(), folderId: t.Optional(t.Union([t.String(), t.Null()])) }) }
+    {
+      body: t.Object({
+        name: t.String(),
+        kind: t.Optional(t.String()),
+        folderId: t.Optional(t.Union([t.String(), t.Null()])),
+      }),
+    }
   )
   .get("/projects/:id", ({ params, status }) => {
     const row = db

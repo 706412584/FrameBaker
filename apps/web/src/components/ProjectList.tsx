@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
-import { api, frameImageUrl, wsClient, type Folder, type Project } from "../api";
+import { Bone, Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
+import { api, frameImageUrl, wsClient, type Folder, type Project, type ProjectKind } from "../api";
 import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -15,6 +15,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
   const [folderSel, setFolderSel] = useState<FolderSelection>("all");
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState("");
+  const [kind, setKind] = useState<ProjectKind>("frame");
   const [zoom, setZoom] = useFileZoom();
   useModalEscClose(() => setShowModal(false), showModal);
 
@@ -57,7 +58,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
   const create = async () => {
     if (!name.trim()) return;
     try {
-      const { id } = await api.createProject(name.trim(), currentFolderId);
+      const { id } = await api.createProject(name.trim(), kind, currentFolderId);
       setShowModal(false);
       setName("");
       onOpen(id);
@@ -164,12 +165,13 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                   onClick={() => onOpen(p.id)}
                 >
                   <div className="thumb">
-                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id)} alt="" draggable={false} /> : <Film size={40} />}
+                    <span className={`project-kind-badge ${p.kind}`}>{t(p.kind === "skeletal" ? "project.kind.skeletal" : "project.kind.frame")}</span>
+                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id)} alt="" draggable={false} /> : p.kind === "skeletal" ? <Bone size={40} /> : <Film size={40} />}
                   </div>
                   <div className="info">
                     <div className="name">{p.name}</div>
                     <div className="meta">
-                      {t("msg.n_frames", { n: p.frame_count ?? 0 })} · {new Date(p.created_at).toLocaleString(getLocale())}
+                      {p.kind === "frame" ? `${t("msg.n_frames", { n: p.frame_count ?? 0 })} · ` : ""}{new Date(p.created_at).toLocaleString(getLocale())}
                     </div>
                   </div>
                   <button type="button" className="icon-btn danger card-del" title={t("msg.delete_project")} onClick={(e) => remove(e, p.id)}>
@@ -197,6 +199,14 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
               onClick={(e) => e.stopPropagation()}
             >
               <h2>{t("msg.new_project")}</h2>
+              <div className="project-kind-options" role="radiogroup" aria-label={t("project.chooseType")}>
+                <button type="button" role="radio" aria-checked={kind === "frame"} className={`project-kind-option ${kind === "frame" ? "active" : ""}`} onClick={() => setKind("frame")}>
+                  <Film size={28} /><strong>{t("project.kind.frame")}</strong><span>{t("project.kind.frameDescription")}</span>
+                </button>
+                <button type="button" role="radio" aria-checked={kind === "skeletal"} className={`project-kind-option ${kind === "skeletal" ? "active" : ""}`} onClick={() => setKind("skeletal")}>
+                  <Bone size={28} /><strong>{t("project.kind.skeletal")}</strong><span>{t("project.kind.skeletalDescription")}</span>
+                </button>
+              </div>
               <input
                 className="px-input"
                 autoFocus

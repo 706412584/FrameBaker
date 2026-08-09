@@ -18,24 +18,26 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 ```json
 {
   "projects": [
-    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
+    { "id": "…", "name": "走路循环", "kind": "frame", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
   ]
 }
 ```
+
+`kind` 为创建后不可变的 `frame | skeletal`；存量项目和未指定类型的创建请求均为 `frame`。
 
 ### POST /api/projects
 
 ```json
 // 请求
-{ "name": "走路循环" }
+{ "name": "走路循环", "kind": "frame" }
 // 响应
-{ "id": "…", "name": "走路循环" }
+{ "id": "…", "name": "走路循环", "kind": "frame" }
 ```
 
 ### GET /api/projects/:id
 
 ```json
-{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8 } }
+{ "project": { "id": "…", "name": "…", "kind": "skeletal", "created_at": 1785912000000, "frame_count": 0 } }
 ```
 
 ### PATCH /api/projects/:id
