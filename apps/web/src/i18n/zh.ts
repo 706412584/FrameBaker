@@ -272,7 +272,7 @@ export const zh = {
   "msg.mark_keyframe": "标记关键帧",
   "msg.material_deleted": "已删除素材",
   "msg.materials": "素材库",
-  "msg.materials_append_to_timeline_in_click_order": "个素材（按点选顺序追加到时间轴末尾）",
+  "msg.materials_append_to_timeline_in_click_order": "个素材（按帧编号升序追加到时间轴末尾）",
   "msg.materials_empty": "素材库为空",
   "msg.materials_empty_generate_or_upload_in_materials_first": "素材库为空，先去素材库生成或上传素材",
   "msg.materials_empty_upload_or_ai_generate_some_first": "素材库为空，先上传或 AI 生成一些素材吧",

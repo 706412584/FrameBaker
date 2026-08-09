@@ -13,6 +13,12 @@ export interface UploadItem {
 export type UploadResult = { kind: "done" } | { kind: "queued"; jobId: string };
 export type UploadAdapter = (file: File) => Promise<UploadResult>;
 
+const fileNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function sortImportFiles(files: File[]): File[] {
+  return [...files].sort((a, b) => fileNameCollator.compare(a.name, b.name));
+}
+
 /** 导入弹窗共用的文件上传、任务收尾与汇总状态。 */
 export function useImportWorkflow(onDone: () => void) {
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -61,7 +67,7 @@ export function useImportWorkflow(onDone: () => void) {
   const selectFiles = useCallback(
     (files: File[]) => {
       reset();
-      setItems(files.map((file) => ({ file, state: "pending" })));
+      setItems(sortImportFiles(files).map((file) => ({ file, state: "pending" })));
     },
     [reset]
   );
@@ -103,7 +109,7 @@ export function useImportWorkflow(onDone: () => void) {
   );
 
   const submit = useCallback(
-    async (upload: UploadAdapter) => {
+    async (upload: UploadAdapter, waitForQueued = false) => {
       if (items.length === 0 || submitting) return;
       clearTimer();
       const run = ++runRef.current;
@@ -119,8 +125,22 @@ export function useImportWorkflow(onDone: () => void) {
           const result = await upload(snapshot[index]);
           if (!mountedRef.current || run !== runRef.current) return;
           if (result.kind === "queued") {
-            jobs.push({ jobId: result.jobId, index });
             updateItem(index, { state: "queued" });
+            if (waitForQueued) {
+              while (mountedRef.current && run === runRef.current) {
+                const job = await api.getJob(result.jobId);
+                if (job.status === "done") {
+                  updateItem(index, { state: "done" });
+                  break;
+                }
+                if (job.status === "error" || job.status === "cancelled") {
+                  throw new Error(job.error ?? "任务未完成");
+                }
+                await new Promise((resolve) => window.setTimeout(resolve, 250));
+              }
+            } else {
+              jobs.push({ jobId: result.jobId, index });
+            }
           } else {
             updateItem(index, { state: "done" });
           }

@@ -39,6 +39,7 @@ export default function AppModals() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={() => settleConfirm(false)}
           >
             <motion.div
               className="modal pixel-panel confirm-modal"
@@ -52,7 +53,7 @@ export default function AppModals() {
                 <span>{confirm.text}</span>
               </div>
               <div className="modal-actions">
-                <button type="button" className="px-btn"  >
+                <button type="button" className="px-btn" onClick={() => settleConfirm(false)}>
                   {t("common.cancel")}
                 </button>
                 <motion.button

@@ -272,7 +272,7 @@ export const en = {
   "msg.mark_keyframe": "Mark keyframe",
   "msg.material_deleted": "Material deleted",
   "msg.materials": "Materials",
-  "msg.materials_append_to_timeline_in_click_order": " materials (append to timeline in click order)",
+  "msg.materials_append_to_timeline_in_click_order": " materials (append to timeline by ascending frame number)",
   "msg.materials_empty": "Materials empty",
   "msg.materials_empty_generate_or_upload_in_materials_first": "Materials empty — generate or upload in Materials first",
   "msg.materials_empty_upload_or_ai_generate_some_first": "Materials empty — upload or AI-generate some first",
