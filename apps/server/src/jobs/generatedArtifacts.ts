@@ -61,6 +61,7 @@ export function createGeneratedArtifactCommitter(options: {
   enqueueMatting: EnqueueMatting;
   intent?: GenerationIntent;
   characterPartSetId?: string;
+  referenceMaterialId?: string;
 }) {
   const ids: string[] = [];
   let finished = false;
@@ -83,6 +84,7 @@ export function createGeneratedArtifactCommitter(options: {
       size: options.size || undefined,
       intent: options.intent || undefined,
       characterPartSetId: options.characterPartSetId || undefined,
+      referenceMaterialId: options.referenceMaterialId || undefined,
     });
 
   const allocate = (kind: MediaKind, index: number, requestedKind = kind): ArtifactAllocation => {

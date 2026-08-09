@@ -203,11 +203,13 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…", "poseReferenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。普通引用与动作参考字段、校验和 provider 限制均与 `/api/import/generate` 一致。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。可选 `intent`：`frame-image|frame-sheet|frame-video|skeletal-parts|skeletal-decompose|skeletal-repair-part|motion-clip`，以及 `characterPartSetId`。`skeletal-parts` / `skeletal-decompose` 必须指定现有部件集且为图片模式，后者还必须提供引用图片；生成的标准部件表在 metadata 中保留目标集合，打开素材时会默认进入 3×2 骨骼部件切分，但部件表本身不会冒充独立 attachment 成员。缺省 intent 保持旧行为。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…", "poseReferenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。普通引用与动作参考字段、校验和 provider 限制均与 `/api/import/generate` 一致。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。可选 `intent`：`frame-image|frame-sheet|frame-video|skeletal-character|skeletal-parts|skeletal-decompose|skeletal-repair-part|motion-clip`，以及 `characterPartSetId`。
+
+骨骼角色默认走两阶段生成：第一阶段提交 `intent: "skeletal-character"` 与 `followUp: { prompt, name?, autoMatting? }`，先产出比例可信、无遮挡的完整人物；完成后调度层将该素材设为部件集 `referenceMaterialId`，并自动以它为引用创建 `skeletal-decompose` 任务。第二阶段产出的标准分件表在 metadata 中保留目标集合与引用素材，打开后默认进入 4×3、12 部件的引导切分。当前 UI 不对第一阶段参考图排队抠图，避免阻塞第二阶段；抠图选项应用于最终分件表。两阶段都必须为图片模式并指定现有部件集；CLI provider 还必须配置引用图参数。`skeletal-parts` 保留旧客户端兼容，但当前 UI 不再从描述直接生成零件表。缺省 intent 保持旧行为。
 
 ## 角色部件集
 
-`CharacterPartSet` 显式组织骨骼角色素材：`{ id, name, source: "manual"|"generated"|"decomposed", referenceMaterialId, members: [{ materialId, role, name }], created_at, updated_at }`。role 为 `head|torso|arm-left|arm-right|leg-left|leg-right|weapon|accessory|custom`。
+`CharacterPartSet` 显式组织骨骼角色素材：`{ id, name, source: "manual"|"generated"|"decomposed", referenceMaterialId, members: [{ materialId, role, name }], created_at, updated_at }`。新建可动角色的标准 role 为 `head|torso|pelvis|weapon|upper-arm-left|forearm-left|upper-arm-right|forearm-right|thigh-left|shin-left|thigh-right|shin-right`；`arm-left|arm-right|leg-left|leg-right` 仅为旧六分件集合兼容读取，另支持 `accessory|custom`。
 
 - `GET /api/character-part-sets` → `{ "characterPartSets": [...] }`
 - `GET /api/character-part-sets/:id` → `{ "characterPartSet": {...} }`

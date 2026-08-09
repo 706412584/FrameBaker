@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Bone, Scissors, Sparkles, Upload, X } from "lucide-react";
+import { buildArticulatedCharacterPrompt, buildArticulatedPartsPrompt } from "@framebaker/shared";
 import { api, type CharacterPartSet } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
@@ -62,6 +63,8 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = useServerConfig();
+  const providerSelection = resolveProviderSelection(cfg?.gen.providers ?? [], providerId, model, { videoOnly: mediaKind === "video", preferI2v: mediaKind === "video" && !!reference });
+  const hasProvider = !!providerSelection.providerId;
   const workflow = useImportWorkflow(onDone);
   const { items, finished, submitting, setSubmitting, updateItem, okCount, errCount } = workflow;
 
@@ -107,28 +110,39 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         videoOnly: mediaKind === "video",
         preferI2v: mediaKind === "video" && !!reference,
       });
-      if (generationLine === "skeletal" && skeletalMode === "decompose" && reference?.kind === "material") {
-        const target = partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId);
-        const updated = await api.putCharacterPartSet(target.id, { name: target.name, referenceMaterialId: reference.id, members: target.members });
-        setPartSets((sets) => sets.map((set) => set.id === updated.id ? updated : set));
+      const target = generationLine === "skeletal"
+        ? partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId)
+        : undefined;
+      if (target && skeletalMode === "parts" && (target.referenceMaterialId || target.members.length > 0)) {
+        throw new Error(t("skeletal.generate.existingIdentityLocked"));
       }
-      const skeletalPrompt = skeletalMode === "decompose"
-        ? `Reconstruct the exact character from the reference image as a modular pixel-art skeletal animation parts sheet. Preserve the character identity, outfit, colors and proportions. Output exactly six isolated pieces in a strict 3 columns by 2 rows layout: head, torso, left arm, right arm, left leg, right leg. Transparent background, generous empty spacing, no overlap, no labels, no assembled character.${prompt.trim() ? ` Extra requirements: ${prompt.trim()}` : ""}`
-        : `Create a modular pixel-art skeletal animation parts sheet. Output exactly six isolated pieces in a strict 3 columns by 2 rows layout: head, torso, left arm, right arm, left leg, right leg. Transparent background, generous empty spacing, no overlap, no labels, no assembled character. Character description: ${prompt.trim()}`;
+      const skeletalPrompt = buildArticulatedPartsPrompt(skeletalMode === "decompose"
+        ? { reference: true, extra: prompt }
+        : { reference: true, description: prompt });
+      const completeCharacterPrompt = buildArticulatedCharacterPrompt({ description: prompt });
       await api.generateMaterial({
-        prompt: generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
+        prompt: generationLine === "skeletal" && skeletalMode === "parts" ? completeCharacterPrompt : generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
         count: generationLine === "skeletal" ? 1 : count,
-        autoMatting,
+        autoMatting: generationLine === "skeletal" && skeletalMode === "parts" ? false : autoMatting,
         ...sel,
         folderId,
-        ...(generationLine === "skeletal" ? { intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-parts" as const, characterPartSetId: partSetId } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
+        ...(generationLine === "skeletal" ? {
+          intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-character" as const,
+          characterPartSetId: partSetId,
+          ...(skeletalMode === "parts" && target ? {
+            name: t("skeletal.generate.completeMaterialName", { name: target.name }),
+            followUp: { prompt: skeletalPrompt, name: t("skeletal.generate.partsMaterialName", { name: target.name }), autoMatting },
+          } : {}),
+        } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
         ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
       });
       notify(
-        mediaKind === "video"
+        generationLine === "skeletal" && skeletalMode === "parts"
+          ? t("skeletal.generate.sequenceQueued")
+          : mediaKind === "video"
           ? t("msg.queued_when_ready_open_in_materials_and_extract_frames")
           : t("msg.queued_track_progress_in_the_right_job_panel"),
         "info"
@@ -288,11 +302,15 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                 <button type="button" role="tab" aria-selected={skeletalMode === "parts"} className={skeletalMode === "parts" ? "active" : ""} onClick={() => setSkeletalMode("parts")}>{t("skeletal.generate.fromDescription")}</button>
                 <button type="button" role="tab" aria-selected={skeletalMode === "decompose"} className={skeletalMode === "decompose" ? "active" : ""} onClick={() => setSkeletalMode("decompose")}>{t("skeletal.generate.fromReference")}</button>
               </div>
-              <div className="hint">{t(skeletalMode === "decompose" ? "skeletal.generate.decomposeHint" : "skeletal.generate.partsHint")}</div>
+              {skeletalMode === "decompose" && <div className="hint">{t("skeletal.generate.decomposeHint")}</div>}
+              {skeletalMode === "parts" && <ol className="skeletal-generation-flow">
+                <li><b>1</b><span><strong>{t("skeletal.generate.characterStage")}</strong><small>{t("skeletal.generate.characterStageHint")}</small></span></li>
+                <li><b>2</b><span><strong>{t("skeletal.generate.partsStage")}</strong><small>{t("skeletal.generate.partsStageHint")}</small></span></li>
+              </ol>}
               <label>{t("skeletal.parts.targetSet")}<PxSelect value={partSetId} options={partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))} onChange={setPartSetId} placeholder={t("skeletal.parts.chooseSet")} /></label>
               <div className="form-inline"><input className="px-input" value={partSetName} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} /><button type="button" className="px-btn" disabled={!partSetName.trim()} onClick={() => void createPartSet()}>{t("skeletal.parts.createSet")}</button></div>
             </div>}
-            <div className="form-row">
+            {generationLine === "frame" && <div className="form-row">
               <label>{t("msg.generate_as")}</label>
               <PxSelect
                 value={mediaKind}
@@ -305,12 +323,12 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                   setSize("");
                 }}
               />
-            </div>
+            </div>}
             <PromptEnhancer
               mediaKind={mediaKind}
-              intent={generationLine === "skeletal" ? (skeletalMode === "decompose" ? "skeletal-decompose" : "skeletal-parts") : undefined}
-              label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPrompt") : t("msg.prompt")}
-              placeholder={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPromptPlaceholder") : mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
+              intent={generationLine === "skeletal" ? (skeletalMode === "decompose" ? "skeletal-decompose" : "skeletal-character") : undefined}
+              label={generationLine === "skeletal" ? t(skeletalMode === "decompose" ? "skeletal.generate.extraPrompt" : "skeletal.generate.characterPrompt") : t("msg.prompt")}
+              placeholder={generationLine === "skeletal" ? t(skeletalMode === "decompose" ? "skeletal.generate.extraPromptPlaceholder" : "skeletal.generate.characterPromptPlaceholder") : mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
               value={prompt}
               onChange={setPrompt}
             />
@@ -323,16 +341,19 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             {mediaKind === "video" && (
               <div className="hint">{t("msg.saves_video_only_open_the_material_later_and_extract_fra")}</div>
             )}
-            <ReferencePicker
+            {(generationLine === "frame" || skeletalMode === "decompose") && <ReferencePicker
               value={reference}
               onChange={setReference}
               showFrames={false}
               label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceRequired") : undefined}
               description={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceDescription") : undefined}
-            />
+            />}
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
+            {!hasProvider && <div className="hint warn">{t("msg.no_gen_provider_add_cli_api_providers_in_settings")}</div>}
+            <details className="generation-advanced">
+              <summary>{t("skeletal.generate.advanced")}</summary>
             <ProviderModelPicker
               providerId={providerId}
               model={model}
@@ -352,15 +373,16 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
               <br />
               {t("msg.video_gen_cli_bailian_minimax_only_async_extract_frames")}
             </div>
+            </details>
             <div className="modal-actions">
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 className="px-btn accent"
-                disabled={!prompt.trim() || submitting || (generationLine === "skeletal" && !partSetId)}
+                disabled={!hasProvider || submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && !reference)))}
                 onClick={submitGenerate}
               >
-                <Sparkles size={14} /> {t("msg.start_generate")}
+                <Sparkles size={14} /> {t(generationLine === "skeletal" && skeletalMode === "parts" ? "skeletal.generate.startSequence" : "msg.start_generate")}
               </motion.button>
             </div>
           </>

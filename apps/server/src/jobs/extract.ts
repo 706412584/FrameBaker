@@ -5,7 +5,7 @@ import { db, nextFrameIdx, STORAGE_ROOT, uid } from "../db";
 import { createProviderAdapter } from "../providerAdapter";
 import { broadcast } from "../ws";
 import { JobCancelledError, runCmd } from "./run";
-import { createGeneratedArtifactCommitter } from "./generatedArtifacts";
+import { createGeneratedArtifactCommitter, type ArtifactCommitResult } from "./generatedArtifacts";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -69,8 +69,29 @@ export interface GeneratePayload {
   folderId?: string | null;
   /** 上层工作流意图；provider adapter 不消费此字段。 */
   intent?: GenerationIntent;
-  /** skeletal-parts 产物要追加到的角色部件集。 */
+  /** 骨骼角色生成链关联的角色部件集。 */
   characterPartSetId?: string;
+  /** 引用素材 id，仅用于产物谱系 metadata；实际执行只使用服务端解析后的 referencePath。 */
+  referenceMaterialId?: string;
+  /** 第一阶段完整角色成功后，由调度层创建的第二阶段生成任务。 */
+  followUp?: { prompt: string; name?: string; autoMatting?: boolean };
+}
+
+export function buildGeneratedFollowUp(source: GeneratePayload, referenceMaterialId: string, referencePath: string): GeneratePayload | null {
+  if (source.intent !== "skeletal-character" || !source.followUp || source.target.kind !== "materials") return null;
+  return {
+    ...source,
+    prompt: source.followUp.prompt,
+    name: source.followUp.name,
+    count: 1,
+    autoMatting: source.followUp.autoMatting ?? source.autoMatting,
+    mediaKind: "image",
+    referenceMaterialId,
+    referencePath,
+    poseReferencePath: undefined,
+    intent: "skeletal-decompose",
+    followUp: undefined,
+  };
 }
 
 type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
@@ -248,7 +269,9 @@ export async function generateFrames(
     enqueueMatting,
     intent: p.intent,
     characterPartSetId: p.characterPartSetId,
+    referenceMaterialId: p.referenceMaterialId,
   });
+  const committed: ArtifactCommitResult[] = [];
 
   const produceAndCommit = async (kind: "image" | "video", index: number) => {
     const allocation = artifacts.allocate(kind, index);
@@ -265,11 +288,12 @@ export async function generateFrames(
     if (p.mediaKind === "video") {
       progress("生成视频中");
       const result = await produceAndCommit("video", 0);
+      committed.push(result);
       if (result.kind === "video") {
         progress("保存视频素材");
         if (p.target.kind === "project") progress("视频已存入素材库，请打开素材「抽帧」后再导入项目");
       }
-      return;
+      return committed;
     }
 
     for (let index = 0; index < p.count; index++) {
@@ -280,11 +304,13 @@ export async function generateFrames(
           : `生成第 ${index + 1}/${p.count} 个素材`
       );
       const result = await produceAndCommit("image", index);
+      committed.push(result);
       if (result.kind === "video") {
         progress("CLI 产出为视频，已存入素材库（请自行抽帧）");
-        return;
+        return committed;
       }
     }
+    return committed;
   } finally {
     // 已提交的部分产物即使遇到失败/取消也必须广播，并为 matting 状态补齐后续任务。
     artifacts.finish();

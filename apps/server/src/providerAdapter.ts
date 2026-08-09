@@ -45,6 +45,8 @@ export function createProviderAdapter(
     throw new Error(`生成 provider「${provider.name}」未指定模型：请在生成时选择模型或在设置页配置模型列表`);
   if (provider.type !== "cli" && req.model?.trim() && capabilityModels.length > 0 && !capabilityModels.includes(req.model.trim()))
     throw new Error(`模型「${req.model.trim()}」不属于 provider「${provider.name}」的当前${req.mediaKind === "video" ? "视频" : "图片"}能力列表`);
+  const referenceError = req.referencePath ? checkImageReferenceSupport(req.providerId) : null;
+  if (referenceError) throw new Error(referenceError);
 
   const buildArgv = (output: string, index: number): string[] => {
     if (provider.legacyTemplate) {
@@ -83,6 +85,18 @@ export function createProviderAdapter(
       return generateViaApi({ ...provider, apiSize: provider.imageSize }, req.prompt, model, index, output, req.referencePath, req.size, signal, req.poseReferencePath);
     },
   };
+}
+
+/** 自动生成链在引用图尚未产出时也能预检 provider 的图片引用能力。 */
+export function checkImageReferenceSupport(providerId?: string): string | null {
+  const provider = resolveGenProvider(providerId);
+  if (!provider) return "生成 provider 不存在或未配置，请到设置页添加";
+  if (provider.type !== "cli") return null;
+  if (provider.legacyTemplate && !provider.legacyTemplate.includes("{reference}"))
+    return `provider「${provider.name}」的模板缺少 {reference} 占位符，无法自动拆分完整角色`;
+  if (!provider.legacyTemplate && !provider.cliReferenceArg.trim())
+    return `provider「${provider.name}」未配置引用图参数名，无法自动拆分完整角色`;
+  return null;
 }
 
 export function resolveReferencePath(opts: {

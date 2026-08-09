@@ -11,7 +11,7 @@ import {
   resolveEnhancerRuntime,
   resolveGenProvider,
 } from "../apps/server/src/provider";
-import { checkVideoSupport, createProviderAdapter, listProviderModels, probeProviderModels } from "../apps/server/src/providerAdapter";
+import { checkImageReferenceSupport, checkVideoSupport, createProviderAdapter, listProviderModels, probeProviderModels } from "../apps/server/src/providerAdapter";
 
 const originalFetch = globalThis.fetch;
 const originalGenCli = process.env.FRAMEBAKER_GEN_CLI;
@@ -107,6 +107,10 @@ describe("提示词加强器关联", () => {
     expect(parts).toContain("thigh-left, shin-left, thigh-right, shin-right");
     expect(parts).toContain("不得跨 cell boundary");
     expect(parts).toContain("禁止 whole arm 或 whole leg");
+    expect(parts).toContain("upper arm 必须在肘部结束且绝不能带手");
+    expect(parts).toContain("整张图只能有两只手");
+    expect(parts).toContain("pelvis 必须是腰胯");
+    expect(parts).toContain("mirror-copy");
     expect(parts).toContain("recursive parts sheet");
 
     const repair = buildEnhanceSystem("pixel", "image", "skeletal-repair-part");
@@ -234,6 +238,19 @@ describe("生成适配器校验", () => {
     const adapter = createProviderAdapter({ prompt: "hero", providerId: "cli", model: "v1" }, () => {});
     expect(adapter).toMatchObject({ source: "cli", providerName: "本地命令", model: "v1" });
     await expect(adapter.produce("/tmp/unused.png", 3)).resolves.toBeUndefined();
+  });
+
+  test("两阶段角色生成会预检 CLI 引用图能力", () => {
+    saveSetting("genProviders", [{
+      id: "cli", name: "无引用命令", type: "cli", cliBin: "/usr/bin/true", cliPromptArg: "--prompt", cliOutputArg: "--output",
+    }]);
+    expect(checkImageReferenceSupport("cli")).toContain("未配置引用图参数名");
+    expect(() => createProviderAdapter({ prompt: "split", providerId: "cli", referencePath: "/tmp/reference.png" }, () => {})).toThrow("无法自动拆分完整角色");
+
+    saveSetting("genProviders", [{
+      id: "cli", name: "支持引用命令", type: "cli", cliBin: "/usr/bin/true", cliPromptArg: "--prompt", cliOutputArg: "--output", cliReferenceArg: "--reference",
+    }]);
+    expect(checkImageReferenceSupport("cli")).toBeNull();
   });
 
   test("拒绝未配置、能力不匹配与不支持的视频请求", () => {

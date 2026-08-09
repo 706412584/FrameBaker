@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import type { CharacterPartRole, CharacterPartSet } from "@framebaker/shared";
+import { CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet } from "@framebaker/shared";
 import { db, uid } from "../db";
 
 type SetRow = { id: string; name: string; source: CharacterPartSet["source"]; reference_material_id: string | null; created_at: number; updated_at: number };
@@ -10,7 +10,7 @@ function serialize(row: SetRow): CharacterPartSet {
   return { id: row.id, name: row.name, source: row.source, referenceMaterialId: row.reference_material_id, members: members.map((m) => ({ materialId: m.material_id, role: m.role, name: m.name })), created_at: row.created_at, updated_at: row.updated_at };
 }
 const getSet = (id: string) => db.query("SELECT * FROM character_part_sets WHERE id = ?").get(id) as SetRow | null;
-const role = t.Union([t.Literal("head"), t.Literal("torso"), t.Literal("arm-left"), t.Literal("arm-right"), t.Literal("leg-left"), t.Literal("leg-right"), t.Literal("weapon"), t.Literal("accessory"), t.Literal("custom")]);
+const role = t.Union(CHARACTER_PART_ROLES.map((value) => t.Literal(value)));
 const members = t.Array(t.Object({ materialId: t.String(), role, name: t.String() }));
 
 function validateMaterials(referenceMaterialId: string | null, items: Array<{ materialId: string }>): string | null {
@@ -26,6 +26,13 @@ function validateText(name: string, items: Array<{ name: string }>): string | nu
   if (items.some((item) => !item.name.trim())) return "成员名称不能为空";
   return null;
 }
+function validateRoles(items: Array<{ role: CharacterPartRole }>): string | null {
+  const uniqueRoles = CHARACTER_PART_ROLES.filter((item) => item !== "accessory" && item !== "custom");
+  for (const item of uniqueRoles) {
+    if (items.filter(({ role }) => role === item).length > 1) return `同一部件职责不能重复: ${item}`;
+  }
+  return null;
+}
 function replaceMembers(setId: string, items: Array<{ materialId: string; role: CharacterPartRole; name: string }>) {
   db.query("DELETE FROM character_part_set_members WHERE set_id = ?").run(setId);
   const insert = db.query("INSERT INTO character_part_set_members (set_id, material_id, role, name) VALUES (?, ?, ?, ?)");
@@ -36,14 +43,14 @@ export const characterPartSetsApi = new Elysia({ prefix: "/api" })
   .get("/character-part-sets", () => ({ characterPartSets: (db.query("SELECT * FROM character_part_sets ORDER BY created_at DESC").all() as SetRow[]).map(serialize) }))
   .get("/character-part-sets/:id", ({ params, status }) => { const row = getSet(params.id); return row ? { characterPartSet: serialize(row) } : status(404, "角色部件集不存在"); })
   .post("/character-part-sets", ({ body, status }) => {
-    const error = validateText(body.name, body.members) ?? validateMaterials(body.referenceMaterialId ?? null, body.members); if (error) return status(400, error);
+    const error = validateText(body.name, body.members) ?? validateRoles(body.members) ?? validateMaterials(body.referenceMaterialId ?? null, body.members); if (error) return status(400, error);
     const id = uid(), now = Date.now();
     db.transaction(() => { db.query("INSERT INTO character_part_sets (id,name,source,reference_material_id,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, body.name.trim(), body.source, body.referenceMaterialId ?? null, now, now); replaceMembers(id, body.members); })();
     return { characterPartSet: serialize(getSet(id)!) };
   }, { body: t.Object({ name: t.String({ minLength: 1 }), source: t.Union([t.Literal("manual"), t.Literal("generated"), t.Literal("decomposed")]), referenceMaterialId: t.Optional(t.Union([t.String(), t.Null()])), members }) })
   .put("/character-part-sets/:id", ({ params, body, status }) => {
     const existing = getSet(params.id); if (!existing) return status(404, "角色部件集不存在");
-    const error = validateText(body.name, body.members) ?? validateMaterials(body.referenceMaterialId ?? null, body.members); if (error) return status(400, error);
+    const error = validateText(body.name, body.members) ?? validateRoles(body.members) ?? validateMaterials(body.referenceMaterialId ?? null, body.members); if (error) return status(400, error);
     db.transaction(() => { db.query("UPDATE character_part_sets SET name=?, reference_material_id=?, updated_at=? WHERE id=?").run(body.name.trim(), body.referenceMaterialId ?? null, Date.now(), params.id); replaceMembers(params.id, body.members); })();
     return { characterPartSet: serialize(getSet(params.id)!) };
   }, { body: t.Object({ name: t.String({ minLength: 1 }), referenceMaterialId: t.Optional(t.Union([t.String(), t.Null()])), members }) })

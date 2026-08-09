@@ -5,7 +5,7 @@ import type { CharacterBinding, MaterialRow } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
-import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
+import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePath } from "../providerAdapter";
 import { broadcast } from "../ws";
 
 function baseName(filename: string): string {
@@ -179,6 +179,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           folderId: body.folderId ?? null,
           intent: body.intent,
           characterPartSetId: body.characterPartSetId,
+          referenceMaterialId: body.referenceMaterialId,
+          followUp: body.followUp,
         },
       });
       return { jobId };
@@ -199,14 +201,21 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
         fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
         folderId: t.Optional(t.Union([t.String(), t.Null()])),
-        intent: t.Optional(t.Union([t.Literal("frame-image"), t.Literal("frame-sheet"), t.Literal("frame-video"), t.Literal("skeletal-parts"), t.Literal("skeletal-decompose"), t.Literal("skeletal-repair-part"), t.Literal("motion-clip")])),
+        intent: t.Optional(t.Union([t.Literal("frame-image"), t.Literal("frame-sheet"), t.Literal("frame-video"), t.Literal("skeletal-character"), t.Literal("skeletal-parts"), t.Literal("skeletal-decompose"), t.Literal("skeletal-repair-part"), t.Literal("motion-clip")])),
         characterPartSetId: t.Optional(t.String()),
+        followUp: t.Optional(t.Object({ prompt: t.String({ minLength: 1 }), name: t.Optional(t.String()), autoMatting: t.Optional(t.Boolean()) })),
       }),
       beforeHandle({ body, status }) {
-        if (body.intent === "skeletal-parts" || body.intent === "skeletal-decompose") {
+        if (body.followUp && body.intent !== "skeletal-character") return status(400, "后续生成任务仅用于完整角色两阶段分件");
+        if (body.intent === "skeletal-character" || body.intent === "skeletal-parts" || body.intent === "skeletal-decompose") {
           if ((body.mediaKind ?? "image") !== "image") return status(400, "骨骼部件生成意图仅支持图片模式");
           if (!body.characterPartSetId || !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "骨骼部件生成意图需要已存在的角色部件集");
           if (body.intent === "skeletal-decompose" && !body.referenceMaterialId && !body.referenceFrameId) return status(400, "精灵拆分生成需要引用图片");
+          if (body.intent === "skeletal-character") {
+            if (!body.followUp) return status(400, "完整角色生成需要配置后续分件任务");
+            const referenceError = checkImageReferenceSupport(body.providerId);
+            if (referenceError) return status(400, referenceError);
+          }
         }
       },
     }

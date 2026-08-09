@@ -87,6 +87,8 @@ interface GenerateBody {
   folderId?: string | null;
   intent?: GenerationIntent;
   characterPartSetId?: string;
+  /** 完整角色生成成功后，以其为引用自动创建第二阶段分件任务。 */
+  followUp?: { prompt: string; name?: string; autoMatting?: boolean };
 }
 
 export const api = {

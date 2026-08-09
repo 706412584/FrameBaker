@@ -1,7 +1,7 @@
 import type { JobType } from "@framebaker/shared";
 import { db, uid } from "./db";
 import { broadcast } from "./ws";
-import { extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
+import { buildGeneratedFollowUp, extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
 import { matte } from "./jobs/matting";
 import { JobCancelledError } from "./jobs/run";
 
@@ -93,6 +93,19 @@ function enqueueMatting(projectId: string, target: "frame" | "material", id: str
   createMattingJob(projectId, target, id); // 已有进行中任务则忽略（拆帧/生成后的自动抠图）
 }
 
+function enqueueGeneratedFollowUp(source: GeneratePayload, referenceMaterialId: string) {
+  const material = db.query("SELECT raw_path FROM materials WHERE id = ?").get(referenceMaterialId) as { raw_path: string | null } | null;
+  if (!material?.raw_path) throw new Error("完整角色已生成，但素材文件缺失，无法继续拆分");
+  const followUp = buildGeneratedFollowUp(source, referenceMaterialId, material.raw_path);
+  if (!followUp) return;
+  if (source.characterPartSetId) {
+    // 首次生成建立身份基准；已有基准不可被后续试生成静默覆盖。
+    db.query("UPDATE character_part_sets SET reference_material_id = ?, updated_at = ? WHERE id = ? AND reference_material_id IS NULL")
+      .run(referenceMaterialId, Date.now(), source.characterPartSetId);
+  }
+  createJob("", "generate_frames", { generate: followUp });
+}
+
 function pump() {
   while (running < CONCURRENCY && waiting.length > 0) {
     const id = waiting.shift()!;
@@ -130,6 +143,7 @@ async function runJob(id: string) {
   const ac = new AbortController();
   controllers.set(id, ac);
   const signal = ac.signal;
+  let generatedReferenceId: string | undefined;
   const report = (p: string) => {
     if (signal.aborted) return;
     setJob(id, "running", p);
@@ -142,7 +156,8 @@ async function runJob(id: string) {
     if (job.type === "extract_frames" && payload.extract) {
       await extractFrames(payload.extract, report, enqueueMatting, signal);
     } else if (job.type === "generate_frames" && payload.generate) {
-      await generateFrames(payload.generate, report, enqueueMatting, signal);
+      const generated = await generateFrames(payload.generate, report, enqueueMatting, signal);
+      if (payload.generate.followUp && generated[0]?.kind === "image") generatedReferenceId = generated[0].id;
     } else if (job.type === "matting" && payload.matting) {
       if (signal.aborted) throw new JobCancelledError();
       const warn = await matte(payload.matting.target, payload.matting.id, signal);
@@ -151,6 +166,7 @@ async function runJob(id: string) {
       throw new Error(`未知任务类型: ${job.type}`);
     }
     if (signal.aborted) throw new JobCancelledError();
+    if (generatedReferenceId && payload.generate) enqueueGeneratedFollowUp(payload.generate, generatedReferenceId);
     setJob(id, "done", "完成");
     broadcast("job_done", { id, projectId: job.project_id, type: job.type });
   } catch (err) {

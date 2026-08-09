@@ -34,7 +34,31 @@ export type FolderKind = (typeof FOLDER_KINDS)[number];
 export const PROJECT_KINDS = ["frame", "skeletal"] as const;
 export type ProjectKind = (typeof PROJECT_KINDS)[number];
 
-export const CHARACTER_PART_ROLES = ["head", "torso", "arm-left", "arm-right", "leg-left", "leg-right", "weapon", "accessory", "custom"] as const;
+/** 新建可动角色的标准 4×3 分件顺序（从左到右、从上到下）。 */
+export const ARTICULATED_CHARACTER_PART_ROLES = [
+  "head",
+  "torso",
+  "pelvis",
+  "weapon",
+  "upper-arm-left",
+  "forearm-left",
+  "upper-arm-right",
+  "forearm-right",
+  "thigh-left",
+  "shin-left",
+  "thigh-right",
+  "shin-right",
+] as const;
+export type ArticulatedCharacterPartRole = (typeof ARTICULATED_CHARACTER_PART_ROLES)[number];
+
+/** 整臂/整腿角色仅用于读取已有项目；新流程必须使用上面的真实关节分件。 */
+export const LEGACY_CHARACTER_PART_ROLES = ["arm-left", "arm-right", "leg-left", "leg-right"] as const;
+export const CHARACTER_PART_ROLES = [
+  ...ARTICULATED_CHARACTER_PART_ROLES,
+  ...LEGACY_CHARACTER_PART_ROLES,
+  "accessory",
+  "custom",
+] as const;
 export type CharacterPartRole = (typeof CHARACTER_PART_ROLES)[number];
 export const CHARACTER_PART_SET_SOURCES = ["manual", "generated", "decomposed"] as const;
 export type CharacterPartSetSource = (typeof CHARACTER_PART_SET_SOURCES)[number];
@@ -51,7 +75,28 @@ export interface CharacterPartSet {
 export interface CharacterPartSetsResponse { characterPartSets: CharacterPartSet[] }
 export interface CharacterPartSetResponse { characterPartSet: CharacterPartSet }
 
-export const GENERATION_INTENTS = ["frame-image", "frame-sheet", "frame-video", "skeletal-parts", "skeletal-decompose", "skeletal-repair-part", "motion-clip"] as const;
+/** 先生成一张比例可信、无遮挡的完整角色设计图，作为后续分件唯一事实源。 */
+export function buildArticulatedCharacterPrompt(options: { description?: string; extra?: string }): string {
+  const description = options.description?.trim() ? ` Character description: ${options.description.trim()}.` : "";
+  const extra = options.extra?.trim() ? ` Extra requirements: ${options.extra.trim()}.` : "";
+  return `Create one complete full-body pixel-art game character as the canonical design reference for skeletal animation. Show exactly one assembled character from head to feet in a neutral front-facing T-pose, centered and fully visible, with natural anatomy and deliberate head-to-body, torso-to-leg, and arm-to-leg proportions. Keep both hands empty. If the design includes a weapon, show it as one separate isolated prop beside the character with at least one head-width of clear space. Keep both arms, both legs, all elbow and knee joints clearly visible and separated; do not cross limbs or let the torso, cape, skirt, long hair, or weapon cover any joint. Preserve a coherent outfit, lighting, pixel density, facing direction, and silhouette across the whole body. Use a transparent or plain high-contrast background with generous empty margin. No parts sheet, no separated body pieces, no alternate poses, no text, no labels, and no extra characters.${description}${extra}`;
+}
+
+/** 用完整角色参考图构造真实可动的 12 分件表提示词；无引用模式仅保留旧调用兼容。 */
+export function buildArticulatedPartsPrompt(options: { description?: string; reference?: boolean; extra?: string }): string {
+  const introduction = options.reference
+    ? "Use the complete assembled character in the reference image as the single source of truth and decompose that exact character into a modular pixel-art skeletal animation parts sheet. Preserve character identity, outfit, colors, pixel density, lighting, facing direction, and especially the reference character's exact head-to-body ratio, limb lengths, torso width, and overall proportions. Do not redesign, shorten, stretch, or independently rescale any body part."
+    : "Create a modular pixel-art skeletal animation parts sheet for the described character, with consistent style, proportions, lighting, and facing direction across every part.";
+  const layout = "Output exactly 12 isolated pieces in a strict 4 columns by 3 rows layout, ordered left-to-right and top-to-bottom: row 1 = head, torso, pelvis, separate weapon; row 2 = left upper arm, left forearm, right upper arm, right forearm; row 3 = left thigh, left shin, right thigh, right shin.";
+  const separation = "Every piece must be complete, centered inside its own cell, fully separated, and must not touch or cross any cell boundary. The weapon must not touch either arm. Use a transparent background, generous empty spacing, no labels, and no assembled character.";
+  const joints = "The pelvis cell must contain the waist-and-hip piece, never a shoulder pad. Each upper-arm cell ends at the elbow and contains no forearm or hand. Each forearm cell runs from elbow to wrist and contains exactly one hand, so the entire sheet shows exactly two hands total and no hand appears in any other cell. Each thigh ends at the knee with no shin or foot; each shin runs from knee to foot. Keep every limb segment oriented top-to-bottom with its proximal joint at the top and a small matching overlap at each joint.";
+  const uniqueness = "Do not duplicate, mirror-copy, or reuse one arm or leg as its opposite-side part. Left and right pieces must each be derived once from the corresponding side of the reference character. Before output, verify all 12 cell meanings, exactly two hands, one pelvis, one weapon, no repeated limb, and no whole arm or whole leg.";
+  const description = options.description?.trim() ? ` Character description: ${options.description.trim()}.` : "";
+  const extra = options.extra?.trim() ? ` Extra requirements: ${options.extra.trim()}.` : "";
+  return `${introduction} ${layout} ${separation} ${joints} ${uniqueness}${description}${extra}`;
+}
+
+export const GENERATION_INTENTS = ["frame-image", "frame-sheet", "frame-video", "skeletal-character", "skeletal-parts", "skeletal-decompose", "skeletal-repair-part", "motion-clip"] as const;
 export type GenerationIntent = (typeof GENERATION_INTENTS)[number];
 
 /** 抠图引擎（服务端启动时探测一次，解析顺序 a→d） */
