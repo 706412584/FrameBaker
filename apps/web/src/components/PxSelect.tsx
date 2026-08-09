@@ -28,6 +28,7 @@ export default function PxSelect({ value, options, onChange, placeholder, classN
   const ph = placeholder ?? t("msg.select");
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<ListPos | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const current = options.find((o) => o.value === value);
 
@@ -69,10 +70,23 @@ export default function PxSelect({ value, options, onChange, placeholder, classN
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        btnRef.current?.focus();
+      }
     };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onBlur = () => setOpen(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [open]);
 
   const listStyle: CSSProperties = pos
@@ -93,38 +107,39 @@ export default function PxSelect({ value, options, onChange, placeholder, classN
     : { visibility: "hidden" };
 
   return (
-    <div className={`px-select ${className}${open ? " open" : ""}`}>
+    <div ref={wrapRef} className={`px-select ${className}${open ? " open" : ""}`}>
       <button
         ref={btnRef}
         type="button"
         className="px-select-btn"
         disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
         <span className={current ? "" : "px-select-ph"}>{current?.label ?? ph}</span>
         <ChevronDown size={14} />
       </button>
       {open && (
-        <>
-          <div className="px-select-mask" onClick={() => setOpen(false)} />
-          <ul className={`px-select-list${pos?.openUp ? " up" : ""}`} style={listStyle}>
-            {options.map((o) => (
-              <li key={o.value}>
-                <button
-                  type="button"
-                  className={`px-select-opt${o.value === value ? " on" : ""}`}
-                  disabled={o.disabled}
-                  onClick={() => {
-                    onChange(o.value);
-                    setOpen(false);
-                  }}
-                >
-                  {o.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+        <ul className={`px-select-list${pos?.openUp ? " up" : ""}`} style={listStyle} role="listbox">
+          {options.map((o) => (
+            <li key={o.value}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={o.value === value}
+                className={`px-select-opt${o.value === value ? " on" : ""}`}
+                disabled={o.disabled}
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+              >
+                {o.label}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useT } from "../i18n";
 
@@ -18,6 +18,7 @@ interface Props {
 export default function PxSuggest({ value, suggestions, onChange, placeholder, className = "" }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   // 过滤词：仅输入时跟随键入内容；聚焦/点箭头展开时清空（否则已有值会把建议过滤光）
   const [query, setQuery] = useState("");
 
@@ -32,12 +33,22 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onBlur = () => setOpen(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onBlur);
+    };
   }, [open]);
 
   return (
-    <div className={`px-suggest ${className}`}>
+    <div ref={wrapRef} className={`px-suggest ${className}`}>
       <input
         className="px-input"
         value={value}
@@ -65,26 +76,23 @@ export default function PxSuggest({ value, suggestions, onChange, placeholder, c
         <ChevronDown size={14} />
       </button>
       {open && filtered.length > 0 && (
-        <>
-          <div className="px-select-mask" onClick={() => setOpen(false)} />
-          <ul className="px-select-list">
-            {filtered.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  className="px-select-opt"
-                  onClick={() => {
-                    onChange(s);
-                    setQuery("");
-                    setOpen(false);
-                  }}
-                >
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+        <ul className="px-select-list">
+          {filtered.map((s) => (
+            <li key={s}>
+              <button
+                type="button"
+                className="px-select-opt"
+                onClick={() => {
+                  onChange(s);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                {s}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

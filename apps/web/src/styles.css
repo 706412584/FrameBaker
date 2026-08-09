@@ -3706,11 +3706,6 @@ body.resizing-row * {
 .px-select-ph {
   color: var(--text-placeholder);
 }
-.px-select-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 400;
-}
 .px-select-list {
   position: fixed; /* 实际 top/left/width 由组件 inline style 写入，避免被 .modal overflow 裁切 */
   z-index: 401;
