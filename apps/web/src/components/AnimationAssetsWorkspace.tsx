@@ -245,8 +245,16 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
     setSelectedAttachmentId((current) => binding.attachments.some((item) => item.id === current) ? current : binding.attachments[0]?.id ?? "");
     setSelectedBoneId((current) => skeleton.bones.some((bone) => bone.id === current) ? current : binding.slots[0]?.boneId ?? skeleton.bones[0]?.id ?? "");
   }, [binding, skeleton]);
-  const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => ({ ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) }));
-  const patchSlot = (index: number, patch: Partial<CharacterBinding["slots"][number]>) => setDraft((old) => ({ ...old, slots: old.slots.map((item, i) => i === index ? { ...item, ...patch } : item) }));
+  const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => {
+    const next = { ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) };
+    draftRef.current = next;
+    return next;
+  });
+  const patchSlot = (index: number, patch: Partial<CharacterBinding["slots"][number]>) => setDraft((old) => {
+    const next = { ...old, slots: old.slots.map((item, i) => i === index ? { ...item, ...patch } : item) };
+    draftRef.current = next;
+    return next;
+  });
   const rememberDraft = (value = draftRef.current) => {
     setUndoDrafts((items) => [...items.slice(-49), structuredClone(value)]);
     setRedoDrafts([]);
