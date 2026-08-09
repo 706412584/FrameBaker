@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
-import { Copy, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, ZoomIn, ZoomOut } from "lucide-react";
+import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
+import { Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCw, Save, Trash2, Undo2, Upload, ZoomIn } from "lucide-react";
 import { api, materialImageUrl, type Folder } from "../api";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
@@ -39,9 +39,42 @@ function SkeletonPreview({ skeleton, clip, time, selectedBone, onSelectBone }: {
   </svg>;
 }
 
-export function CharacterPreview({ binding, skeleton, clip, time, selectedAttachmentId, selectedBoneId, showSkeleton = false, onSelectAttachment, onSelectBone, onMoveAttachment }: { binding: CharacterBinding; skeleton: Skeleton; clip?: MotionClip; time: number; selectedAttachmentId?: string; selectedBoneId?: string; showSkeleton?: boolean; onSelectAttachment?: (id: string) => void; onSelectBone?: (id: string) => void; onMoveAttachment?: (id: string, translation: [number, number, number]) => void }) {
+type BindingTransformTool = "translate" | "rotate" | "scale" | "pivot";
+
+interface CharacterPreviewProps {
+  binding: CharacterBinding;
+  skeleton: Skeleton;
+  clip?: MotionClip;
+  time: number;
+  selectedAttachmentId?: string;
+  selectedBoneId?: string;
+  showSkeleton?: boolean;
+  transformTool?: BindingTransformTool;
+  onSelectAttachment?: (id: string) => void;
+  onSelectBone?: (id: string) => void;
+  onTransformAttachment?: (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => void;
+  onBeginTransform?: () => void;
+  onEndTransform?: () => void;
+}
+
+interface BindingTransformDrag {
+  id: string;
+  tool: BindingTransformTool;
+  start: [number, number];
+  rest: CharacterBinding["attachments"][number]["rest"];
+  pivot: [number, number];
+  size: [number, number];
+  bone: Mat4;
+  world: Mat4;
+  pivotWorld: [number, number];
+  startAngle: number;
+  startDistance: number;
+}
+
+export function CharacterPreview({ binding, skeleton, clip, time, selectedAttachmentId, selectedBoneId, showSkeleton = false, transformTool = "translate", onSelectAttachment, onSelectBone, onTransformAttachment, onBeginTransform, onEndTransform }: CharacterPreviewProps) {
+  const t = useT();
   const pose = useMemo(() => sampleMotionClip(clip ?? { schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, time), [clip, skeleton, time]);
-  const dragRef = useRef<{ id: string; x: number; y: number; translation: [number, number, number]; bone: Mat4 } | undefined>(undefined);
+  const dragRef = useRef<BindingTransformDrag | undefined>(undefined);
   const frozenViewBoxRef = useRef<string | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
   const viewBox = useMemo(() => {
@@ -70,29 +103,103 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     const matrix = svg.getScreenCTM();
     return matrix ? point.matrixTransform(matrix.inverse()) : point;
   };
-  const moveAttachment = (event: React.PointerEvent<SVGSVGElement>) => {
-    const drag = dragRef.current;
-    if (!drag || !onMoveAttachment) return;
-    const point = svgPoint(event.currentTarget, event.clientX, event.clientY);
-    const worldX = point.x - drag.x;
-    const worldY = -(point.y - drag.y);
-    const determinant = drag.bone[0] * drag.bone[5] - drag.bone[1] * drag.bone[4];
-    if (Math.abs(determinant) < 1e-8) return;
-    const localX = (drag.bone[5] * worldX - drag.bone[4] * worldY) / determinant;
-    const localY = (-drag.bone[1] * worldX + drag.bone[0] * worldY) / determinant;
-    onMoveAttachment(drag.id, [drag.translation[0] + localX, drag.translation[1] + localY, drag.translation[2]]);
+  const beginTransform = (event: React.PointerEvent<SVGGraphicsElement>, attachment: CharacterBinding["attachments"][number], bone: Mat4, world: Mat4, tool = transformTool) => {
+    onSelectAttachment?.(attachment.id);
+    if (!onTransformAttachment) return;
+    const svg = event.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const point = svgPoint(svg, event.clientX, event.clientY), start: [number, number] = [point.x, -point.y];
+    const pivot = transformPoint(world, [0, 0, 0]), pivotWorld: [number, number] = [pivot[0], pivot[1]];
+    event.preventDefault();
+    event.stopPropagation();
+    svg.setPointerCapture(event.pointerId);
+    frozenViewBoxRef.current = viewBox;
+    dragRef.current = {
+      id: attachment.id,
+      tool,
+      start,
+      rest: structuredClone(attachment.rest),
+      pivot: [...attachment.pivot],
+      size: [...attachment.size],
+      bone,
+      world,
+      pivotWorld,
+      startAngle: Math.atan2(start[1] - pivotWorld[1], start[0] - pivotWorld[0]),
+      startDistance: Math.hypot(start[0] - pivotWorld[0], start[1] - pivotWorld[1]),
+    };
+    onBeginTransform?.();
+    setDragging(true);
   };
-  const endDrag = () => { dragRef.current = undefined; frozenViewBoxRef.current = undefined; setDragging(false); };
+  const moveTransform = (event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current;
+    if (!drag || !onTransformAttachment) return;
+    const svgPointValue = svgPoint(event.currentTarget, event.clientX, event.clientY), point: [number, number] = [svgPointValue.x, -svgPointValue.y];
+    if (drag.tool === "translate") {
+      const worldX = point[0] - drag.start[0], worldY = point[1] - drag.start[1];
+      const determinant = drag.bone[0] * drag.bone[5] - drag.bone[1] * drag.bone[4];
+      if (Math.abs(determinant) < 1e-8) return;
+      let localX = (drag.bone[5] * worldX - drag.bone[4] * worldY) / determinant;
+      let localY = (-drag.bone[1] * worldX + drag.bone[0] * worldY) / determinant;
+      if (event.shiftKey) [localX, localY] = Math.abs(localX) >= Math.abs(localY) ? [localX, 0] : [0, localY];
+      onTransformAttachment(drag.id, { rest: { ...drag.rest, translation: [drag.rest.translation[0] + localX, drag.rest.translation[1] + localY, drag.rest.translation[2]] } });
+      return;
+    }
+    if (drag.tool === "rotate") {
+      const currentAngle = Math.atan2(point[1] - drag.pivotWorld[1], point[0] - drag.pivotWorld[0]);
+      let angle = zRotationFromQuaternion(drag.rest.rotation) + currentAngle - drag.startAngle;
+      if (event.shiftKey) angle = Math.round(angle / (Math.PI / 12)) * Math.PI / 12;
+      onTransformAttachment(drag.id, { rest: { ...drag.rest, rotation: quaternionFromZRotation(angle) } });
+      return;
+    }
+    if (drag.tool === "scale") {
+      if (drag.startDistance < 1e-8) return;
+      const factor = Math.max(.05, Math.min(20, Math.hypot(point[0] - drag.pivotWorld[0], point[1] - drag.pivotWorld[1]) / drag.startDistance));
+      onTransformAttachment(drag.id, { rest: { ...drag.rest, scale: [drag.rest.scale[0] * factor, drag.rest.scale[1] * factor, drag.rest.scale[2]] } });
+      return;
+    }
+    const worldX = point[0] - drag.start[0], worldY = point[1] - drag.start[1];
+    const determinant = drag.world[0] * drag.world[5] - drag.world[1] * drag.world[4];
+    if (Math.abs(determinant) < 1e-8) return;
+    const localX = (drag.world[5] * worldX - drag.world[4] * worldY) / determinant;
+    const localY = (-drag.world[1] * worldX + drag.world[0] * worldY) / determinant;
+    const pivot: [number, number] = [Math.max(0, Math.min(1, drag.pivot[0] + localX / drag.size[0])), Math.max(0, Math.min(1, drag.pivot[1] + localY / drag.size[1]))];
+    const pivotDeltaX = (pivot[0] - drag.pivot[0]) * drag.size[0], pivotDeltaY = (pivot[1] - drag.pivot[1]) * drag.size[1];
+    const restLinear = transformToMatrix({ ...drag.rest, translation: [0, 0, 0] });
+    const translation: [number, number, number] = [
+      drag.rest.translation[0] + restLinear[0] * pivotDeltaX + restLinear[4] * pivotDeltaY,
+      drag.rest.translation[1] + restLinear[1] * pivotDeltaX + restLinear[5] * pivotDeltaY,
+      drag.rest.translation[2],
+    ];
+    onTransformAttachment(drag.id, { pivot, rest: { ...drag.rest, translation } });
+  };
+  const endTransform = () => {
+    if (dragRef.current) onEndTransform?.();
+    dragRef.current = undefined;
+    frozenViewBoxRef.current = undefined;
+    setDragging(false);
+  };
   const previewSpan = Math.max(...viewBox.split(" ").slice(2).map(Number));
   const boneNodeRadius = Math.max(previewSpan * .008, .05);
-  return <svg className={`animation-skeleton binding-preview${onMoveAttachment ? " interactive" : ""}`} viewBox={dragging ? frozenViewBoxRef.current : viewBox} role="img" onPointerMove={moveAttachment} onPointerUp={endDrag} onPointerCancel={endDrag}>
+  const handleRadius = Math.max(previewSpan * .01, .055);
+  const selectedSlot = binding.slots.find((slot) => slot.attachmentId === selectedAttachmentId);
+  const selectedAttachment = binding.attachments.find((attachment) => attachment.id === selectedAttachmentId);
+  const selectedBoneMatrix = selectedSlot ? pose.worldMatrices[selectedSlot.boneId] : undefined;
+  const selectedWorld = selectedAttachment && selectedBoneMatrix ? multiplyMatrices(selectedBoneMatrix, transformToMatrix(selectedAttachment.rest)) : undefined;
+  const selectedGeometry = selectedAttachment && selectedWorld ? (() => {
+    const [width, height] = selectedAttachment.size, [pivotX, pivotY] = selectedAttachment.pivot;
+    const left = -pivotX * width, right = (1 - pivotX) * width, bottom = -(1 - pivotY) * height, top = pivotY * height;
+    const corners = [[left, bottom, 0], [right, bottom, 0], [right, top, 0], [left, top, 0]].map((point) => transformPoint(selectedWorld, point as [number, number, number]));
+    const rotateStem = transformPoint(selectedWorld, [(left + right) / 2, top, 0]);
+    const rotate = transformPoint(selectedWorld, [(left + right) / 2, top + Math.max(width, height) * .13, 0]);
+    return { corners, pivot: transformPoint(selectedWorld, [0, 0, 0]), rotateStem, rotate, scale: corners[2]! };
+  })() : undefined;
+  return <svg className={`animation-skeleton binding-preview${onTransformAttachment ? " interactive" : ""}`} data-tool={transformTool} viewBox={dragging ? frozenViewBoxRef.current : viewBox} role="img" onPointerMove={moveTransform} onPointerUp={endTransform} onPointerCancel={endTransform}>
     <g transform="scale(1 -1)">{[...binding.slots].sort((a, b) => a.drawOrder - b.drawOrder).map((slot) => {
       const attachment = binding.attachments.find((item) => item.id === slot.attachmentId), matrix = pose.worldMatrices[slot.boneId];
       if (!attachment || !matrix) return null;
       const world = multiplyMatrices(matrix, transformToMatrix(attachment.rest)), [w, h] = attachment.size, [px, py] = attachment.pivot;
       return <g key={slot.id}>
-        <image className={selectedAttachmentId === attachment.id ? "selected" : ""} href={materialImageUrl(attachment.materialId, undefined, attachment.imageSlot)} x={-px * w} y={-(1 - py) * h} width={w} height={h} preserveAspectRatio="none" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} onPointerDown={onMoveAttachment ? (event) => { const svg = event.currentTarget.ownerSVGElement; if (!svg) return; const point = svgPoint(svg, event.clientX, event.clientY); event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); onSelectAttachment?.(attachment.id); frozenViewBoxRef.current = viewBox; dragRef.current = { id: attachment.id, x: point.x, y: point.y, translation: [...attachment.rest.translation], bone: matrix }; setDragging(true); } : undefined} onClick={() => onSelectAttachment?.(attachment.id)} />
-        {selectedAttachmentId === attachment.id && <><circle className="binding-pivot" cx="0" cy="0" r=".075" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /><line className="binding-pivot-cross" x1="-.13" y1="0" x2=".13" y2="0" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /><line className="binding-pivot-cross" x1="0" y1="-.13" x2="0" y2=".13" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /></>}
+        <image className={selectedAttachmentId === attachment.id ? "selected" : ""} href={materialImageUrl(attachment.materialId, undefined, attachment.imageSlot)} x={-px * w} y={-(1 - py) * h} width={w} height={h} preserveAspectRatio="none" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} onPointerDown={onTransformAttachment ? (event) => beginTransform(event, attachment, matrix, world) : undefined} onClick={() => onSelectAttachment?.(attachment.id)} />
       </g>;
     })}{showSkeleton && <g className="binding-bone-overlay">
       {skeleton.bones.map((bone) => {
@@ -110,21 +217,66 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
           <circle className="binding-bone-node" cx={point[0]} cy={point[1]} r={selectedBoneId === bone.id ? boneNodeRadius * 1.45 : boneNodeRadius}><title>{bone.name}</title></circle>
         </g>;
       })}
+    </g>}{selectedGeometry && selectedAttachment && selectedBoneMatrix && selectedWorld && <g className="binding-transform-overlay">
+      <polygon className="binding-selection-outline" points={selectedGeometry.corners.map((point) => `${point[0]},${point[1]}`).join(" ")} />
+      <line className="binding-rotate-stem" x1={selectedGeometry.rotateStem[0]} y1={selectedGeometry.rotateStem[1]} x2={selectedGeometry.rotate[0]} y2={selectedGeometry.rotate[1]} />
+      <circle className="binding-transform-handle rotate" cx={selectedGeometry.rotate[0]} cy={selectedGeometry.rotate[1]} r={handleRadius} onPointerDown={(event) => beginTransform(event, selectedAttachment, selectedBoneMatrix, selectedWorld, "rotate")}><title>{t("animation.binding.toolRotate")}</title></circle>
+      <rect className="binding-transform-handle scale" x={selectedGeometry.scale[0] - handleRadius} y={selectedGeometry.scale[1] - handleRadius} width={handleRadius * 2} height={handleRadius * 2} onPointerDown={(event) => beginTransform(event, selectedAttachment, selectedBoneMatrix, selectedWorld, "scale")}><title>{t("animation.binding.toolScale")}</title></rect>
+      <circle className="binding-transform-handle pivot" cx={selectedGeometry.pivot[0]} cy={selectedGeometry.pivot[1]} r={handleRadius * .82} onPointerDown={(event) => beginTransform(event, selectedAttachment, selectedBoneMatrix, selectedWorld, "pivot")}><title>{t("animation.binding.toolPivot")}</title></circle>
+      <line className="binding-pivot-cross" x1={selectedGeometry.pivot[0] - handleRadius * 1.5} y1={selectedGeometry.pivot[1]} x2={selectedGeometry.pivot[0] + handleRadius * 1.5} y2={selectedGeometry.pivot[1]} />
+      <line className="binding-pivot-cross" x1={selectedGeometry.pivot[0]} y1={selectedGeometry.pivot[1] - handleRadius * 1.5} x2={selectedGeometry.pivot[0]} y2={selectedGeometry.pivot[1] + handleRadius * 1.5} />
     </g>}</g>
   </svg>;
 }
 
 export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
   const firstSlot = binding.slots[0];
-  const t = useT(), [draft, setDraft] = useState(binding), [selectedAttachmentId, setSelectedAttachmentId] = useState(binding.attachments[0]?.id ?? ""), [selectedBoneId, setSelectedBoneId] = useState(firstSlot?.boneId ?? skeleton.bones[0]?.id ?? "");
+  const t = useT();
+  const [draft, setDraft] = useState(binding), [selectedAttachmentId, setSelectedAttachmentId] = useState(binding.attachments[0]?.id ?? ""), [selectedBoneId, setSelectedBoneId] = useState(firstSlot?.boneId ?? skeleton.bones[0]?.id ?? "");
+  const [transformTool, setTransformTool] = useState<BindingTransformTool>("translate"), [undoDrafts, setUndoDrafts] = useState<CharacterBinding[]>([]), [redoDrafts, setRedoDrafts] = useState<CharacterBinding[]>([]);
+  const draftRef = useRef(draft), continuousEditRef = useRef<CharacterBinding | undefined>(undefined);
+  draftRef.current = draft;
+  const restPose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-editor-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [skeleton]);
   useEffect(() => {
     setDraft(binding);
+    setUndoDrafts([]);
+    setRedoDrafts([]);
+    continuousEditRef.current = undefined;
     setSelectedAttachmentId((current) => binding.attachments.some((item) => item.id === current) ? current : binding.attachments[0]?.id ?? "");
     setSelectedBoneId((current) => skeleton.bones.some((bone) => bone.id === current) ? current : binding.slots[0]?.boneId ?? skeleton.bones[0]?.id ?? "");
   }, [binding, skeleton]);
   const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => ({ ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) }));
   const patchSlot = (index: number, patch: Partial<CharacterBinding["slots"][number]>) => setDraft((old) => ({ ...old, slots: old.slots.map((item, i) => i === index ? { ...item, ...patch } : item) }));
+  const rememberDraft = (value = draftRef.current) => {
+    setUndoDrafts((items) => [...items.slice(-49), structuredClone(value)]);
+    setRedoDrafts([]);
+  };
+  const beginContinuousEdit = () => { continuousEditRef.current ??= structuredClone(draftRef.current); };
+  const endContinuousEdit = () => {
+    const previous = continuousEditRef.current;
+    continuousEditRef.current = undefined;
+    if (previous && JSON.stringify(previous) !== JSON.stringify(draftRef.current)) rememberDraft(previous);
+  };
+  const restoreDraft = (value: CharacterBinding) => {
+    setDraft(structuredClone(value));
+    const attachmentId = value.attachments.some((item) => item.id === selectedAttachmentId) ? selectedAttachmentId : value.attachments[0]?.id ?? "";
+    setSelectedAttachmentId(attachmentId);
+    setSelectedBoneId(value.slots.find((item) => item.attachmentId === attachmentId)?.boneId ?? skeleton.bones[0]?.id ?? "");
+  };
+  const travelDraftHistory = (direction: "undo" | "redo") => {
+    const source = direction === "undo" ? undoDrafts : redoDrafts, target = source.at(-1);
+    if (!target) return;
+    if (direction === "undo") {
+      setUndoDrafts(source.slice(0, -1));
+      setRedoDrafts((items) => [...items, structuredClone(draftRef.current)]);
+    } else {
+      setRedoDrafts(source.slice(0, -1));
+      setUndoDrafts((items) => [...items, structuredClone(draftRef.current)]);
+    }
+    restoreDraft(target);
+  };
   const addRow = () => {
+    rememberDraft();
     const id = uid("region"), boneId = skeleton.bones[0]?.id ?? "", order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0;
     setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [1, 1], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId, attachmentId: id, drawOrder: order }] }));
     setSelectedAttachmentId(id);
@@ -142,12 +294,24 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
   };
   const bindSelectedToBone = (boneId: string) => {
     setSelectedBoneId(boneId);
-    if (selectedSlotIndex >= 0) patchSlot(selectedSlotIndex, { boneId });
+    if (!selectedAttachment || !selectedSlot || selectedSlotIndex < 0 || selectedSlot.boneId === boneId) return;
+    const oldParent = restPose.worldMatrices[selectedSlot.boneId], newParent = restPose.worldMatrices[boneId];
+    if (!oldParent || !newParent) return;
+    try {
+      const rest = reparentTransform2d(selectedAttachment.rest, oldParent, newParent);
+      rememberDraft();
+      setDraft((old) => ({
+        ...old,
+        attachments: old.attachments.map((item) => item.id === selectedAttachment.id ? { ...item, rest } : item),
+        slots: old.slots.map((item, index) => index === selectedSlotIndex ? { ...item, boneId } : item),
+      }));
+    } catch (error) {
+      notify(t("animation.binding.reparentFailed", { msg: (error as Error).message }));
+    }
   };
-  const rotateSelected = (degrees: number) => selectedAttachment && patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, rotation: quaternionFromZRotation(zRotationFromQuaternion(selectedAttachment.rest.rotation) + degrees * Math.PI / 180) } });
-  const scaleSelected = (factor: number) => selectedAttachment && patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale: [selectedAttachment.rest.scale[0] * factor, selectedAttachment.rest.scale[1] * factor, selectedAttachment.rest.scale[2]] } });
   const removeSelected = () => {
     if (!selectedSlot || selectedSlotIndex < 0) return;
+    rememberDraft();
     const slots = draft.slots.filter((_, index) => index !== selectedSlotIndex);
     const attachments = slots.some((item) => item.attachmentId === selectedAttachmentId) ? draft.attachments : draft.attachments.filter((item) => item.id !== selectedAttachmentId);
     const next = attachments[0];
@@ -155,21 +319,66 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
     setSelectedAttachmentId(next?.id ?? "");
     setSelectedBoneId(slots.find((item) => item.attachmentId === next?.id)?.boneId ?? skeleton.bones[0]?.id ?? "");
   };
-  const sliderField = (label: string, value: number, min: number, max: number, step: number, onChange: (value: number) => void) => <label className="binding-tuning-row"><span>{label}</span><input type="range" min={min} max={max} step={step} value={Math.max(min, Math.min(max, value))} onChange={(event) => onChange(Number(event.target.value))} /><input className="px-input" type="number" min={min} max={max} step={step} value={Math.round(value * 1000) / 1000} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+  const sliderField = (label: string, value: number, min: number, max: number, step: number, onChange: (value: number) => void) => <label className="binding-tuning-row"><span>{label}</span><input type="range" min={min} max={max} step={step} value={Math.max(min, Math.min(max, value))} onPointerDown={beginContinuousEdit} onPointerUp={endContinuousEdit} onPointerCancel={endContinuousEdit} onChange={(event) => onChange(Number(event.target.value))} /><input className="px-input" type="number" min={min} max={max} step={step} value={Math.round(value * 1000) / 1000} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => onChange(Number(event.target.value))} /></label>;
+  const setSelectedPivot = (axis: 0 | 1, value: number) => {
+    if (!selectedAttachment) return;
+    const pivot: [number, number] = [...selectedAttachment.pivot];
+    pivot[axis] = value;
+    const pivotDeltaX = (pivot[0] - selectedAttachment.pivot[0]) * selectedAttachment.size[0], pivotDeltaY = (pivot[1] - selectedAttachment.pivot[1]) * selectedAttachment.size[1];
+    const restLinear = transformToMatrix({ ...selectedAttachment.rest, translation: [0, 0, 0] });
+    const translation: [number, number, number] = [
+      selectedAttachment.rest.translation[0] + restLinear[0] * pivotDeltaX + restLinear[4] * pivotDeltaY,
+      selectedAttachment.rest.translation[1] + restLinear[1] * pivotDeltaX + restLinear[5] * pivotDeltaY,
+      selectedAttachment.rest.translation[2],
+    ];
+    patchRegion(selectedAttachment.id, { pivot, rest: { ...selectedAttachment.rest, translation } });
+  };
   const translationRange = selectedAttachment ? Math.max(2, ...selectedAttachment.size.map((value) => value * 3), Math.abs(selectedAttachment.rest.translation[0]) * 1.5, Math.abs(selectedAttachment.rest.translation[1]) * 1.5) : 2;
   const sizeRange = selectedAttachment ? Math.max(2, ...selectedAttachment.size.map((value) => value * 2)) : 2;
   const scaleRange = selectedAttachment ? Math.max(3, selectedAttachment.rest.scale[0] * 1.5, selectedAttachment.rest.scale[1] * 1.5) : 3;
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        travelDraftHistory(event.shiftKey ? "redo" : "undo");
+        return;
+      }
+      const tool = ({ v: "translate", r: "rotate", s: "scale", p: "pivot" } as const)[event.key.toLowerCase() as "v" | "r" | "s" | "p"];
+      if (tool) {
+        event.preventDefault();
+        setTransformTool(tool);
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [undoDrafts, redoDrafts]);
   return <section className="binding-editor">
     <header className="binding-editor-heading"><div><h3>{t("animation.binding.visualTitle")}</h3><p>{t("animation.binding.visualHint")}</p></div><button className="px-btn accent" disabled={busy} onClick={() => void onSave(draft)}><Save size={13} />{t("common.save")}</button></header>
     <section className="binding-part-strip"><header><strong>{t("animation.binding.parts")}</strong><button className="px-btn" disabled={!materials.length} onClick={addRow}><Plus size={14} />{t("animation.binding.addRegion")}</button></header><div className="binding-part-list">{draft.slots.map((slot) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId), boneName = skeleton.bones.find((bone) => bone.id === slot.boneId)?.name ?? slot.boneId; return attachment && <button type="button" className={selectedAttachmentId === attachment.id ? "selected" : ""} title={`${attachment.name} · ${boneName}`} key={slot.id} onClick={() => selectAttachment(attachment.id)}><span>{attachment.name}</span><small>{boneName}</small></button>; })}</div></section>
     <div className="binding-calibration-workspace">
-      <article className="binding-preview-card"><div className="binding-canvas-hud"><span><b>1</b>{t("animation.binding.guidePart")}</span><span><b>2</b>{t("animation.binding.guideBone")}</span><span><b>3</b>{t("animation.binding.guideTune")}</span></div><CharacterPreview binding={draft} skeleton={skeleton} time={0} selectedAttachmentId={selectedAttachmentId} selectedBoneId={selectedBoneId} showSkeleton onSelectAttachment={selectAttachment} onSelectBone={bindSelectedToBone} onMoveAttachment={(id, translation) => { const attachment = draft.attachments.find((item) => item.id === id); if (attachment) patchRegion(id, { rest: { ...attachment.rest, translation } }); }} />{selectedAttachment && <div className="binding-gizmo-toolbar"><span><Move size={13} />{selectedAttachment.name} → {selectedBone?.name ?? t("animation.binding.chooseBone")}</span><button className="px-btn icon" title={t("animation.binding.rotateLeft")} onClick={() => rotateSelected(-5)}><RotateCcw size={13} /></button><button className="px-btn icon" title={t("animation.binding.rotateRight")} onClick={() => rotateSelected(5)}><RotateCw size={13} /></button><button className="px-btn icon" title={t("animation.binding.scaleDown")} onClick={() => scaleSelected(.95)}><ZoomOut size={13} /></button><button className="px-btn icon" title={t("animation.binding.scaleUp")} onClick={() => scaleSelected(1.05)}><ZoomIn size={13} /></button></div>}<p>{t("animation.binding.canvasHint")}</p></article>
+      <article className="binding-preview-card">
+        <div className="binding-canvas-hud"><span><b>1</b>{t("animation.binding.guidePart")}</span><span><b>2</b>{t("animation.binding.guideBone")}</span><span><b>3</b>{t("animation.binding.guideTune")}</span></div>
+        <div className="binding-canvas-toolbar" role="toolbar" aria-label={t("animation.binding.tools")}>
+          <div className="binding-transform-tools">
+            <button type="button" className={transformTool === "translate" ? "on" : ""} aria-pressed={transformTool === "translate"} title={t("animation.binding.toolMoveHint")} onClick={() => setTransformTool("translate")}><Move size={13} />{t("animation.binding.toolMove")}<kbd>V</kbd></button>
+            <button type="button" className={transformTool === "rotate" ? "on" : ""} aria-pressed={transformTool === "rotate"} title={t("animation.binding.toolRotateHint")} onClick={() => setTransformTool("rotate")}><RotateCw size={13} />{t("animation.binding.toolRotate")}<kbd>R</kbd></button>
+            <button type="button" className={transformTool === "scale" ? "on" : ""} aria-pressed={transformTool === "scale"} title={t("animation.binding.toolScaleHint")} onClick={() => setTransformTool("scale")}><ZoomIn size={13} />{t("animation.binding.toolScale")}<kbd>S</kbd></button>
+            <button type="button" className={transformTool === "pivot" ? "on" : ""} aria-pressed={transformTool === "pivot"} title={t("animation.binding.toolPivotHint")} onClick={() => setTransformTool("pivot")}><Crosshair size={13} />{t("animation.binding.toolPivot")}<kbd>P</kbd></button>
+          </div>
+          <span className="binding-current-link">{selectedAttachment ? `${selectedAttachment.name} → ${selectedBone?.name ?? t("animation.binding.chooseBone")}` : t("animation.binding.choosePart")}</span>
+          <div className="binding-history-actions"><button className="px-btn icon" disabled={!undoDrafts.length} onClick={() => travelDraftHistory("undo")} title={t("animation.binding.undo")}><Undo2 size={14} /></button><button className="px-btn icon" disabled={!redoDrafts.length} onClick={() => travelDraftHistory("redo")} title={t("animation.binding.redo")}><Redo2 size={14} /></button></div>
+        </div>
+        <CharacterPreview binding={draft} skeleton={skeleton} time={0} selectedAttachmentId={selectedAttachmentId} selectedBoneId={selectedBoneId} showSkeleton transformTool={transformTool} onSelectAttachment={selectAttachment} onSelectBone={bindSelectedToBone} onTransformAttachment={patchRegion} onBeginTransform={beginContinuousEdit} onEndTransform={endContinuousEdit} />
+        <p>{t("animation.binding.canvasHint")}</p>
+      </article>
       <aside className="binding-inspector">{selectedAttachment && selectedSlot ? <>
         <header><div><span>{t("animation.binding.selectedPart")}</span><h3>{selectedAttachment.name}</h3><small>{t("animation.binding.boundTo", { bone: skeleton.bones.find((bone) => bone.id === selectedSlot.boneId)?.name ?? selectedSlot.boneId })}</small></div><button className="px-btn icon danger" title={t("common.delete")} onClick={removeSelected}><Trash2 size={13} /></button></header>
-        <section className="binding-inspector-basics"><label>{t("animation.binding.slotName")}<input className="px-input" value={selectedSlot.name} onChange={(event) => patchSlot(selectedSlotIndex, { name: event.target.value })} /></label><label>{t("animation.bone")}<PxSelect value={selectedSlot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: bone.name }))} onChange={bindSelectedToBone} /></label><label>{t("animation.binding.material")}<PxSelect value={selectedAttachment.materialId} options={materials.map((item) => ({ value: item.id, label: item.name }))} onChange={(materialId) => patchRegion(selectedAttachment.id, { materialId, imageSlot: "raw" })} /></label><label>{t("animation.binding.imageSlot")}<PxSelect value={selectedAttachment.imageSlot} options={[{ value: "raw", label: t("animation.binding.originalImage") }, { value: "processed", label: t("animation.binding.cutoutImage"), disabled: !selectedMaterial?.processed_path }]} onChange={(imageSlot) => patchRegion(selectedAttachment.id, { imageSlot: imageSlot as "raw" | "processed" })} /></label></section>
+        <section className="binding-inspector-basics"><label>{t("animation.binding.slotName")}<input className="px-input" value={selectedSlot.name} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { name: event.target.value })} /></label><label>{t("animation.bone")}<PxSelect value={selectedSlot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: bone.name }))} onChange={bindSelectedToBone} /></label><label>{t("animation.binding.material")}<PxSelect value={selectedAttachment.materialId} options={materials.map((item) => ({ value: item.id, label: item.name }))} onChange={(materialId) => { rememberDraft(); patchRegion(selectedAttachment.id, { materialId, imageSlot: "raw" }); }} /></label><label>{t("animation.binding.imageSlot")}<PxSelect value={selectedAttachment.imageSlot} options={[{ value: "raw", label: t("animation.binding.originalImage") }, { value: "processed", label: t("animation.binding.cutoutImage"), disabled: !selectedMaterial?.processed_path }]} onChange={(imageSlot) => { rememberDraft(); patchRegion(selectedAttachment.id, { imageSlot: imageSlot as "raw" | "processed" }); }} /></label></section>
         <section className="binding-tuning"><h4>{t("animation.binding.restTransform")}</h4>{sliderField(t("animation.binding.translationX"), selectedAttachment.rest.translation[0], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.translationY"), selectedAttachment.rest.translation[1], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.rotation"), zRotationFromQuaternion(selectedAttachment.rest.rotation) * 180 / Math.PI, -180, 180, 1, (value) => patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, rotation: quaternionFromZRotation(value * Math.PI / 180) } }))}{sliderField(t("animation.binding.scaleX"), selectedAttachment.rest.scale[0], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}{sliderField(t("animation.binding.scaleY"), selectedAttachment.rest.scale[1], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}</section>
-        <details className="binding-geometry"><summary>{t("animation.binding.geometry")}</summary>{sliderField(t("animation.binding.pivotX"), selectedAttachment.pivot[0], 0, 1, .01, (value) => patchRegion(selectedAttachment.id, { pivot: [value, selectedAttachment.pivot[1]] }))}{sliderField(t("animation.binding.pivotY"), selectedAttachment.pivot[1], 0, 1, .01, (value) => patchRegion(selectedAttachment.id, { pivot: [selectedAttachment.pivot[0], value] }))}{sliderField(t("animation.binding.width"), selectedAttachment.size[0], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [value, selectedAttachment.size[1]] }))}{sliderField(t("animation.binding.height"), selectedAttachment.size[1], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [selectedAttachment.size[0], value] }))}<label className="binding-order-field">{t("animation.binding.drawOrder")}<input className="px-input" type="number" step="1" value={selectedSlot.drawOrder} onChange={(event) => patchSlot(selectedSlotIndex, { drawOrder: Number(event.target.value) })} /></label></details>
-        <button className="px-btn" title={t("animation.binding.resetTransform")} onClick={() => { const original = binding.attachments.find((item) => item.id === selectedAttachment.id); if (original) patchRegion(selectedAttachment.id, { rest: structuredClone(original.rest), pivot: [...original.pivot], size: [...original.size] }); }}><Redo2 size={13} />{t("animation.binding.resetTransform")}</button>
+        <details className="binding-geometry"><summary>{t("animation.binding.geometry")}</summary>{sliderField(t("animation.binding.pivotX"), selectedAttachment.pivot[0], 0, 1, .01, (value) => setSelectedPivot(0, value))}{sliderField(t("animation.binding.pivotY"), selectedAttachment.pivot[1], 0, 1, .01, (value) => setSelectedPivot(1, value))}{sliderField(t("animation.binding.width"), selectedAttachment.size[0], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [value, selectedAttachment.size[1]] }))}{sliderField(t("animation.binding.height"), selectedAttachment.size[1], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [selectedAttachment.size[0], value] }))}<label className="binding-order-field">{t("animation.binding.drawOrder")}<input className="px-input" type="number" step="1" value={selectedSlot.drawOrder} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { drawOrder: Number(event.target.value) })} /></label></details>
+        <button className="px-btn" title={t("animation.binding.resetTransform")} onClick={() => { const original = binding.attachments.find((item) => item.id === selectedAttachment.id); if (original) { rememberDraft(); patchRegion(selectedAttachment.id, { rest: structuredClone(original.rest), pivot: [...original.pivot], size: [...original.size] }); } }}><Redo2 size={13} />{t("animation.binding.resetTransform")}</button>
       </> : <p className="animation-empty">{t("animation.binding.empty")}</p>}</aside>
     </div>
   </section>;

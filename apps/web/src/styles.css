@@ -3949,11 +3949,22 @@ body.resizing-row * {
 .binding-preview { min-height: 520px; margin: 0; background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px; }
 .binding-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .binding-preview-heading p { margin-top: 4px; color: var(--text-muted); }
-.binding-preview.interactive image { cursor: grab; pointer-events: all; }
-.binding-preview.interactive image:active { cursor: grabbing; }
+.binding-preview.interactive { touch-action: none; }
+.binding-preview.interactive image { pointer-events: all; }
+.binding-preview.interactive[data-tool="translate"] image { cursor: move; }
+.binding-preview.interactive[data-tool="rotate"] image { cursor: crosshair; }
+.binding-preview.interactive[data-tool="scale"] image { cursor: nwse-resize; }
+.binding-preview.interactive[data-tool="pivot"] image { cursor: cell; }
 .binding-preview.interactive image.selected { filter: drop-shadow(0 0 3px var(--accent)); }
 .binding-pivot { fill: var(--accent); stroke: var(--bg); stroke-width: .025; pointer-events: none; }
 .binding-pivot-cross { stroke: var(--accent); stroke-width: .025; vector-effect: non-scaling-stroke; pointer-events: none; }
+.binding-selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.binding-rotate-stem { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.binding-transform-handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: all; }
+.binding-transform-handle:hover { fill: var(--accent); stroke: var(--text); }
+.binding-transform-handle.rotate { cursor: crosshair; }
+.binding-transform-handle.scale { cursor: nwse-resize; }
+.binding-transform-handle.pivot { fill: var(--accent); stroke: var(--text); cursor: move; }
 .binding-bone-overlay line { stroke: var(--text); stroke-width: 2; stroke-dasharray: 5 5; opacity: .42; vector-effect: non-scaling-stroke; pointer-events: none; }
 .binding-bone-overlay line.selected { stroke: var(--accent); stroke-width: 4; stroke-dasharray: none; opacity: 1; }
 .binding-bone-overlay g[role="button"] { cursor: crosshair; outline: none; }
@@ -3962,6 +3973,13 @@ body.resizing-row * {
 .binding-canvas-hud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 6px; }
 .binding-canvas-hud span { min-width: 0; padding: 6px; display: flex; align-items: center; gap: 5px; color: var(--text-muted); border: 1px solid var(--border); background: var(--bg); }
 .binding-canvas-hud b { display: grid; flex: 0 0 20px; width: 20px; height: 20px; place-items: center; color: var(--accent-contrast); background: var(--accent); }
+.binding-canvas-toolbar { min-width: 0; display: flex; align-items: center; gap: 7px; margin-bottom: 7px; padding: 6px; border: 1px solid var(--border); background: var(--bg); }
+.binding-transform-tools { min-width: 0; display: flex; gap: 4px; flex-wrap: wrap; }
+.binding-transform-tools button { min-width: 0; padding: 6px 7px; display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); border: 1px solid var(--border); background: var(--surface); }
+.binding-transform-tools button:hover, .binding-transform-tools button.on { color: var(--text); border-color: var(--accent); background: var(--selected); }
+.binding-transform-tools kbd { padding: 1px 3px; color: var(--text-muted); border: 1px solid var(--border); background: var(--elevated); font: inherit; font-size: 10px; }
+.binding-current-link { min-width: 90px; flex: 1; overflow: hidden; color: var(--text-muted); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.binding-history-actions { flex: 0 0 auto; display: flex; gap: 4px; }
 .binding-gizmo-toolbar { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px; border-top: 1px solid var(--border); background: var(--selected); }
 .binding-gizmo-toolbar > span { min-width: 0; display: inline-flex; align-items: center; gap: 5px; margin-right: auto; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .binding-inspector { display: grid; gap: 10px; padding: 10px; border: 2px solid var(--accent); background: var(--surface); box-shadow: 3px 3px 0 var(--elevated); scrollbar-gutter: stable; }
@@ -4037,7 +4055,7 @@ body.resizing-row * {
 @media (max-width: 980px) { .animation-assets-page { padding-top: 72px; } .animation-workspace { grid-template-columns: 190px 1fr; } .animation-preview { grid-column: 1 / -1; } .motion-heading-side { align-items: flex-end; flex-direction: column; } }
 @media (max-width: 620px) { .animation-workspace { display: flex; flex-direction: column; } .binding-field-grid, .render-profile-panel .animation-transform-fields, .bake-config-grid { grid-template-columns: 1fr; } .animation-controls { flex-wrap: wrap; } }
 
-@media (max-width: 700px) { .binding-calibration-workspace { grid-template-columns: 1fr; } .binding-preview { min-height: 420px; } .binding-canvas-hud, .binding-inspector-basics { grid-template-columns: 1fr; } .skeletal-character-editor .binding-inspector { position: static; max-height: none; } }
+@media (max-width: 700px) { .binding-calibration-workspace { grid-template-columns: 1fr; } .binding-preview { min-height: 420px; } .binding-canvas-hud, .binding-inspector-basics { grid-template-columns: 1fr; } .binding-canvas-toolbar { align-items: stretch; flex-direction: column; } .binding-transform-tools { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .binding-transform-tools button { justify-content: center; } .binding-current-link { width: 100%; text-align: left; } .binding-history-actions { align-self: flex-end; } .skeletal-character-editor .binding-inspector { position: static; max-height: none; } }
 @media (max-width: 420px) { .binding-tuning-row { grid-template-columns: minmax(0, 1fr) 72px; } .binding-tuning-row > span { grid-column: 1 / -1; } }
 
 /* ===== Tooltip ===== */
