@@ -766,6 +766,29 @@ export function multiplyMatrices(a: Mat4, b: Mat4): Mat4 {
   return result as Mat4;
 }
 
+/** 将二维附件换到新父级，同时尽可能保持原有世界空间外观。 */
+export function reparentTransform2d(transform: Transform, oldParentWorld: Mat4, newParentWorld: Mat4): Transform {
+  const determinant = newParentWorld[0] * newParentWorld[5] - newParentWorld[1] * newParentWorld[4];
+  if (Math.abs(determinant) < 1e-8) throw new Error("新父级的二维变换不可逆");
+  const inverse: Mat4 = [
+    newParentWorld[5] / determinant, -newParentWorld[1] / determinant, 0, 0,
+    -newParentWorld[4] / determinant, newParentWorld[0] / determinant, 0, 0,
+    0, 0, 1, 0,
+    (newParentWorld[4] * newParentWorld[13] - newParentWorld[5] * newParentWorld[12]) / determinant,
+    (newParentWorld[1] * newParentWorld[12] - newParentWorld[0] * newParentWorld[13]) / determinant,
+    0,
+    1,
+  ];
+  const local = multiplyMatrices(inverse, multiplyMatrices(oldParentWorld, transformToMatrix(transform)));
+  const scaleX = Math.hypot(local[0], local[1]);
+  if (scaleX < 1e-8) throw new Error("附件的二维变换不可分解");
+  return {
+    translation: [local[12], local[13], transform.translation[2]],
+    rotation: quaternionFromZRotation(Math.atan2(local[1], local[0])),
+    scale: [scaleX, (local[0] * local[5] - local[1] * local[4]) / scaleX, transform.scale[2]],
+  };
+}
+
 export function transformPoint(matrix: Mat4, point: Vec3): Vec3 {
   return [
     matrix[0] * point[0] + matrix[4] * point[1] + matrix[8] * point[2] + matrix[12],

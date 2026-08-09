@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, quaternionFromZRotation, sampleMotionClip, upsertMotionKeyframe, validateMotionClip, zRotationFromQuaternion, type MotionClip, type Skeleton } from "../packages/shared/src";
+import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformToMatrix, upsertMotionKeyframe, validateMotionClip, zRotationFromQuaternion, type MotionClip, type Skeleton, type Transform } from "../packages/shared/src";
 
 const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: "s", name: "S", coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "normalized" }, bones: [{ id: "b", name: "Bone", parentId: null, rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }] };
 const clip = (): MotionClip => ({ schemaVersion: 1, kind: "motion-clip", id: "c", name: "C", skeletonId: "s", duration: 2, loop: false, tracks: [], events: [] });
@@ -26,6 +26,16 @@ describe("连续时间轨道编辑", () => {
     const sampled = sampleMotionClip(value, skeleton, 0).local.b!.rotation;
     expect(Math.hypot(...sampled)).toBeCloseTo(1, 10);
     expect(zRotationFromQuaternion(sampled)).toBeCloseTo(angle, 10);
+  });
+
+  test("附件更换父骨骼时保持二维世界变换", () => {
+    const oldParent: Transform = { translation: [3, -2, 0], rotation: quaternionFromZRotation(Math.PI / 6), scale: [1.5, 1.5, 1] };
+    const newParent: Transform = { translation: [-4, 5, 0], rotation: quaternionFromZRotation(-Math.PI / 4), scale: [.75, .75, 1] };
+    const attachment: Transform = { translation: [2, 1, 0], rotation: quaternionFromZRotation(Math.PI / 8), scale: [1.2, .8, 1] };
+    const before = multiplyMatrices(transformToMatrix(oldParent), transformToMatrix(attachment));
+    const reparented = reparentTransform2d(attachment, transformToMatrix(oldParent), transformToMatrix(newParent));
+    const after = multiplyMatrices(transformToMatrix(newParent), transformToMatrix(reparented));
+    for (const index of [0, 1, 4, 5, 12, 13]) expect(after[index]).toBeCloseTo(before[index]!, 10);
   });
 
   test("事件添加会 trim 并按时间排序，删除使用排序后的明确索引", () => {
