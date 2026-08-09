@@ -924,7 +924,7 @@ export const en = {
   "skeletal.split.quality.fragmented": "Cell {cells} contains multiple detached subjects",
   "skeletal.split.quality.duplicate": "Cells {cells} contain duplicate images",
   "skeletal.split.quality.mirrored-duplicate": "Cells {cells} are mirror-copied",
-  "skeletal.split.semanticConfirmation": "I verified every cell: cell 3 is a pelvis, not a shoulder pad; cells 5/7 are upper arms with no hands; cells 6/8 are forearms with exactly one hand each; cells 9/11 are thighs with no feet; no left/right limb is reused; and all parts match the identity reference.",
+  "skeletal.split.semanticConfirmation": "I verified every cell: cell 3 contains only the waist and hips, ends at the hip sockets, and has no shoulder pad or long thigh segment; cells 5/7 are upper arms with no hands; cells 6/8 are forearms with exactly one hand each; cells 9/11 are thighs with no feet; no left/right limb is reused; and all parts match the identity reference.",
   "skeletal.split.createNewSet": "Create a character part set",
   "skeletal.split.cell": "Cell {index}",
   "skeletal.split.partName": "Part name for cell {index}",

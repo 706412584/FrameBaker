@@ -924,7 +924,7 @@ export const zh = {
   "skeletal.split.quality.fragmented": "第 {cells} 格包含多个独立主体",
   "skeletal.split.quality.duplicate": "第 {cells} 格图像重复",
   "skeletal.split.quality.mirrored-duplicate": "第 {cells} 格是镜像复制",
-  "skeletal.split.semanticConfirmation": "我已逐格确认：第 3 格确为腰胯而非肩甲；第 5/7 格上臂不带手；第 6/8 格前臂各有且仅有一只手；第 9/11 格大腿不带脚；左右肢体无复用；全部部件与角色身份基准一致。",
+  "skeletal.split.semanticConfirmation": "我已逐格确认：第 3 格仅有腰胯、在髋关节处结束，不含肩甲或大腿长段；第 5/7 格上臂不带手；第 6/8 格前臂各有且仅有一只手；第 9/11 格大腿不带脚；左右肢体无复用；全部部件与角色身份基准一致。",
   "skeletal.split.createNewSet": "新建角色部件集",
   "skeletal.split.cell": "第 {index} 格",
   "skeletal.split.partName": "第 {index} 格部件名称",

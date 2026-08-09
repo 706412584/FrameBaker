@@ -118,6 +118,8 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("4 columns by 3 rows");
     expect(prompt).toContain("left upper arm, left forearm");
     expect(prompt).toContain("left thigh, left shin");
+    expect(prompt).toContain("stops at the hip sockets");
+    expect(prompt).toContain("no upper-leg or thigh segment");
     expect(prompt).toContain("weapon must not touch either arm");
     expect(prompt).toContain("Extra requirements: red cape");
   });
