@@ -138,6 +138,6 @@ export function LegacyMotionsPage({ onShowAssets }: { onShowAssets: () => void }
   </div>;
 }
 
-export default function MotionsPage() {
-  return <div className="page animation-assets-page"><AnimationAssetsWorkspace /></div>;
+export default function MotionsPage({ onOpenMaterials, onOpenProjects }: { onOpenMaterials: () => void; onOpenProjects: () => void }) {
+  return <div className="page animation-assets-page"><AnimationAssetsWorkspace onOpenMaterials={onOpenMaterials} onOpenProjects={onOpenProjects} /></div>;
 }

@@ -10,7 +10,7 @@ interface Props {
   onNav: (page: "home" | "materials" | "motions" | "settings") => void;
 }
 
-/** 顶部一级导航：项目 / 素材库 / 动作 / 设置（编辑器页有自己的顶栏，不显示本导航） */
+/** 顶部一级导航：项目 / 素材库 / 动作 / 设置；所有工作区保持常驻，避免进入编辑器后迷失。 */
 export default function TopNav({ current, onNav }: Props) {
   const t = useT();
   const tabs = [

@@ -16,8 +16,6 @@ import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import CropModal from "./CropModal";
 import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
-import ThemeToggle from "./ThemeToggle";
-import NoticeHistory from "./NoticeHistory";
 import { exportSpritesheet } from "../export";
 import { useT } from "../i18n";
 import {
@@ -502,8 +500,6 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         >
           <Download size={14} /> {t("msg.export_spritesheet")}
         </motion.button>
-        <NoticeHistory />
-        <ThemeToggle />
       </header>
 
       <div className="editor-main">

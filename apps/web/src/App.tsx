@@ -27,7 +27,7 @@ function viewFromLocation(): View {
   return m ? { page: "editor", projectId: m[1] } : { page: "home" };
 }
 
-function ProjectEditorRoute({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary, onOpenFrameProject }: { projectId: string; onBack: () => void; onEditActionLibrary: () => void; onOpenFrameProject: (id: string) => void }) {
   const t = useT();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
@@ -43,7 +43,7 @@ function ProjectEditorRoute({ projectId, onBack }: { projectId: string; onBack: 
   if (error) return <div className="project-route-state"><p>{t("project.loadFailed", { msg: error })}</p><button type="button" className="px-btn" onClick={onBack}>{t("msg.back_to_projects")}</button></div>;
   if (!project) return <div className="project-route-state">{t("project.loading")}</div>;
   return project.kind === "skeletal"
-    ? <SkeletalProjectEditor project={project} onBack={onBack} />
+    ? <SkeletalProjectEditor project={project} onBack={onBack} onEditActionLibrary={onEditActionLibrary} onOpenFrameProject={onOpenFrameProject} />
     : <Editor projectId={projectId} onBack={onBack} />;
 }
 
@@ -89,12 +89,14 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      {view.page !== "editor" && <TopNav current={view.page} onNav={(p) => nav({ page: p })} />}
-      {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
-      {view.page === "materials" && <MaterialsPage />}
-      {view.page === "motions" && <MotionsPage />}
-      {view.page === "settings" && <SettingsPage />}
-      {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
+      <TopNav current={view.page === "editor" ? "home" : view.page} onNav={(p) => nav({ page: p })} />
+      <div className={`app-view${view.page === "editor" ? " editor-view" : ""}`}>
+        {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
+        {view.page === "materials" && <MaterialsPage />}
+        {view.page === "motions" && <MotionsPage onOpenMaterials={() => nav({ page: "materials" })} onOpenProjects={() => nav({ page: "home" })} />}
+        {view.page === "settings" && <SettingsPage />}
+        {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} onEditActionLibrary={() => nav({ page: "motions" })} onOpenFrameProject={(projectId) => nav({ page: "editor", projectId })} />}
+      </div>
       {/* 右侧常驻任务队列面板（有任务时才显示） */}
       <JobPanel />
       {/* 全局通知条 + 确认弹窗（notice.ts） */}

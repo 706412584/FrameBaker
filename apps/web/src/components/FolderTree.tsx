@@ -11,6 +11,8 @@ export type FolderSelection = "all" | "ungrouped" | string;
 
 interface Props {
   kind: FolderKind;
+  title?: string;
+  className?: string;
   folders: Folder[];
   selected: FolderSelection;
   onSelect: (s: FolderSelection) => void;
@@ -60,6 +62,8 @@ function parseDragIds(e: React.DragEvent): string[] {
 /** 左侧多级目录树：全部 / 未分组 + 文件夹 CRUD / DnD / 右键菜单 */
 export default function FolderTree({
   kind,
+  title,
+  className,
   folders,
   selected,
   onSelect,
@@ -270,9 +274,9 @@ export default function FolderTree({
   };
 
   return (
-    <aside className="folder-tree pixel-panel" onContextMenu={(e) => openCtx(e, { kind: "root" })}>
+    <aside className={`folder-tree pixel-panel${className ? ` ${className}` : ""}`} onContextMenu={(e) => openCtx(e, { kind: "root" })}>
       <div className="folder-tree-head" onContextMenu={(e) => openCtx(e, { kind: "root" })}>
-        <span>{t("msg.folders")}</span>
+        <span>{title ?? t("msg.folders")}</span>
         <IconBtn title={t("msg.new_folder")} onClick={() => void handleCreate(null)}>
           <FolderPlus size={14} />
         </IconBtn>

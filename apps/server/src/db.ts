@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS character_part_sets (
 CREATE TABLE IF NOT EXISTS character_part_set_members (
   set_id TEXT NOT NULL,
   material_id TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('head','torso','arm-left','arm-right','leg-left','leg-right','weapon','accessory','custom')),
+  role TEXT NOT NULL CHECK (role IN ('head','torso','pelvis','weapon','upper-arm-left','forearm-left','upper-arm-right','forearm-right','thigh-left','shin-left','thigh-right','shin-right','arm-left','arm-right','leg-left','leg-right','accessory','custom')),
   name TEXT NOT NULL,
   UNIQUE(set_id, material_id)
 );
@@ -129,6 +129,25 @@ CREATE TABLE IF NOT EXISTS raster_sequences (
 );
 CREATE INDEX IF NOT EXISTS idx_raster_sequences_created ON raster_sequences(created_at);
 `);
+
+// SQLite 无法原地修改 CHECK；扩充为 12 分件角色时保留旧六分件集合。
+const characterPartMembersSql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'character_part_set_members'").get() as { sql: string } | null)?.sql ?? "";
+if (!characterPartMembersSql.includes("forearm-left") || !characterPartMembersSql.includes("shin-right")) {
+  db.transaction(() => {
+    db.exec("DROP INDEX IF EXISTS idx_character_part_set_members_set; DROP INDEX IF EXISTS idx_character_part_set_members_material;");
+    db.exec("ALTER TABLE character_part_set_members RENAME TO character_part_set_members_legacy");
+    db.exec(`CREATE TABLE character_part_set_members (
+      set_id TEXT NOT NULL,
+      material_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('head','torso','pelvis','weapon','upper-arm-left','forearm-left','upper-arm-right','forearm-right','thigh-left','shin-left','thigh-right','shin-right','arm-left','arm-right','leg-left','leg-right','accessory','custom')),
+      name TEXT NOT NULL,
+      UNIQUE(set_id, material_id)
+    )`);
+    db.exec("INSERT INTO character_part_set_members SELECT set_id, material_id, role, name FROM character_part_set_members_legacy");
+    db.exec("DROP TABLE character_part_set_members_legacy");
+    db.exec("CREATE INDEX idx_character_part_set_members_set ON character_part_set_members(set_id); CREATE INDEX idx_character_part_set_members_material ON character_part_set_members(material_id);");
+  })();
+}
 
 // SQLite 无法原地修改 CHECK；安全重建旧版动画资产表并保留全部行。
 const animationAssetsSql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'animation_assets'").get() as { sql: string } | null)?.sql ?? "";

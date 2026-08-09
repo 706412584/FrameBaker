@@ -385,6 +385,14 @@ input[type="range"] {
   box-shadow: 0 -3px 12px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+.app-view {
+  height: 100%;
+  min-height: 0;
+}
+.app-view.editor-view {
+  padding-top: 60px;
+}
+
 /* ===== 首页 / 素材库页（顶部留出导航高度） ===== */
 .page {
   height: 100%;
@@ -579,11 +587,11 @@ input[type="range"] {
   background: color-mix(in srgb, var(--bg) 72%, transparent);
 }
 
-.skeletal-project-shell { height: 100%; overflow-y: auto; padding: 24px; background: var(--bg); }
-.skeletal-project-header { max-width: 1080px; margin: 0 auto 18px; display: flex; gap: 18px; align-items: flex-start; }
-.skeletal-project-title { flex: 1; min-width: 0; }
-.skeletal-project-header h1 { margin: 8px 0 4px; }
-.skeletal-project-header p { color: var(--text-muted); }
+.skeletal-project-shell { height: 100%; overflow-y: auto; padding: 12px clamp(12px, 1.4vw, 22px) 18px; background: var(--bg); }
+.skeletal-project-header { width: 100%; margin: 0 0 8px; display: flex; gap: 12px; align-items: center; }
+.skeletal-project-title { flex: 1; min-width: 0; display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.skeletal-project-header h1 { min-width: 0; margin: 0; overflow: hidden; font-size: 19px; text-overflow: ellipsis; white-space: nowrap; }
+.skeletal-project-header p { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .skeletal-project-welcome {
   max-width: 1080px;
   min-height: 420px;
@@ -604,22 +612,33 @@ input[type="range"] {
 .generation-line-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .generation-line-tabs button { padding: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 2px solid var(--border); background: var(--bg); color: var(--text-muted); }
 .generation-line-tabs button:hover, .generation-line-tabs button.active { border-color: var(--accent); background: var(--selected); color: var(--text); }
-.skeletal-parts-setup { padding: 10px; border: 1px solid var(--accent); background: var(--selected); display: grid; gap: 9px; }
+.skeletal-parts-setup { padding: 11px; border: 2px solid var(--accent); background: var(--selected); display: grid; gap: 10px; }
 .skeletal-parts-setup > label { display: grid; gap: 5px; color: var(--text-muted); }
 .skeletal-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .skeletal-mode-tabs button { padding: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); }
 .skeletal-mode-tabs button:hover, .skeletal-mode-tabs button.active { border-color: var(--accent); color: var(--text); background: var(--selected); }
-.skeletal-project-tabs { max-width: 1080px; margin: 0 auto 12px; display: flex; border-bottom: 2px solid var(--border); }
+.skeletal-generation-flow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.skeletal-generation-flow li { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--border); background: var(--bg); }
+.skeletal-generation-flow b { flex: 0 0 24px; display: grid; width: 24px; height: 24px; place-items: center; color: var(--accent-contrast); background: var(--accent); }
+.skeletal-generation-flow span { min-width: 0; display: grid; gap: 3px; }
+.skeletal-generation-flow small { color: var(--text-muted); line-height: 1.4; }
+.skeletal-project-tabs { width: 100%; margin: 0 0 10px; display: flex; border-bottom: 2px solid var(--border); }
 .skeletal-project-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-muted); transform: translateY(2px); }
 .skeletal-project-tabs button:hover:not(:disabled), .skeletal-project-tabs button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--selected); }
 .skeletal-project-tabs button:disabled { opacity: .45; cursor: not-allowed; }
 .skeletal-project-tabs button span { min-width: 20px; padding: 1px 5px; border: 1px solid var(--border); background: var(--elevated); font-size: 11px; }
 .skeletal-project-tabs .skeletal-export-button { margin-left: auto; color: var(--accent); }
-.skeletal-character-workspace, .skeletal-animation-workspace { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 12px; align-items: start; }
+.skeletal-character-workspace, .skeletal-animation-workspace { width: 100%; display: grid; grid-template-columns: clamp(238px, 17vw, 300px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .skeletal-setup-panel, .skeletal-action-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
-.skeletal-character-editor, .skeletal-sequence-editor { min-height: 560px; padding: 12px; }
+.articulated-setup-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.articulated-setup-card.complete { border-color: var(--accent); background: var(--selected); }
+.articulated-setup-card > p { color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.articulated-setup-card.incomplete > p { color: var(--warning); }
+.articulated-setup-card .px-btn { width: 100%; justify-content: center; }
+.skeletal-character-editor, .skeletal-sequence-editor { min-height: calc(100dvh - 186px); padding: 12px; }
 .skeletal-character-editor .binding-editor { border-top: 0; padding-top: 0; }
 .skeletal-character-editor .binding-calibration-workspace { grid-template-columns: minmax(0, 1fr) minmax(360px, 400px); }
 .skeletal-character-editor .binding-preview { height: clamp(460px, calc(100dvh - 430px), 640px); min-height: 0; }
@@ -628,13 +647,24 @@ input[type="range"] {
 .skeletal-empty-state h2 { color: var(--text); }
 .skeletal-empty-state p { max-width: 460px; line-height: 1.7; }
 .skeletal-add-action { display: grid; gap: 8px; }
+.skeletal-builtin-presets { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.skeletal-builtin-presets > header { display: grid; gap: 4px; }
+.skeletal-builtin-presets > header p { margin: 0; font-size: 11px; line-height: 1.45; }
+.skeletal-builtin-presets > div { display: grid; gap: 5px; }
+.skeletal-builtin-presets button { min-width: 0; padding: 7px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; color: var(--text); text-align: left; border: 1px solid var(--border); background: var(--bg); }
+.skeletal-builtin-presets button:hover { border-color: var(--accent); background: var(--selected); }
+.skeletal-builtin-presets button.added { border-color: var(--accent); }
+.skeletal-builtin-presets button > span { min-width: 0; display: grid; gap: 2px; }
+.skeletal-builtin-presets button small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.skeletal-builtin-presets button > b { padding: 3px 5px; color: var(--accent); border: 1px solid var(--accent); font-size: 10px; font-weight: normal; }
+.skeletal-builtin-presets button.added > b { color: var(--accent-contrast); background: var(--accent); }
 .skeletal-action-items { display: grid; gap: 6px; }
 .skeletal-action-items > button { padding: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); display: grid; gap: 3px; text-align: left; }
 .skeletal-action-items > button span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 .skeletal-action-items > button:hover, .skeletal-action-items > button.active { border-color: var(--accent); background: var(--selected); }
 .skeletal-sequence-editor { display: grid; align-content: start; gap: 10px; }
-.skeletal-live-preview { min-height: 350px; background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px; overflow: hidden; }
-.skeletal-live-preview .binding-preview { width: 100%; height: 350px; min-height: 0; background: transparent; }
+.skeletal-live-preview { min-height: 400px; background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px; overflow: hidden; }
+.skeletal-live-preview .binding-preview { width: 100%; height: clamp(400px, calc(100dvh - 520px), 560px); min-height: 0; background: transparent; }
 .skeletal-playback-controls { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
 .skeletal-playback-controls input { width: 100%; accent-color: var(--accent); }
 .skeletal-action-settings { padding: 10px; border: 1px solid var(--border); background: var(--surface); display: grid; grid-template-columns: 2fr 1fr 1fr auto auto; align-items: end; gap: 8px; }
@@ -649,6 +679,10 @@ input[type="range"] {
 .skeletal-raster-config label, .skeletal-raster-result label { display: grid; gap: 5px; color: var(--text-muted); }
 .skeletal-raster-result { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 9px; padding: 12px; border: 2px solid var(--accent); background: var(--selected); }
 .skeletal-raster-result label, .skeletal-raster-result > .px-input { grid-column: 1 / -1; }
+.skeletal-contact-sheet { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.skeletal-contact-sheet img { width: 100%; aspect-ratio: 1; object-fit: contain; image-rendering: pixelated; background: var(--surface); border: 1px solid var(--border); }
+.generation-advanced { padding: 8px; border: 1px solid var(--border); }
+.generation-advanced summary { cursor: pointer; color: var(--text-muted); }
 .skeletal-event-strip { height: 82px; margin: 10px 10px 0; position: relative; border: 1px solid var(--border); border-top: 3px solid var(--accent); background: color-mix(in srgb, var(--surface) 84%, transparent); }
 .skeletal-event-strip > strong { position: absolute; top: 7px; left: 10px; color: var(--text); font-size: 14px; }
 .skeletal-event-strip button { position: absolute; top: 36px; width: 12px; height: 22px; padding: 0; transform: translateX(-50%); border: 2px solid var(--accent); background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
@@ -657,13 +691,21 @@ input[type="range"] {
 @media (max-width: 1050px) {
   .skeletal-character-editor .binding-calibration-workspace { grid-template-columns: 1fr; }
   .skeletal-character-editor .binding-inspector { position: static; max-height: none; }
+  .skeletal-action-settings { grid-template-columns: 2fr 1fr 1fr; }
 }
 @media (max-width: 700px) {
   .project-kind-options { grid-template-columns: 1fr; }
   .skeletal-project-shell { padding: 14px; }
   .skeletal-project-header { flex-direction: column; }
+  .skeletal-project-title { width: 100%; display: flex; flex-wrap: wrap; }
+  .skeletal-project-header p { width: 100%; white-space: normal; }
+  .skeletal-project-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; border-bottom: 0; }
+  .skeletal-project-tabs button { min-width: 0; justify-content: center; padding: 9px 6px; transform: none; border: 1px solid var(--border); border-bottom: 3px solid transparent; white-space: nowrap; }
+  .skeletal-project-tabs .skeletal-export-button { grid-column: 1 / -1; margin-left: 0; border-color: var(--accent); }
   .skeletal-project-welcome { padding: 24px 16px; }
   .skeletal-character-workspace, .skeletal-animation-workspace { grid-template-columns: 1fr; }
+  .skeletal-setup-panel, .skeletal-action-list { position: static; max-height: none; }
+  .skeletal-character-editor, .skeletal-sequence-editor { min-height: 0; }
   .skeletal-character-editor .binding-inspector { position: static; max-height: none; }
   .skeletal-character-editor .binding-preview { height: 440px; }
   .skeletal-action-settings { grid-template-columns: 1fr 1fr; }
@@ -671,6 +713,12 @@ input[type="range"] {
   .skeletal-raster-result { grid-template-columns: 1fr; }
   .skeletal-playback-controls { grid-template-columns: auto 1fr; }
   .skeletal-playback-controls span { grid-column: 1 / -1; }
+  .binding-calibration-workspace { grid-template-columns: 1fr; }
+  .binding-part-strip { grid-template-columns: 1fr; }
+  .binding-part-strip > header { grid-column: 1; }
+  .binding-preview { min-height: 340px; }
+  .binding-canvas-hud { grid-template-columns: 1fr; }
+  .binding-inspector-basics { grid-template-columns: 1fr; }
 }
 
 /* ===== 动作工作台 ===== */
@@ -3969,13 +4017,26 @@ body.resizing-row * {
 .motion-mode-switch { display: flex; gap: 8px; margin-bottom: 12px; }
 .motion-heading-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .motion-heading-side p { margin: 0; }
-.animation-workspace { display: grid; grid-template-columns: 220px minmax(260px, 340px) minmax(360px, 1fr); gap: 12px; min-height: 680px; }
+.animation-workspace { height: calc(100dvh - 148px); min-height: 560px; display: grid; grid-template-columns: clamp(190px, 14vw, 230px) clamp(300px, 23vw, 400px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px 10px; }
+.animation-filter-rail { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.animation-filter-rail button { border: 1px solid var(--border); background: var(--elevated); color: var(--text-muted); padding: 6px 9px; }
+.animation-filter-rail button.on { border-color: var(--accent); color: var(--text); background: var(--selected); }
+.animation-filter-rail + .animation-library { grid-column: 2; grid-row: 2; }
+.animation-flow-map { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 8px; padding: 0; list-style: none; }
+.animation-flow-map li { min-height: 60px; display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--border); background: var(--surface); }
+.animation-flow-map li.done { border-color: var(--accent); }
+.animation-flow-map li > span, .animation-flow-map li > button:not(.px-btn) { display: grid; gap: 3px; flex: 1; text-align: left; color: var(--text); background: transparent; border: 0; }
+.animation-flow-map small { color: var(--text-muted); }
 .animation-folders, .animation-library, .animation-preview { padding: 12px; min-width: 0; }
-.animation-preview { display: flex; flex-direction: column; }
+.animation-folders { grid-row: 1 / 3; width: 100%; height: 100%; max-height: none; overflow-y: auto; }
+.animation-library { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.animation-preview { grid-column: 3; grid-row: 2; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .animation-library > header, .animation-preview > header, .animation-library > header > div, .animation-preview > header > div, .animation-controls { display: flex; align-items: center; gap: 8px; }
 .animation-library > header, .animation-preview > header { justify-content: space-between; flex-wrap: wrap; }
-.animation-list { display: grid; gap: 6px; margin-top: 12px; }
+.animation-list { min-height: 0; display: grid; align-content: start; gap: 6px; margin-top: 12px; padding-right: 4px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .animation-list > button { display: flex; justify-content: space-between; gap: 8px; padding: 9px; color: var(--text); background: var(--surface); border: 1px solid var(--border); text-align: left; }
+.animation-list > button > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.animation-list > button > span { flex: 0 0 auto; }
 .animation-list > button.on { border-color: var(--accent); box-shadow: 2px 2px 0 var(--accent); }
 .animation-list > button.builtin { background: var(--elevated); }
 .animation-list span { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
@@ -3989,6 +4050,32 @@ body.resizing-row * {
 .animation-skeleton circle { fill: var(--text); }
 .animation-skeleton circle[role="button"] { cursor: pointer; }
 .animation-skeleton circle.selected { fill: var(--accent); stroke: var(--text); stroke-width: .04; }
+.animation-preview > .animation-skeleton:not(.binding-preview) { height: 240px; margin: 8px 0; }
+.animation-motion-compose { display: grid; grid-template-columns: minmax(360px, 1.35fr) minmax(310px, .9fr); gap: 10px; align-items: start; margin-top: 10px; }
+.animation-motion-stage { min-width: 0; display: grid; gap: 8px; }
+.animation-rig-stage { min-width: 0; position: relative; display: grid; border: 2px solid var(--border); background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 18px 18px; overflow: hidden; }
+.animation-rig-stage > .motion-clip-skeleton { width: 100%; height: clamp(430px, 52dvh, 620px); min-height: 360px; margin: 0; touch-action: none; }
+.animation-rig-stage > small { padding: 7px 9px; color: var(--text-muted); border-top: 1px solid var(--border); background: var(--surface); line-height: 1.45; }
+.animation-rig-hud { position: absolute; z-index: 2; top: 9px; left: 9px; right: 9px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; }
+.animation-rig-hud strong, .animation-rig-hud span { padding: 4px 7px; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.animation-rig-hud span { color: var(--accent); }
+.animation-rig-bone { cursor: grab; outline: none; }
+.animation-rig-bone:active { cursor: grabbing; }
+.animation-rig-link { stroke: var(--text-muted) !important; stroke-width: 4 !important; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .55; pointer-events: none; }
+.animation-rig-bone .bone-shadow { stroke: var(--surface); stroke-width: 16; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: stroke; }
+.animation-rig-bone .bone-line { stroke: var(--text-muted); stroke-width: 7; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.animation-rig-bone:hover .bone-line, .animation-rig-bone:focus-visible .bone-line, .animation-rig-bone.selected .bone-line { stroke: var(--accent); stroke-width: 9; }
+.animation-rig-bone .bone-handle { fill: var(--surface); stroke: var(--text); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.animation-rig-bone.selected .bone-handle { fill: var(--accent); stroke: var(--text); stroke-width: 3; }
+.animation-joint-node { fill: var(--text); stroke: var(--surface); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.animation-joint-node.selected { fill: var(--accent); stroke: var(--text); stroke-width: 3; }
+.animation-motion-compose .animation-key-editor { margin-top: 0; }
+.animation-motion-compose .animation-quick-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; }
+.animation-motion-compose .animation-controls { display: grid; grid-template-columns: auto minmax(90px, 1fr) auto; }
+.animation-motion-compose .animation-controls > label, .animation-motion-compose .animation-controls > button:last-child { grid-row: 2; }
+.animation-motion-compose .animation-controls > label { grid-column: 1 / 2; }
+.animation-motion-compose .animation-controls > button:last-child { grid-column: 2 / -1; justify-self: end; }
+.animation-motion-compose .animation-rotation-editor { grid-template-columns: minmax(100px, 1fr) auto 68px auto; }
 .binding-editor { display: grid; gap: 10px; border-top: 2px solid var(--border); padding-top: 10px; }
 .binding-editor-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .binding-editor-heading > div { min-width: 240px; flex: 1; }
@@ -4088,33 +4175,75 @@ body.resizing-row * {
 .raster-version-card code { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; }
 .animation-empty { padding: 9px; border: 1px dashed var(--border); color: var(--text-muted); }
 .animation-controls input { flex: 1; min-width: 80px; }
-.animation-key-editor { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.animation-quick-guide { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: 12px 0 0; padding: 0; list-style: none; }
+.animation-quick-guide li { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 8px; border: 1px solid var(--border); background: var(--selected); color: var(--text-muted); }
+.animation-quick-guide b { display: grid; flex: 0 0 22px; width: 22px; height: 22px; place-items: center; background: var(--accent); color: var(--accent-contrast); }
+.animation-quick-guide span { line-height: 1.35; }
+.animation-key-editor { display: grid; gap: 10px; margin-top: 10px; padding: 12px; border: 2px solid var(--accent); background: var(--surface); box-shadow: 3px 3px 0 var(--elevated); }
+.animation-pose-heading, .animation-pose-heading > div, .animation-pose-actions { display: flex; align-items: center; gap: 7px; }
+.animation-pose-heading { justify-content: space-between; }
+.animation-pose-heading > div:first-child span { padding: 3px 6px; background: var(--accent); color: var(--accent-contrast); }
+.animation-pose-heading h3 { margin: 0; }
+.animation-bone-picker { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--text-muted); }
+.animation-bone-hint { margin: 0; padding: 8px; border-left: 3px solid var(--accent); background: var(--selected); color: var(--text-muted); line-height: 1.5; }
+.animation-root-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.animation-root-fields label, .animation-rotation-editor label, .animation-transform-fields label { color: var(--text-muted); }
+.animation-root-fields input { width: 100%; margin-top: 3px; }
+.animation-rotation-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto 90px auto; align-items: end; gap: 7px; }
+.animation-rotation-editor label { display: grid; gap: 5px; }
+.animation-rotation-editor label input { width: 100%; accent-color: var(--accent); }
+.animation-rotation-editor > .px-input, .animation-rotation-editor > .px-btn { height: 34px; }
+.animation-transform-advanced, .animation-clip-tools { border: 1px solid var(--border); background: var(--bg); }
+.animation-transform-advanced > summary, .animation-clip-tools > summary { padding: 8px; color: var(--text-muted); cursor: pointer; }
+.animation-transform-advanced[open] > summary, .animation-clip-tools[open] > summary { color: var(--text); border-bottom: 1px solid var(--border); }
+.animation-transform-advanced > p { margin: 8px 8px 0; color: var(--text-muted); }
+.animation-transform-advanced .animation-transform-fields { padding: 8px; }
+.animation-pose-actions { justify-content: flex-end; flex-wrap: wrap; }
+.animation-pose-actions > span { flex: 1 0 100%; padding: 6px 8px; border-left: 3px solid var(--border); background: var(--bg); color: var(--text-muted); }
+.animation-pose-actions > span.has-key { border-left-color: var(--accent); color: var(--accent); }
+.animation-pose-actions > span.dirty { border-left-color: var(--warning); color: var(--warning); }
 .animation-editor-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; min-width: 0; }
 .animation-editor-actions > label { flex: 1; }
 .animation-transform-fields { display: grid; grid-template-columns: repeat(5, minmax(72px, 1fr)); gap: 6px; }
 .animation-transform-fields label { color: var(--text-muted); }
 .animation-transform-fields input { width: 100%; margin-top: 3px; }
-.animation-clip-tools { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.animation-clip-tools { margin-top: 10px; }
+.animation-clip-tools[open] { display: grid; gap: 8px; padding-bottom: 10px; }
+.animation-clip-tools > label, .animation-clip-tools > .animation-event-form, .animation-clip-tools > .animation-event-list { margin-right: 10px; margin-left: 10px; }
 .animation-event-form, .animation-event-list > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .animation-event-form input { min-width: 0; flex: 1; }
 .animation-event-list { display: grid; gap: 4px; }
 .animation-event-list > div > button:first-child { flex: 1; padding: 4px; color: var(--text); background: transparent; border: 0; text-align: left; cursor: pointer; }
-.animation-tracks { display: grid; gap: 4px; margin-top: 18px; overflow: hidden; }
-.animation-tracks > div { position: relative; height: 24px; border-bottom: 1px solid var(--border); }
-.animation-tracks span { display: inline-block; max-width: 45%; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
-.animation-track-interpolation { position: absolute; z-index: 3; top: 0; right: 0; display: flex; }
+.animation-timeline { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.animation-timeline > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.animation-timeline > header > div { display: grid; gap: 4px; }
+.animation-timeline h3, .animation-timeline p { margin: 0; }
+.animation-timeline p { color: var(--text-muted); }
+.animation-timeline-ruler, .animation-track { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(220px, 3fr) auto; gap: 8px; align-items: center; }
+.animation-timeline-ruler > div { position: relative; height: 20px; border-bottom: 1px solid var(--border); }
+.animation-timeline-ruler i { position: absolute; bottom: 2px; color: var(--text-muted); font-style: normal; transform: translateX(-50%); }
+.animation-timeline-ruler i:first-child { transform: none; }
+.animation-timeline-ruler i:last-child { transform: translateX(-100%); }
+.animation-tracks { display: grid; gap: 5px; overflow-x: auto; overflow-y: hidden; }
+.animation-track { min-height: 27px; }
+.animation-track > span { min-width: 0; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.animation-track-lane { position: relative; height: 20px; border: 1px solid var(--border); background: var(--bg); cursor: crosshair; }
+.animation-track.selected > span { color: var(--accent); }
+.animation-track.selected .animation-track-lane { border-color: var(--accent); }
+.animation-track-interpolation { display: flex; }
 .animation-track-interpolation button { padding: 1px 4px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); font: inherit; cursor: pointer; }
 .animation-track-interpolation button.on { color: var(--text); border-color: var(--accent); }
-.animation-key-dot { position: absolute; z-index: 2; bottom: 2px; width: 9px; height: 9px; padding: 0; border: 0; background: var(--accent); transform: translateX(-50%); cursor: pointer; }
+.animation-key-dot { position: absolute; z-index: 2; bottom: 2px; width: 13px; height: 13px; padding: 0; border: 2px solid var(--surface); background: var(--accent); transform: translateX(-50%); cursor: pointer; }
 .animation-tracks .events .animation-key-dot { border-radius: 50%; background: var(--text); }
 .animation-playhead { position: absolute; z-index: 1; top: 0; bottom: 0; width: 1px; background: var(--danger); pointer-events: none; }
 @media (max-width: 980px) { .binding-field-grid, .render-profile-panel .animation-transform-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .raster-version-list { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .animation-transform-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bake-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 980px) { .animation-assets-page { padding-top: 72px; } .animation-workspace { grid-template-columns: 190px 1fr; } .animation-preview { grid-column: 1 / -1; } .motion-heading-side { align-items: flex-end; flex-direction: column; } }
-@media (max-width: 620px) { .animation-workspace { display: flex; flex-direction: column; } .binding-field-grid, .render-profile-panel .animation-transform-fields, .bake-config-grid { grid-template-columns: 1fr; } .animation-controls { flex-wrap: wrap; } }
-
-@media (max-width: 700px) { .binding-calibration-workspace { grid-template-columns: 1fr; } .binding-preview { min-height: 420px; } .binding-canvas-hud, .binding-inspector-basics { grid-template-columns: 1fr; } .binding-canvas-toolbar { align-items: stretch; flex-direction: column; } .binding-transform-tools { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .binding-transform-tools button { justify-content: center; } .binding-current-link { width: 100%; text-align: left; } .binding-history-actions { align-self: flex-end; } .skeletal-character-editor .binding-inspector { position: static; max-height: none; } }
+@media (max-width: 760px) { .animation-quick-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } .animation-rotation-editor { grid-template-columns: 1fr auto auto; } .animation-rotation-editor label { grid-column: 1 / -1; } .animation-transform-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .animation-timeline-ruler, .animation-track { grid-template-columns: minmax(90px, 1fr) minmax(150px, 2fr); } .animation-timeline-ruler > span:last-child, .animation-track-interpolation { grid-column: 1 / -1; justify-self: end; } .bake-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1221px) { .animation-preview .binding-inspector { position: sticky; top: 0; } }
+@media (max-width: 1220px) { .animation-motion-compose { grid-template-columns: 1fr; } .animation-assets-page { padding: 72px 10px 18px; } .animation-workspace { height: auto; min-height: 0; grid-template-columns: 190px minmax(0, 1fr); grid-template-rows: auto 520px auto; } .animation-folders { grid-row: 1 / 3; } .animation-filter-rail { grid-column: 2; } .animation-filter-rail + .animation-library { grid-column: 2; grid-row: 2; } .animation-preview { grid-column: 1 / -1; grid-row: 3; overflow: visible; } .motion-heading-side { align-items: flex-end; flex-direction: column; } }
+@media (max-width: 980px) { .animation-flow-map { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .binding-calibration-workspace { grid-template-columns: 1fr; } .binding-preview { min-height: 420px; } .binding-canvas-hud, .binding-inspector-basics { grid-template-columns: 1fr; } .binding-canvas-toolbar { align-items: stretch; flex-direction: column; } .binding-transform-tools { display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .binding-transform-tools button { justify-content: center; } .binding-current-link { width: 100%; text-align: left; } .binding-history-actions { align-self: flex-end; } }
 @media (max-width: 420px) { .binding-tuning-row { grid-template-columns: minmax(0, 1fr) 72px; } .binding-tuning-row > span { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .animation-flow-map { grid-template-columns: 1fr; } .animation-workspace { display: flex; flex-direction: column; } .animation-folders { min-height: 180px; } .animation-preview { overflow: visible; } .animation-builtin-notice { grid-template-columns: auto minmax(0, 1fr); } .animation-builtin-notice .px-btn { grid-column: 1 / -1; } .binding-field-grid, .render-profile-panel .animation-transform-fields, .bake-config-grid, .skeletal-generation-flow { grid-template-columns: 1fr; } .animation-controls { flex-wrap: wrap; } }
 
 /* ===== Tooltip ===== */
 .tip {
