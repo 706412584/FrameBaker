@@ -227,14 +227,15 @@ async function generateViaGemini(
 }
 
 interface MinimaxResponse {
-  data?: { image_base64?: string[] };
+  data?: { image_base64?: string[] | string; image_urls?: string[] | string };
+  metadata?: { success_count?: number | string; failed_count?: number | string };
   base_resp?: { status_code?: number; status_msg?: string };
 }
 
 /**
  * MiniMax 图像生成（image-01）：POST {base}/v1/image_generation（Bearer）
  * 引用图走 subject_reference（主体特征保持，每次限一张；base64 dataURI 上送）
- * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；response_format=base64 直接取 data.image_base64[0]
+ * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；优先解码 data.image_base64，兼容服务端返回 data.image_urls
  * prompt 官方限制小于 1500 字符，超长截断
  */
 async function generateViaMinimax(
@@ -276,9 +277,21 @@ async function generateViaMinimax(
   if (json.base_resp?.status_code && json.base_resp.status_code !== 0) {
     throw new Error(`MiniMax 错误 ${json.base_resp.status_code}: ${json.base_resp.status_msg ?? ""}`);
   }
-  const b64 = json.data?.image_base64?.[0];
-  if (!b64) throw new Error("MiniMax 响应缺少 data.image_base64");
-  writeFileSync(outPath, Buffer.from(b64, "base64"));
+  const base64 = json.data?.image_base64;
+  const b64 = Array.isArray(base64) ? base64[0] : base64;
+  if (b64) {
+    writeFileSync(outPath, Buffer.from(b64, "base64"));
+    return;
+  }
+  const urls = json.data?.image_urls;
+  const imageUrl = Array.isArray(urls) ? urls[0] : urls;
+  if (imageUrl) {
+    await downloadFile(imageUrl, outPath, signal);
+    return;
+  }
+  const failedCount = Number(json.metadata?.failed_count ?? 0);
+  if (failedCount > 0) throw new Error(`MiniMax 生成结果被安全过滤（失败 ${failedCount} 张）`);
+  throw new Error("MiniMax 响应缺少 data.image_base64 / data.image_urls");
 }
 
 /**

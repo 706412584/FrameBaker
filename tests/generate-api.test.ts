@@ -90,6 +90,34 @@ describe("图像 API 生成编排", () => {
     expect(readFileSync(output).toString()).toBe("minimax-image");
   });
 
+  test("MiniMax 在服务返回 URL 时下载图片", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      urls.push(String(input));
+      if (urls.length === 1) {
+        return new Response(JSON.stringify({ data: { image_urls: ["https://cdn.example/minimax.png"] }, base_resp: { status_code: 0 } }), { status: 200 });
+      }
+      return new Response("minimax-url-image", { status: 200 });
+    }) as typeof fetch;
+    const output = join(tempDir, "minimax-url.png");
+
+    await generateViaApi(provider("minimax"), "pixel knight", "image-01", 0, output);
+
+    expect(urls).toEqual(["https://minimax.example/v1/image_generation", "https://cdn.example/minimax.png"]);
+    expect(readFileSync(output).toString()).toBe("minimax-url-image");
+  });
+
+  test("MiniMax 清楚报告全部图片被安全过滤", async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      data: {},
+      metadata: { success_count: "0", failed_count: "1" },
+      base_resp: { status_code: 0, status_msg: "success" },
+    }), { status: 200 })) as typeof fetch;
+
+    await expect(generateViaApi(provider("minimax"), "blocked", "image-01", 0, join(tempDir, "minimax-blocked.png")))
+      .rejects.toThrow("MiniMax 生成结果被安全过滤（失败 1 张）");
+  });
+
   test("取消状态会在发请求前失败", async () => {
     const controller = new AbortController();
     controller.abort();
