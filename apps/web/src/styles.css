@@ -3731,6 +3731,15 @@ body.resizing-row * {
 .animation-skeleton circle.selected { fill: var(--accent); stroke: var(--text); stroke-width: .04; }
 .binding-editor { display: grid; gap: 10px; border-top: 2px solid var(--border); padding-top: 10px; }
 .binding-preview { min-height: 280px; margin: 0; }
+.binding-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.binding-preview-heading p { margin-top: 4px; color: var(--text-muted); }
+.binding-preview.interactive image { cursor: grab; pointer-events: all; }
+.binding-preview.interactive image:active { cursor: grabbing; }
+.binding-preview.interactive image.selected { filter: drop-shadow(0 0 3px var(--accent)); }
+.binding-pivot { fill: var(--accent); stroke: var(--bg); stroke-width: .025; pointer-events: none; }
+.binding-pivot-cross { stroke: var(--accent); stroke-width: .025; vector-effect: non-scaling-stroke; pointer-events: none; }
+.binding-gizmo-toolbar { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px; border-top: 1px solid var(--border); background: var(--selected); }
+.binding-gizmo-toolbar > span { display: inline-flex; align-items: center; gap: 5px; margin-right: 5px; color: var(--text-muted); }
 .binding-preview-card, .binding-slot-card, .render-profile-panel, .animation-bake-workspace, .bake-config, .baked-result, .raster-versions, .raster-version-card { min-width: 0; padding: 10px; border: 1px solid var(--border); background: var(--surface); box-shadow: 3px 3px 0 var(--elevated); }
 .binding-preview-card > p, .render-profile-panel > p, .animation-bake-workspace p { color: var(--text-muted); }
 .binding-create, .binding-editor .animation-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
@@ -3738,6 +3747,7 @@ body.resizing-row * {
 .animation-library-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .binding-rows { display: grid; gap: 8px; }
 .binding-slot-card { display: grid; gap: 10px; }
+.binding-slot-card.selected { border-color: var(--accent); }
 .binding-slot-card > summary { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; color: var(--text); }
 .binding-slot-card > summary::marker { color: var(--accent); }
 .binding-slot-card > summary span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

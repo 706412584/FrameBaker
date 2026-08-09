@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
-import { Pause, Pencil, Play, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
+import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
+import { Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, ZoomIn, ZoomOut } from "lucide-react";
 import { api, materialImageUrl, type Folder } from "../api";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
@@ -38,8 +38,11 @@ function SkeletonPreview({ skeleton, clip, time, selectedBone, onSelectBone }: {
   </svg>;
 }
 
-export function CharacterPreview({ binding, skeleton, clip, time }: { binding: CharacterBinding; skeleton: Skeleton; clip?: MotionClip; time: number }) {
+export function CharacterPreview({ binding, skeleton, clip, time, selectedAttachmentId, onSelectAttachment, onMoveAttachment }: { binding: CharacterBinding; skeleton: Skeleton; clip?: MotionClip; time: number; selectedAttachmentId?: string; onSelectAttachment?: (id: string) => void; onMoveAttachment?: (id: string, translation: [number, number, number]) => void }) {
   const pose = useMemo(() => sampleMotionClip(clip ?? { schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, time), [clip, skeleton, time]);
+  const dragRef = useRef<{ id: string; x: number; y: number; translation: [number, number, number]; bone: Mat4 } | undefined>(undefined);
+  const frozenViewBoxRef = useRef<string | undefined>(undefined);
+  const [dragging, setDragging] = useState(false);
   const viewBox = useMemo(() => {
     const restPose = sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "preview-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0);
     const points = binding.slots.flatMap((slot) => {
@@ -55,25 +58,51 @@ export function CharacterPreview({ binding, skeleton, clip, time }: { binding: C
     const pad = Math.max(.25, Math.max(maxX - minX, maxY - minY) * (clip ? .35 : .15));
     return `${minX - pad} ${-(maxY + pad)} ${Math.max(.5, maxX - minX + pad * 2)} ${Math.max(.5, maxY - minY + pad * 2)}`;
   }, [binding, clip, skeleton]);
-  return <svg className="animation-skeleton binding-preview" viewBox={viewBox} role="img">
+  const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => {
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    const matrix = svg.getScreenCTM();
+    return matrix ? point.matrixTransform(matrix.inverse()) : point;
+  };
+  const moveAttachment = (event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current;
+    if (!drag || !onMoveAttachment) return;
+    const point = svgPoint(event.currentTarget, event.clientX, event.clientY);
+    const worldX = point.x - drag.x;
+    const worldY = -(point.y - drag.y);
+    const determinant = drag.bone[0] * drag.bone[5] - drag.bone[1] * drag.bone[4];
+    if (Math.abs(determinant) < 1e-8) return;
+    const localX = (drag.bone[5] * worldX - drag.bone[4] * worldY) / determinant;
+    const localY = (-drag.bone[1] * worldX + drag.bone[0] * worldY) / determinant;
+    onMoveAttachment(drag.id, [drag.translation[0] + localX, drag.translation[1] + localY, drag.translation[2]]);
+  };
+  const endDrag = () => { dragRef.current = undefined; frozenViewBoxRef.current = undefined; setDragging(false); };
+  return <svg className={`animation-skeleton binding-preview${onMoveAttachment ? " interactive" : ""}`} viewBox={dragging ? frozenViewBoxRef.current : viewBox} role="img" onPointerMove={moveAttachment} onPointerUp={endDrag} onPointerCancel={endDrag}>
     <g transform="scale(1 -1)">{[...binding.slots].sort((a, b) => a.drawOrder - b.drawOrder).map((slot) => {
       const attachment = binding.attachments.find((item) => item.id === slot.attachmentId), matrix = pose.worldMatrices[slot.boneId];
       if (!attachment || !matrix) return null;
       const world = multiplyMatrices(matrix, transformToMatrix(attachment.rest)), [w, h] = attachment.size, [px, py] = attachment.pivot;
-      return <image key={slot.id} href={materialImageUrl(attachment.materialId, undefined, attachment.imageSlot)} x={-px * w} y={-(1 - py) * h} width={w} height={h} preserveAspectRatio="none" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} />;
+      return <g key={slot.id}>
+        <image className={selectedAttachmentId === attachment.id ? "selected" : ""} href={materialImageUrl(attachment.materialId, undefined, attachment.imageSlot)} x={-px * w} y={-(1 - py) * h} width={w} height={h} preserveAspectRatio="none" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} onPointerDown={onMoveAttachment ? (event) => { const svg = event.currentTarget.ownerSVGElement; if (!svg) return; const point = svgPoint(svg, event.clientX, event.clientY); event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); onSelectAttachment?.(attachment.id); frozenViewBoxRef.current = viewBox; dragRef.current = { id: attachment.id, x: point.x, y: point.y, translation: [...attachment.rest.translation], bone: matrix }; setDragging(true); } : undefined} onClick={() => onSelectAttachment?.(attachment.id)} />
+        {selectedAttachmentId === attachment.id && <><circle className="binding-pivot" cx="0" cy="0" r=".075" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /><line className="binding-pivot-cross" x1="-.13" y1="0" x2=".13" y2="0" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /><line className="binding-pivot-cross" x1="0" y1="-.13" x2="0" y2=".13" transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]})`} /></>}
+      </g>;
     })}</g>
   </svg>;
 }
 
 export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
-  const t = useT(), [draft, setDraft] = useState(binding);
-  useEffect(() => setDraft(binding), [binding]);
+  const t = useT(), [draft, setDraft] = useState(binding), [selectedAttachmentId, setSelectedAttachmentId] = useState(binding.attachments[0]?.id ?? "");
+  useEffect(() => { setDraft(binding); setSelectedAttachmentId((current) => binding.attachments.some((item) => item.id === current) ? current : binding.attachments[0]?.id ?? ""); }, [binding]);
   const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => ({ ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) }));
   const patchSlot = (index: number, patch: Partial<CharacterBinding["slots"][number]>) => setDraft((old) => ({ ...old, slots: old.slots.map((item, i) => i === index ? { ...item, ...patch } : item) }));
   const addRow = () => { const id = uid("region"), order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0; setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [1, 1], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId: skeleton.bones[0]?.id ?? "", attachmentId: id, drawOrder: order }] })); };
+  const selectedAttachment = draft.attachments.find((item) => item.id === selectedAttachmentId);
+  const rotateSelected = (degrees: number) => selectedAttachment && patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, rotation: quaternionFromZRotation(zRotationFromQuaternion(selectedAttachment.rest.rotation) + degrees * Math.PI / 180) } });
+  const scaleSelected = (factor: number) => selectedAttachment && patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale: [selectedAttachment.rest.scale[0] * factor, selectedAttachment.rest.scale[1] * factor, selectedAttachment.rest.scale[2]] } });
   return <section className="binding-editor">
-    <article className="binding-preview-card"><h3>{t("animation.binding.restPreview")}</h3><CharacterPreview binding={draft} skeleton={skeleton} time={0} /><p>{t("animation.binding.yUp")}</p></article>
-    <div className="binding-rows">{draft.slots.map((slot, index) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId)!; const material = materials.find((item) => item.id === attachment?.materialId); const field = (label: string, child: React.ReactNode, key?: React.Key) => <label key={key}>{label}{child}</label>; return <details className="binding-slot-card" key={slot.id} open={index === 0 ? true : undefined}>
+    <article className="binding-preview-card"><div className="binding-preview-heading"><div><h3>{t("animation.binding.visualTitle")}</h3><p>{t("animation.binding.visualHint")}</p></div><button className="px-btn accent" disabled={busy} onClick={() => void onSave(draft)}><Save size={13} />{t("common.save")}</button></div><CharacterPreview binding={draft} skeleton={skeleton} time={0} selectedAttachmentId={selectedAttachmentId} onSelectAttachment={setSelectedAttachmentId} onMoveAttachment={(id, translation) => patchRegion(id, { rest: { ...draft.attachments.find((item) => item.id === id)!.rest, translation } })} />{selectedAttachment && <div className="binding-gizmo-toolbar"><span><Move size={13} />{selectedAttachment.name}</span><button className="px-btn icon" title={t("animation.binding.rotateLeft")} onClick={() => rotateSelected(-5)}><RotateCcw size={13} /></button><button className="px-btn icon" title={t("animation.binding.rotateRight")} onClick={() => rotateSelected(5)}><RotateCw size={13} /></button><button className="px-btn icon" title={t("animation.binding.scaleDown")} onClick={() => scaleSelected(.95)}><ZoomOut size={13} /></button><button className="px-btn icon" title={t("animation.binding.scaleUp")} onClick={() => scaleSelected(1.05)}><ZoomIn size={13} /></button><button className="px-btn" title={t("animation.binding.resetTransform")} onClick={() => { const original = binding.attachments.find((item) => item.id === selectedAttachment.id); if (original) patchRegion(selectedAttachment.id, { rest: original.rest }); }}><Redo2 size={13} />{t("animation.binding.resetTransform")}</button></div>}<p>{t("animation.binding.yUp")}</p></article>
+    <div className="binding-rows">{draft.slots.map((slot, index) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId)!; const material = materials.find((item) => item.id === attachment?.materialId); const field = (label: string, child: React.ReactNode, key?: React.Key) => <label key={key}>{label}{child}</label>; return <details className={`binding-slot-card${selectedAttachmentId === attachment.id ? " selected" : ""}`} key={slot.id} open={index === 0 ? true : undefined} onToggle={(event) => { if (event.currentTarget.open) setSelectedAttachmentId(attachment.id); }}>
       <summary><strong>{slot.name}</strong><span>{skeleton.bones.find((bone) => bone.id === slot.boneId)?.name ?? slot.boneId} · {material?.name ?? t("animation.binding.material")}</span></summary>
       <header><label>{t("animation.binding.slotName")}<input className="px-input" value={slot.name} onChange={(e) => patchSlot(index, { name: e.target.value })} /></label><button className="px-btn icon danger" title={t("common.delete")} onClick={() => setDraft((old) => { const slots = old.slots.filter((_, i) => i !== index); return { ...old, slots, attachments: slots.some((item) => item.attachmentId === slot.attachmentId) ? old.attachments : old.attachments.filter((item) => item.id !== slot.attachmentId) }; })}><Trash2 size={12} /></button></header>
       <section><h4>{t("animation.binding.basic")}</h4><div className="binding-field-grid">
