@@ -46,13 +46,19 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
   const [dragging, setDragging] = useState(false);
   const viewBox = useMemo(() => {
     const restPose = sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "preview-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0);
-    const points = binding.slots.flatMap((slot) => {
+    const attachmentPoints = binding.slots.flatMap((slot) => {
       const attachment = binding.attachments.find((item) => item.id === slot.attachmentId), bone = restPose.worldMatrices[slot.boneId];
       if (!attachment || !bone) return [];
       const world = multiplyMatrices(bone, transformToMatrix(attachment.rest)), [w, h] = attachment.size, [px, py] = attachment.pivot;
       const left = -px * w, bottom = -(1 - py) * h;
       return [[left, bottom, 0], [left + w, bottom, 0], [left, bottom + h, 0], [left + w, bottom + h, 0]].map((point) => transformPoint(world, point as [number, number, number]));
     });
+    const skeletonPoints = attachmentPoints.length ? [] : skeleton.bones.flatMap((bone) => {
+      const origin = transformPoint(restPose.worldMatrices[bone.id]!, [0, 0, 0]);
+      const endpoint = getBoneEndpoint(restPose, skeleton, bone.id);
+      return endpoint ? [origin, endpoint] : [origin];
+    });
+    const points = [...attachmentPoints, ...skeletonPoints];
     if (!points.length) return "-2 -2 4 4";
     const minX = Math.min(...points.map((point) => point[0])), maxX = Math.max(...points.map((point) => point[0]));
     const minY = Math.min(...points.map((point) => point[1])), maxY = Math.max(...points.map((point) => point[1]));
