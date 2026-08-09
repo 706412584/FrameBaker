@@ -1,5 +1,4 @@
-import type { HumanoidBoneId, MotionKeyframe } from "@framebaker/shared";
-import { BUILTIN_MOTIONS, MOTION_BONE_ORDER } from "./builtinMotions";
+import { BUILTIN_MOTIONS, BUILTIN_MOTION_IDS, MOTION_BONE_ORDER, type BuiltinMotionId, type HumanoidBoneId, type MotionKeyframe } from "@framebaker/shared";
 
 export interface RigBone { id: HumanoidBoneId; parent: HumanoidBoneId | null; length: number; rest: number }
 export interface RigPoint { x: number; y: number; angle: number }
@@ -79,11 +78,11 @@ export function tuneMotion(frames: MotionKeyframe[], tuning: MotionTuning): Moti
 const LR: Partial<Record<HumanoidBoneId, HumanoidBoneId>> = { leftShoulder:"rightShoulder",rightShoulder:"leftShoulder",leftElbow:"rightElbow",rightElbow:"leftElbow",leftWrist:"rightWrist",rightWrist:"leftWrist",leftHip:"rightHip",rightHip:"leftHip",leftKnee:"rightKnee",rightKnee:"leftKnee",leftAnkle:"rightAnkle",rightAnkle:"leftAnkle" };
 export function mirrorFrame(f: MotionKeyframe): MotionKeyframe { const r = emptyRotations(); for (const id of BONE_IDS) r[LR[id] ?? id] = -f.rotations[id]; return { ...f, id: crypto.randomUUID(), root: { x: -f.root.x, y: f.root.y }, rotations: r }; }
 
-export type MotionPresetId = keyof typeof BUILTIN_MOTIONS;
+export type MotionPresetId = BuiltinMotionId;
 const sampleFrame = (sample: readonly number[]): MotionKeyframe => {
   const rotations = emptyRotations();
   MOTION_BONE_ORDER.forEach((id, index) => { rotations[id] = sample[index + 2]!; });
   return { id: crypto.randomUUID(), root: { x: sample[0]!, y: sample[1]! }, rotations };
 };
-export const MOTION_PRESET_META = Object.fromEntries(Object.entries(BUILTIN_MOTIONS).map(([id, clip]) => [id, { source: clip.source, sourceClip: clip.sourceClip, loop: clip.loop, frameCount: clip.frames.length }])) as Record<MotionPresetId, { source: string; sourceClip: string; loop: boolean; frameCount: number }>;
-export const MOTION_PRESETS = Object.fromEntries(Object.entries(BUILTIN_MOTIONS).map(([id, clip]) => [id, () => clip.frames.map(sampleFrame)])) as Record<MotionPresetId, () => MotionKeyframe[]>;
+export const MOTION_PRESET_META = Object.fromEntries(BUILTIN_MOTION_IDS.map((id) => { const clip = BUILTIN_MOTIONS[id]; return [id, { source: clip.source, sourceClip: clip.sourceClip, loop: clip.loop, frameCount: clip.frames.length }]; })) as Record<MotionPresetId, { source: string; sourceClip: string; loop: boolean; frameCount: number }>;
+export const MOTION_PRESETS = Object.fromEntries(BUILTIN_MOTION_IDS.map((id) => [id, () => BUILTIN_MOTIONS[id].frames.map(sampleFrame)])) as Record<MotionPresetId, () => MotionKeyframe[]>;

@@ -1,3 +1,5 @@
+import { quaternionFromZRotation, type AnimationAsset, type MotionClip, type MotionTrack, type Skeleton } from "./animation";
+
 /**
  * Derived 2D FK samples from Quaternius Universal Animation Library (Standard).
  * Original animation data: Quaternius, CC0 1.0 Universal.
@@ -7,6 +9,8 @@
  * the original GLB is not bundled.
  */
 export const MOTION_BONE_ORDER = ["pelvis","chest","neck","head","leftShoulder","leftElbow","leftWrist","rightShoulder","rightElbow","rightWrist","leftHip","leftKnee","leftAnkle","rightHip","rightKnee","rightAnkle"] as const;
+export const BUILTIN_MOTION_IDS = ["idle", "walk", "run", "attack", "hurt", "death"] as const;
+export type BuiltinMotionId = (typeof BUILTIN_MOTION_IDS)[number];
 export const BUILTIN_MOTIONS = {
   idle: { source: "Quaternius UAL CC0", sourceClip: "Idle_Loop", loop: true, frames: [[0,45,0,0.0158,0.0593,0.0126,2.6219,-2.9135,-0.0718,-2.5891,3.0719,-0.3847,2.9654,2.9649,0.2164,-2.9028,-3.0868,-0.1302],[-0.0762,45.3509,0,0.014,0.0502,0.0174,2.6307,-2.9255,-0.0801,-2.6038,3.0645,-0.3778,2.964,2.9573,0.2313,-2.901,-3.0789,-0.15],[-0.3354,45.9733,0,0.018,0.0509,0.0172,2.6428,-2.9364,-0.0858,-2.6201,3.0433,-0.3735,2.9697,2.9332,0.2598,-2.9082,-3.0536,-0.1884],[-0.6665,46.3123,0,0.0233,0.0602,0.0125,2.6479,-2.9362,-0.0868,-2.6241,3.0284,-0.3735,2.9762,2.9155,0.2747,-2.9165,-3.0366,-0.21],[-0.9501,45.9958,0,0.0238,0.0689,0.0078,2.6412,-2.9246,-0.0813,-2.6106,3.0345,-0.3788,2.9757,2.922,0.2602,-2.9159,-3.0461,-0.1972],[-1.1401,45.3713,0,0.0205,0.0683,0.008,2.6288,-2.9143,-0.0737,-2.594,3.0573,-0.3853,2.971,2.943,0.2294,-2.9098,-3.0712,-0.1638],[-1.2014,45.0041,0,0.016,0.0585,0.013,2.6218,-2.9139,-0.0724,-2.5898,3.0725,-0.3845,2.9658,2.9599,0.2078,-2.9033,-3.0921,-0.1374],[-1.11,45.3052,0,0.0138,0.0498,0.0176,2.6297,-2.9249,-0.0799,-2.6029,3.064,-0.3777,2.9638,2.9548,0.2216,-2.9008,-3.0861,-0.1523],[-0.9299,45.9275,0,0.0176,0.0514,0.0169,2.642,-2.9352,-0.0851,-2.6185,3.0424,-0.3735,2.9691,2.9326,0.2537,-2.9074,-3.0593,-0.1882],[-0.6881,46.3083,0,0.0232,0.061,0.0121,2.648,-2.9357,-0.0862,-2.6234,3.0278,-0.3736,2.9758,2.9159,0.2742,-2.9161,-3.0374,-0.2096],[-0.3955,46.0388,0,0.024,0.0694,0.0076,2.6422,-2.9252,-0.0816,-2.6115,3.0351,-0.3789,2.976,2.9231,0.2656,-2.9163,-3.0414,-0.1972],[-0.1351,45.4192,0,0.0207,0.0677,0.0083,2.6296,-2.9153,-0.0747,-2.5957,3.0581,-0.3852,2.9714,2.9452,0.2387,-2.9104,-3.0635,-0.1622]] },
   walk: { source: "Quaternius UAL CC0", sourceClip: "Walk_Loop", loop: true, frames: [[0,45,0,0.1171,0.1076,0.017,2.3033,-2.3618,-0.2836,-2.5833,2.7868,-0.75,3.0432,2.9503,0.1548,-2.8145,2.9973,0.221],[2.5746,45.4201,0,0.1129,0.1237,0.0119,2.3009,-2.3444,-0.2889,-2.5737,2.785,-0.7753,3.0383,2.9359,0.3757,-2.8264,3.0367,0.2204],[5.2534,42.1866,0,0.0995,0.1263,0.0134,2.3292,-2.4363,-0.2576,-2.5769,2.8625,-0.673,3.0262,3.0905,0.3135,-2.8551,2.8065,0.7862],[7.5682,38.555,0,0.0794,0.1014,0.0308,2.3596,-2.582,-0.2106,-2.5872,2.9276,-0.554,3.0105,-3.0011,0.159,-2.8915,2.6099,0.9927],[8.858,38.1353,0,0.0575,0.0605,0.0566,2.385,-2.7314,-0.1648,-2.598,2.9462,-0.4462,2.9947,-2.9477,0.2347,-2.9268,2.4651,0.8345],[8.5524,41.3682,0,0.0399,0.026,0.0773,2.4058,-2.853,-0.1308,-2.6038,2.9392,-0.3607,2.9824,-2.934,0.3671,-2.9535,2.5778,0.4631],[6.9469,44.9982,0,0.0323,0.0131,0.0834,2.4208,-2.9289,-0.1076,-2.6022,2.9321,-0.3096,2.9774,-2.8525,0.3493,-2.9652,2.7472,0.1049],[4.4345,45.4186,0,0.0385,0.0244,0.0736,2.4257,-2.9276,-0.0912,-2.5982,2.9401,-0.3011,2.9823,-2.8214,0.325,-2.9571,2.6808,0.3329],[1.6539,42.1857,0,0.0549,0.0512,0.0547,2.4165,-2.8165,-0.0838,-2.5973,2.9533,-0.3329,2.9945,-3.0396,0.7778,-2.9328,2.7531,0.2903],[-0.7197,38.555,0,0.0758,0.0751,0.0372,2.3955,-2.6705,-0.123,-2.5998,2.9471,-0.3968,3.0104,2.9241,0.9948,-2.8978,2.8647,0.1385],[-1.9522,38.1362,0,0.0956,0.0876,0.027,2.3657,-2.5441,-0.1869,-2.6011,2.9108,-0.4941,3.0262,2.6807,0.8706,-2.8596,2.865,0.1969],[-1.6306,41.3697,0,0.1105,0.0952,0.0218,2.3325,-2.4408,-0.2441,-2.596,2.8507,-0.6222,3.0383,2.7598,0.5227,-2.828,2.8565,0.3277]] },
@@ -16,3 +20,168 @@ export const BUILTIN_MOTIONS = {
   death: { source: "Quaternius UAL CC0", sourceClip: "Death01", loop: false, frames: [[0,45,0,0.0137,0.0489,0.0181,2.6225,-2.8817,-0.041,-2.5962,3.0958,-0.5179,2.9637,2.9658,0.2129,-2.9007,-3.0917,-0.1303],[-4.0226,57.4623,0,0.015,0.0145,0.008,2.6373,-2.9807,-0.0595,-2.5826,-2.7989,-1.0768,3.0176,2.5983,0.6504,-3.0069,-2.6997,-0.7612],[-0.9866,68.9568,0,-0.0016,0.0624,-0.0288,2.6623,-3.1018,0.1,-2.5436,-2.6425,-1.0308,2.9968,2.4932,0.8222,-3.0013,-2.5632,-0.9626],[0.516,74.3436,0,-0.0016,0.0528,-0.035,2.6999,2.9273,0.3736,-2.5424,-2.6678,-0.8828,2.9537,2.5042,0.8525,-2.9626,-2.5456,-1.0167],[-4.1003,79.7212,0,-0.0124,0.0218,-0.015,2.8052,2.7232,0.4572,-2.6884,-3.0149,-0.9212,2.8665,2.5695,0.7594,-2.8904,-2.4952,-1.1966],[-25.6089,105.2441,0,-0.1405,0.1319,-0.0809,2.8912,2.8664,0.4827,-2.743,2.9014,-1.1779,2.7142,2.0694,1.2217,-2.806,-1.9004,-2.0111],[-39.7156,171.1782,0,-0.732,0.4198,-0.2177,-2.9969,2.8883,-1.7813,-2.0309,0.3314,-0.0658,2.4245,2.0784,0.5906,-2.8298,-0.7759,2.336],[-38.9377,165.9732,0,-1.6297,0.5728,-0.3771,-1.0514,1.2489,-1.8833,-1.6162,-0.6204,0.0292,2.3259,1.8848,0.2772,-2.9154,-0.3894,0.4899],[-38.0932,171.1354,0,-1.4255,0.3029,-0.6666,-1.2559,1.2277,3.0373,-1.8769,-1.4826,0.1389,2.3147,2.0025,0.0583,-2.9025,-0.4392,0.6617],[-38.1302,170.8805,0,-1.3772,0.3529,-0.7347,-1.4814,1.4015,2.8605,-1.8614,-1.5234,0.1073,2.3495,2.2525,0.3919,-2.8707,-0.4527,1.6053],[-38.0168,170.7285,0,-1.3796,0.3381,-0.7337,-1.4441,1.3801,2.8487,-1.8713,-1.5626,0.1059,2.3274,2.2932,0.3972,-2.8893,0.8027,0.8821],[-37.952,170.7126,0,-1.3832,0.3221,-0.7322,-1.4048,1.346,2.8332,-1.8813,-1.5495,0.1121,2.3164,2.3305,0.374,-2.8985,0.5394,1.2307],[-37.9589,170.7149,0,-1.3838,0.3172,-0.7317,-1.395,1.3367,2.8332,-1.8845,-1.5456,0.1124,2.3176,2.3292,0.3742,-2.8976,0.4975,1.2852],[-37.9589,170.7149,0,-1.3838,0.3172,-0.7317,-1.395,1.3367,2.8332,-1.8845,-1.5454,0.1125,2.3176,2.3292,0.3742,-2.8976,0.4975,1.2852],[-37.9589,170.7149,0,-1.3838,0.3172,-0.7317,-1.395,1.3367,2.8332,-1.8845,-1.5454,0.1125,2.3176,2.3292,0.3742,-2.8976,0.4975,1.2852],[-37.9589,170.7149,0,-1.3838,0.3172,-0.7317,-1.395,1.3367,2.8332,-1.8845,-1.5454,0.1125,2.3176,2.3292,0.3742,-2.8976,0.4975,1.2852]] },
   jump: { source: "Quaternius UAL CC0", sourceClip: "Jump_Start + Jump_Land", loop: false, frames: [[0,45,0,0.0946,0.4237,-0.2163,2.8712,2.8534,-0.0344,-2.8428,-2.7787,-0.5021,3.0527,1.846,1.3967,-3.0181,-2.3965,-1.3265],[1,52,0,-0.015,0.1217,0.0174,2.7166,2.9005,0.3038,-2.5063,-2.4765,-1.2336,2.8483,2.3157,1.8798,-2.7262,-3.0331,-0.9621],[2,32,0,-0.0051,0.2248,-0.0395,2.5522,2.4437,0.0984,-2.3897,-2.085,-0.265,2.8243,2.2951,2.3942,-2.7027,-2.5193,-1.7002],[3,5,0,-0.0014,0.22,-0.0345,2.5436,2.3802,0.0337,-2.4219,-2.0561,-0.1908,2.851,2.3696,2.1661,-2.7033,-2.9886,-1.0883],[4,-15,0,0.0132,0.1898,-0.0171,2.5162,2.3878,0.0765,-2.4704,-2.1046,-0.1862,2.8971,2.3628,2.0042,-2.7112,3.0131,-0.5999],[4,-25,0,0.0304,0.149,0.0032,2.4877,2.4114,0.1207,-2.5237,-2.1722,-0.1962,2.939,2.3294,1.9421,-2.7222,2.8795,-0.3232],[4,-28,0,0.0393,0.1263,0.0138,2.4744,2.4255,0.1416,-2.5505,-2.2309,-0.2076,2.9577,2.308,1.9314,-2.7287,2.8506,-0.2546],[4,-20,0,0.141,0.3458,-0.1494,2.8072,2.7417,-0.0719,-2.8765,-2.3474,-0.419,3.1226,1.3883,1.6913,-3.115,-2.505,-0.7506],[3,-5,0,0.1655,0.7626,-0.462,2.9506,2.848,0.073,-2.953,-2.7295,-0.5022,-3.1402,2.0276,1.0994,3.1396,-2.61,-0.5789],[2,18,0,0.1255,0.4998,-0.2672,2.8993,2.9692,0.1364,-2.802,-2.937,-0.4903,3.0949,2.5847,0.5317,-3.0763,-2.8177,-0.3636],[1,38,0,0.072,0.2149,-0.0736,2.7409,-3.1029,0.1041,-2.6377,-3.0919,-0.4817,3.0314,2.8742,0.2135,-2.9892,-2.9936,-0.1816],[0,48,0,0.0303,0.0901,-0.0034,2.6412,-2.9611,0.0701,-2.5891,-3.1125,-0.4775,2.9824,2.9393,0.2149,-2.9246,-3.0603,-0.1544],[0,45,0,0.0137,0.0489,0.0181,2.6225,-2.9254,0.0544,-2.5962,-3.0894,-0.4766,2.9637,2.9658,0.2129,-2.9007,-3.0917,-0.1303]] },
 } as const;
+
+export interface BuiltinHumanoidRigBone {
+  id: (typeof MOTION_BONE_ORDER)[number];
+  parent: (typeof MOTION_BONE_ORDER)[number] | null;
+  length: number;
+  rest: number;
+}
+
+/** 与最早动作编辑器逐项一致的 FK 拓扑；不要按新版角色骨架重新估算。 */
+export const BUILTIN_HUMANOID_RIG: readonly BuiltinHumanoidRigBone[] = [
+  { id: "pelvis", parent: null, length: 0, rest: 0 },
+  { id: "chest", parent: "pelvis", length: 62, rest: -Math.PI / 2 },
+  { id: "neck", parent: "chest", length: 25, rest: 0 },
+  { id: "head", parent: "neck", length: 30, rest: 0 },
+  { id: "leftShoulder", parent: "chest", length: 39, rest: -Math.PI / 2 },
+  { id: "leftElbow", parent: "leftShoulder", length: 48, rest: -Math.PI / 2 },
+  { id: "leftWrist", parent: "leftElbow", length: 43, rest: 0 },
+  { id: "rightShoulder", parent: "chest", length: 39, rest: Math.PI / 2 },
+  { id: "rightElbow", parent: "rightShoulder", length: 48, rest: Math.PI / 2 },
+  { id: "rightWrist", parent: "rightElbow", length: 43, rest: 0 },
+  { id: "leftHip", parent: "pelvis", length: 28, rest: Math.PI },
+  { id: "leftKnee", parent: "leftHip", length: 68, rest: -Math.PI / 2 },
+  { id: "leftAnkle", parent: "leftKnee", length: 65, rest: 0 },
+  { id: "rightHip", parent: "pelvis", length: 28, rest: 0 },
+  { id: "rightKnee", parent: "rightHip", length: 68, rest: Math.PI / 2 },
+  { id: "rightAnkle", parent: "rightKnee", length: 65, rest: 0 },
+] as const;
+
+export const BUILTIN_ANIMATION_EXTENSION = "app.framebaker.builtin";
+export const BUILTIN_ANIMATION_CATALOG = "quaternius-legacy-humanoid";
+export const BUILTIN_ANIMATION_CATALOG_VERSION = 2;
+export const BUILTIN_HUMANOID_SKELETON_ID = "skeleton-original-six-presets";
+export const BUILTIN_HUMANOID_ROOT_ID = "builtin-humanoid-root";
+export const BUILTIN_HUMANOID_BONE_IDS = Object.fromEntries(
+  MOTION_BONE_ORDER.map((semantic) => [semantic, `builtin-humanoid-${semantic}`]),
+) as Record<(typeof MOTION_BONE_ORDER)[number], string>;
+export const BUILTIN_MOTION_ASSET_IDS = Object.fromEntries(
+  BUILTIN_MOTION_IDS.map((id) => [id, `motion-original-preset-${id}`]),
+) as Record<BuiltinMotionId, string>;
+export const BUILTIN_ANIMATION_ASSET_IDS = [BUILTIN_HUMANOID_SKELETON_ID, ...BUILTIN_MOTION_IDS.map((id) => BUILTIN_MOTION_ASSET_IDS[id])] as const;
+
+const BUILTIN_LABELS: Record<BuiltinMotionId, string> = {
+  idle: "内置 · 待机",
+  walk: "内置 · 走路",
+  run: "内置 · 奔跑",
+  attack: "内置 · 攻击",
+  hurt: "内置 · 受击",
+  death: "内置 · 死亡",
+};
+const BUILTIN_ASSET_ID_SET = new Set<string>(BUILTIN_ANIMATION_ASSET_IDS);
+const identity = (translation: [number, number, number] = [0, 0, 0]) => ({
+  translation,
+  rotation: [0, 0, 0, 1] as [number, number, number, number],
+  scale: [1, 1, 1] as [number, number, number],
+});
+const builtinExtension = (asset: "skeleton" | BuiltinMotionId) => ({
+  [BUILTIN_ANIMATION_EXTENSION]: {
+    catalog: BUILTIN_ANIMATION_CATALOG,
+    asset,
+    version: BUILTIN_ANIMATION_CATALOG_VERSION,
+  },
+});
+
+export function isBuiltinAnimationAssetId(id: string): boolean {
+  return BUILTIN_ASSET_ID_SET.has(id);
+}
+
+export function getBuiltinAnimationCatalogVersion(asset: AnimationAsset): number | null {
+  const marker = asset.extensions?.[BUILTIN_ANIMATION_EXTENSION];
+  if (!marker || typeof marker !== "object" || Array.isArray(marker)) return null;
+  const version = (marker as { version?: unknown }).version;
+  return typeof version === "number" && Number.isInteger(version) ? version : null;
+}
+
+/**
+ * 生成最早六组动作专用的稳定骨架。每根历史骨骼表示“从父节点到本节点”的骨段，
+ * 子骨骼平移固定为父骨端，因此通用 T*R*S FK 与早期标量 FK 的端点逐帧完全一致。
+ */
+export function createBuiltinHumanoidSkeleton(): Skeleton {
+  const rigById = new Map(BUILTIN_HUMANOID_RIG.map((bone) => [bone.id, bone]));
+  const semanticBones = Object.fromEntries(MOTION_BONE_ORDER.map((semantic) => [semantic, BUILTIN_HUMANOID_BONE_IDS[semantic]]));
+  return {
+    schemaVersion: 1,
+    kind: "skeleton",
+    id: BUILTIN_HUMANOID_SKELETON_ID,
+    name: "内置 · 最早六动作人形骨架",
+    extensions: builtinExtension("skeleton"),
+    coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "pixel" },
+    bones: [
+      { id: BUILTIN_HUMANOID_ROOT_ID, name: "Root", parentId: null, rest: identity([0, -45, 0]), semantic: "root" },
+      ...BUILTIN_HUMANOID_RIG.map((bone) => {
+        const parent = bone.parent ? rigById.get(bone.parent)! : undefined;
+        return {
+          id: BUILTIN_HUMANOID_BONE_IDS[bone.id],
+          name: bone.id,
+          parentId: bone.parent ? BUILTIN_HUMANOID_BONE_IDS[bone.parent] : BUILTIN_HUMANOID_ROOT_ID,
+          rest: {
+            translation: parent ? [parent.length, 0, 0] as [number, number, number] : [0, 0, 0] as [number, number, number],
+            rotation: quaternionFromZRotation(-bone.rest),
+            scale: [1, 1, 1] as [number, number, number],
+          },
+          ...(bone.length ? { tipOffset: [bone.length, 0, 0] as [number, number, number] } : {}),
+          semantic: bone.id,
+        };
+      }),
+    ],
+    semanticProfile: { id: "humanoid-v1", bones: { root: BUILTIN_HUMANOID_ROOT_ID, ...semanticBones } },
+  };
+}
+
+/** 把最早提交中的原始采样无损转换为通用 MotionClip；不归零、不缩幅、不省略 neck。 */
+export function createBuiltinMotionClip(id: BuiltinMotionId): MotionClip {
+  const source = BUILTIN_MOTIONS[id];
+  const fps = 12;
+  const sourceFrames: readonly (readonly number[])[] = source.frames;
+  const sampledFrames = source.loop ? [...sourceFrames, sourceFrames[0]!] : sourceFrames;
+  const duration = source.loop ? sourceFrames.length / fps : Math.max(0, (sourceFrames.length - 1) / fps);
+  const rootTrack: MotionTrack = {
+    targetId: BUILTIN_HUMANOID_ROOT_ID,
+    property: "translation",
+    interpolation: "linear",
+    keyframes: sampledFrames.map((frame, index) => ({ time: index / fps, value: [frame[0]!, -frame[1]!, 0] })),
+  };
+  const rotationTracks: MotionTrack[] = BUILTIN_HUMANOID_RIG.map((bone) => {
+    const sourceIndex = MOTION_BONE_ORDER.indexOf(bone.id) + 2;
+    return {
+      targetId: BUILTIN_HUMANOID_BONE_IDS[bone.id],
+      property: "rotation",
+      interpolation: "linear",
+      keyframes: sampledFrames.map((frame, index) => ({ time: index / fps, value: quaternionFromZRotation(-(bone.rest + frame[sourceIndex]!)) })),
+    };
+  });
+  return {
+    schemaVersion: 1,
+    kind: "motion-clip",
+    id: BUILTIN_MOTION_ASSET_IDS[id],
+    name: BUILTIN_LABELS[id],
+    extensions: builtinExtension(id),
+    skeletonId: BUILTIN_HUMANOID_SKELETON_ID,
+    duration,
+    loop: source.loop,
+    rootMotion: "preserve",
+    tracks: [rootTrack, ...rotationTracks],
+    events: [],
+    provenance: {
+      source: "import",
+      adapter: "FrameBaker legacy scalar FK exact conversion",
+      adapterVersion: String(BUILTIN_ANIMATION_CATALOG_VERSION),
+      parameters: { presetId: id, sourceClip: source.sourceClip, sourceFrames: sourceFrames.length, fps, sourceCommit: "dd6a1539c39cd7dfb446a6cc721a5779bb5c5514" },
+    },
+  };
+}
+
+export function createBuiltinAnimationAssets(): [Skeleton, ...MotionClip[]] {
+  return [createBuiltinHumanoidSkeleton(), ...BUILTIN_MOTION_IDS.map(createBuiltinMotionClip)];
+}
+
+/** 内置动作复制后即为普通可编辑资产，只移除 FrameBaker 内置标记。 */
+export function stripBuiltinAnimationMarker<T extends AnimationAsset>(asset: T): T {
+  const next = structuredClone(asset);
+  if (!next.extensions) return next;
+  delete next.extensions[BUILTIN_ANIMATION_EXTENSION];
+  if (!Object.keys(next.extensions).length) delete next.extensions;
+  return next;
+}
