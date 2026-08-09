@@ -65,7 +65,7 @@ export async function createZip(entries: ZipEntry[]): Promise<Blob> {
     const lh = new DataView(new ArrayBuffer(30));
     lh.setUint32(0, 0x04034b50, true); // signature
     lh.setUint16(4, 20, true); // version needed
-    lh.setUint16(6, 0, true); // flags
+    lh.setUint16(6, 0x0800, true); // flags: 文件名使用 UTF-8
     lh.setUint16(8, 8, true); // method: deflate
     lh.setUint16(10, 0, true); // mod time
     lh.setUint16(12, 0, true); // mod date
@@ -82,7 +82,7 @@ export async function createZip(entries: ZipEntry[]): Promise<Blob> {
     cd.setUint32(0, 0x02014b50, true);
     cd.setUint16(4, 20, true); // version made by
     cd.setUint16(6, 20, true); // version needed
-    cd.setUint16(8, 0, true); // flags
+    cd.setUint16(8, 0x0800, true); // flags: 文件名使用 UTF-8
     cd.setUint16(10, 8, true); // method
     cd.setUint16(12, 0, true); // mod time
     cd.setUint16(14, 0, true); // mod date

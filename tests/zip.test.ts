@@ -13,6 +13,7 @@ async function readZipEntries(blob: Blob): Promise<Map<string, Uint8Array>> {
 
   for (let i = 0; i < count; i++) {
     expect(view.getUint32(offset, true)).toBe(0x02014b50);
+    expect(view.getUint16(offset + 8, true) & 0x0800).toBe(0x0800);
     const compressedSize = view.getUint32(offset + 20, true);
     const nameLength = view.getUint16(offset + 28, true);
     const extraLength = view.getUint16(offset + 30, true);
@@ -20,6 +21,7 @@ async function readZipEntries(blob: Blob): Promise<Map<string, Uint8Array>> {
     const localOffset = view.getUint32(offset + 42, true);
     const name = decoder.decode(bytes.slice(offset + 46, offset + 46 + nameLength));
     expect(view.getUint32(localOffset, true)).toBe(0x04034b50);
+    expect(view.getUint16(localOffset + 6, true) & 0x0800).toBe(0x0800);
     const localNameLength = view.getUint16(localOffset + 26, true);
     const localExtraLength = view.getUint16(localOffset + 28, true);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
