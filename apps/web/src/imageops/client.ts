@@ -1,5 +1,5 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
-import { computeOpaqueBounds, type CropRect, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, type CropRect, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 let worker: Worker | null = null;
 let workerBroken = false;
@@ -79,6 +79,21 @@ async function mainCrop(blob: Blob, rect: CropRect): Promise<Blob> {
   }
 }
 
+async function mainAnalyze(blob: Blob): Promise<ImageAnalysis> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return computeImageAnalysis(imageData.data, imageData.width, imageData.height);
+  } finally {
+    bitmap.close();
+  }
+}
+
 /** 透明像素包围盒；全透明返回 null。worker 失败自动降级主线程 */
 export async function findOpaqueBounds(blob: Blob): Promise<CropRect | null> {
   try {
@@ -98,5 +113,16 @@ export async function cropImage(blob: Blob, rect: CropRect): Promise<Blob> {
     return r.blob;
   } catch {
     return mainCrop(blob, rect);
+  }
+}
+
+/** 提取分件质量特征；worker 失败自动降级主线程。 */
+export async function analyzeImage(blob: Blob): Promise<ImageAnalysis> {
+  try {
+    const r = await runInWorker({ op: "analyze", blob });
+    if (!r.ok || !r.analysis) throw new Error(r.error ?? "analyze 失败");
+    return r.analysis;
+  } catch {
+    return mainAnalyze(blob);
   }
 }

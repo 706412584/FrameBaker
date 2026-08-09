@@ -1,6 +1,6 @@
 // 图像处理 worker：解码 / 透明边扫描 / 剪裁编码都在 worker 线程，避免阻塞 UI
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
-import { computeOpaqueBounds, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 declare function postMessage(message: ImageOpResponse): void;
 
@@ -28,10 +28,16 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
     if (op === "bounds") {
       const bounds = boundsFromBitmap(bitmap);
       postMessage({ id, ok: true, rect: bounds });
-    } else {
+    } else if (op === "crop") {
       if (!rect) throw new Error("crop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);
       postMessage({ id, ok: true, blob: out });
+    } else {
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      postMessage({ id, ok: true, analysis: computeImageAnalysis(imageData.data, imageData.width, imageData.height) });
     }
   } catch (err) {
     postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
