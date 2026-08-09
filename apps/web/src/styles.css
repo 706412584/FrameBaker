@@ -579,8 +579,9 @@ input[type="range"] {
   background: color-mix(in srgb, var(--bg) 72%, transparent);
 }
 
-.skeletal-project-shell { min-height: 100%; padding: 24px; background: var(--bg); }
+.skeletal-project-shell { height: 100%; overflow-y: auto; padding: 24px; background: var(--bg); }
 .skeletal-project-header { max-width: 1080px; margin: 0 auto 18px; display: flex; gap: 18px; align-items: flex-start; }
+.skeletal-project-title { flex: 1; min-width: 0; }
 .skeletal-project-header h1 { margin: 8px 0 4px; }
 .skeletal-project-header p { color: var(--text-muted); }
 .skeletal-project-welcome {
@@ -600,11 +601,47 @@ input[type="range"] {
 .skeletal-project-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 12px; }
 .skeletal-project-steps span { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px; background: var(--elevated); border: 1px solid var(--border); }
 .project-route-state { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-muted); }
+.skeletal-project-tabs { max-width: 1080px; margin: 0 auto 12px; display: flex; border-bottom: 2px solid var(--border); }
+.skeletal-project-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-muted); transform: translateY(2px); }
+.skeletal-project-tabs button:hover:not(:disabled), .skeletal-project-tabs button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--selected); }
+.skeletal-project-tabs button:disabled { opacity: .45; cursor: not-allowed; }
+.skeletal-project-tabs button span { min-width: 20px; padding: 1px 5px; border: 1px solid var(--border); background: var(--elevated); font-size: 11px; }
+.skeletal-character-workspace, .skeletal-animation-workspace { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 12px; align-items: start; }
+.skeletal-setup-panel, .skeletal-action-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
+.skeletal-character-editor, .skeletal-sequence-editor { min-height: 560px; padding: 12px; }
+.skeletal-character-editor .binding-editor { border-top: 0; padding-top: 0; }
+.skeletal-empty-state { min-height: 500px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--text-muted); }
+.skeletal-empty-state h2 { color: var(--text); }
+.skeletal-empty-state p { max-width: 460px; line-height: 1.7; }
+.skeletal-add-action { display: grid; gap: 8px; }
+.skeletal-action-items { display: grid; gap: 6px; }
+.skeletal-action-items > button { padding: 9px; border: 1px solid var(--border); background: var(--bg); color: var(--text); display: grid; gap: 3px; text-align: left; }
+.skeletal-action-items > button span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.skeletal-action-items > button:hover, .skeletal-action-items > button.active { border-color: var(--accent); background: var(--selected); }
+.skeletal-sequence-editor { display: grid; align-content: start; gap: 10px; }
+.skeletal-live-preview { min-height: 350px; background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px; overflow: hidden; }
+.skeletal-live-preview .binding-preview { width: 100%; height: 350px; min-height: 0; background: transparent; }
+.skeletal-playback-controls { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.skeletal-playback-controls input { width: 100%; accent-color: var(--accent); }
+.skeletal-action-settings { padding: 10px; border: 1px solid var(--border); background: var(--surface); display: grid; grid-template-columns: 2fr 1fr 1fr auto auto; align-items: end; gap: 8px; }
+.skeletal-action-settings > label:not(.px-check) { display: grid; gap: 4px; color: var(--text-muted); }
+.skeletal-action-settings .px-check { align-self: center; }
+.skeletal-event-strip { height: 72px; margin: 8px 10px 0; position: relative; border-top: 2px solid var(--border); }
+.skeletal-event-strip > strong { position: absolute; top: 8px; left: 0; color: var(--text-muted); }
+.skeletal-event-strip button { position: absolute; top: 34px; width: 8px; height: 20px; padding: 0; transform: translateX(-50%); border: 1px solid var(--accent); background: var(--accent); }
+.skeletal-event-strip button span { position: absolute; top: 21px; left: 50%; transform: translateX(-50%); color: var(--text-muted); font-size: 9px; white-space: nowrap; }
+.skeletal-event-strip i { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--error); pointer-events: none; }
 @media (max-width: 700px) {
   .project-kind-options { grid-template-columns: 1fr; }
   .skeletal-project-shell { padding: 14px; }
   .skeletal-project-header { flex-direction: column; }
   .skeletal-project-welcome { padding: 24px 16px; }
+  .skeletal-character-workspace, .skeletal-animation-workspace { grid-template-columns: 1fr; }
+  .skeletal-action-settings { grid-template-columns: 1fr 1fr; }
+  .skeletal-playback-controls { grid-template-columns: auto 1fr; }
+  .skeletal-playback-controls span { grid-column: 1 / -1; }
 }
 
 /* ===== 动作工作台 ===== */
@@ -3653,6 +3690,10 @@ body.resizing-row * {
 .animation-library-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .binding-rows { display: grid; gap: 8px; }
 .binding-slot-card { display: grid; gap: 10px; }
+.binding-slot-card > summary { cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; color: var(--text); }
+.binding-slot-card > summary::marker { color: var(--accent); }
+.binding-slot-card > summary span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.binding-slot-card[open] > summary { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .binding-slot-card > header, .raster-version-card > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
 .binding-slot-card > header label { flex: 1; }
 .binding-slot-card h4, .animation-bake-workspace h4 { margin: 0 0 6px; color: var(--text); }

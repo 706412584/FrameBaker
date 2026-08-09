@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS animation_assets (
 CREATE INDEX IF NOT EXISTS idx_animation_assets_kind_folder ON animation_assets(kind, folder_id);
 CREATE INDEX IF NOT EXISTS idx_animation_assets_skeleton ON animation_assets(skeleton_id);
 
+CREATE TABLE IF NOT EXISTS skeletal_projects (
+  project_id TEXT PRIMARY KEY,
+  document TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS raster_sequences (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

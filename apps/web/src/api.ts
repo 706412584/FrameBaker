@@ -35,10 +35,12 @@ import type {
   RasterSequenceResponse,
   RasterSequencesResponse,
   BakedRasterDraftManifest,
+  SkeletalProjectDocument,
+  SkeletalProjectDocumentResponse,
   WSMessage,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, WSMessage } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -89,6 +91,10 @@ export const api = {
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),
   patchProject: (id: string, body: { name?: string; folderId?: string | null }) =>
     req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
+  getSkeletalProjectDocument: (id: string) =>
+    req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`).then((r) => r.document),
+  putSkeletalProjectDocument: (id: string, document: SkeletalProjectDocument) =>
+    req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`, { method: "PUT", ...json(document) }).then((r) => r.document),
 
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
   patchFrame: (id: string, patch: FramePatch) =>

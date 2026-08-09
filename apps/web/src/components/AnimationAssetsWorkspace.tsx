@@ -39,7 +39,7 @@ function SkeletonPreview({ skeleton, clip, time, selectedBone, onSelectBone }: {
   </svg>;
 }
 
-function CharacterPreview({ binding, skeleton, clip, time }: { binding: CharacterBinding; skeleton: Skeleton; clip?: MotionClip; time: number }) {
+export function CharacterPreview({ binding, skeleton, clip, time }: { binding: CharacterBinding; skeleton: Skeleton; clip?: MotionClip; time: number }) {
   const pose = useMemo(() => sampleMotionClip(clip ?? { schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, time), [clip, skeleton, time]);
   const viewBox = useMemo(() => {
     const restPose = sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "preview-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0);
@@ -66,7 +66,7 @@ function CharacterPreview({ binding, skeleton, clip, time }: { binding: Characte
   </svg>;
 }
 
-function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
+export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
   const t = useT(), [draft, setDraft] = useState(binding);
   useEffect(() => setDraft(binding), [binding]);
   const patchRegion = (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => setDraft((old) => ({ ...old, attachments: old.attachments.map((item) => item.id === id ? { ...item, ...patch } : item) }));
@@ -74,7 +74,8 @@ function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding
   const addRow = () => { const id = uid("region"), order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0; setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [1, 1], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId: skeleton.bones[0]?.id ?? "", attachmentId: id, drawOrder: order }] })); };
   return <section className="binding-editor">
     <article className="binding-preview-card"><h3>{t("animation.binding.restPreview")}</h3><CharacterPreview binding={draft} skeleton={skeleton} time={0} /><p>{t("animation.binding.yUp")}</p></article>
-    <div className="binding-rows">{draft.slots.map((slot, index) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId)!; const material = materials.find((item) => item.id === attachment?.materialId); const field = (label: string, child: React.ReactNode, key?: React.Key) => <label key={key}>{label}{child}</label>; return <article className="binding-slot-card" key={slot.id}>
+    <div className="binding-rows">{draft.slots.map((slot, index) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId)!; const material = materials.find((item) => item.id === attachment?.materialId); const field = (label: string, child: React.ReactNode, key?: React.Key) => <label key={key}>{label}{child}</label>; return <details className="binding-slot-card" key={slot.id} open={index === 0 ? true : undefined}>
+      <summary><strong>{slot.name}</strong><span>{skeleton.bones.find((bone) => bone.id === slot.boneId)?.name ?? slot.boneId} · {material?.name ?? t("animation.binding.material")}</span></summary>
       <header><label>{t("animation.binding.slotName")}<input className="px-input" value={slot.name} onChange={(e) => patchSlot(index, { name: e.target.value })} /></label><button className="px-btn icon danger" title={t("common.delete")} onClick={() => setDraft((old) => { const slots = old.slots.filter((_, i) => i !== index); return { ...old, slots, attachments: slots.some((item) => item.attachmentId === slot.attachmentId) ? old.attachments : old.attachments.filter((item) => item.id !== slot.attachmentId) }; })}><Trash2 size={12} /></button></header>
       <section><h4>{t("animation.binding.basic")}</h4><div className="binding-field-grid">
       {field(t("animation.bone"), <PxSelect value={slot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: bone.name }))} onChange={(boneId) => patchSlot(index, { boneId })} />)}
@@ -89,7 +90,7 @@ function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding
       {field(t("animation.binding.rotation"), <input className="px-input" type="number" step="1" value={Math.round(zRotationFromQuaternion(attachment.rest.rotation) * 180 / Math.PI * 1e6) / 1e6} onChange={(e) => patchRegion(attachment.id, { rest: { ...attachment.rest, rotation: quaternionFromZRotation(+e.target.value * Math.PI / 180) } })} />)}
       {[0, 1].map((axis) => field(axis ? t("animation.binding.scaleY") : t("animation.binding.scaleX"), <input className="px-input" type="number" step="0.05" value={attachment.rest.scale[axis]} onChange={(e) => { const scale = [...attachment.rest.scale] as [number, number, number]; scale[axis] = +e.target.value; patchRegion(attachment.id, { rest: { ...attachment.rest, scale } }); }} />, `scale-${axis}`))}
       </div></section>
-    </article>; })}{!draft.slots.length && <p className="animation-empty">{t("animation.binding.empty")}</p>}</div>
+    </details>; })}{!draft.slots.length && <p className="animation-empty">{t("animation.binding.empty")}</p>}</div>
     <div className="animation-editor-actions"><button className="px-btn" disabled={!materials.length} onClick={addRow}><Plus size={14} />{t("animation.binding.addRegion")}</button><button className="px-btn accent" disabled={busy} onClick={() => void onSave(draft)}>{t("common.save")}</button></div>
   </section>;
 }

@@ -46,7 +46,15 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 
 ### DELETE /api/projects/:id
 
-删除项目及其全部帧、任务与磁盘文件 → `{ "ok": true }`，广播 `project_deleted`。
+删除项目及其全部帧、任务、骨骼项目文档与磁盘文件 → `{ "ok": true }`，广播 `project_deleted`。
+
+### GET /api/projects/:id/skeletal-document
+
+仅用于 `kind="skeletal"` 的项目。首次读取会创建并持久化空文档，返回 `{ "document": { "schemaVersion": 1, "projectId": "…", "character": null, "animations": [], "activeAnimationId": null } }`。逐帧项目返回 409。
+
+### PUT /api/projects/:id/skeletal-document
+
+请求体为完整 `SkeletalProjectDocument`，成功返回 `{ "document": {…} }`。`projectId` 必须与 URL 一致；`character` 保存从资产库复制进项目的 `CharacterBinding` 以及可选 `sourceBindingId`，项目内后续修改不会改动原资产；动作项格式为 `{ "id", "name", "motionClipId", "speed", "repeat", "loop" }`，id 和名称非空且各自唯一，`speed` 范围 `(0, 8]`，`repeat` 为 `1..100` 整数，活动动作必须存在。角色骨架、素材与 MotionClip 必须存在，且全部使用同一 Skeleton；没有角色时不得配置动作。逐帧项目返回 409。
 
 ## 帧
 

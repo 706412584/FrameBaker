@@ -97,6 +97,7 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     if (!row) return status(404, "项目不存在");
     db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM jobs WHERE project_id = ?").run(params.id);
+    db.query("DELETE FROM skeletal_projects WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM projects WHERE id = ?").run(params.id);
     rmSync(join(STORAGE_ROOT, "projects", params.id), { recursive: true, force: true });
     broadcast("project_deleted", { id: params.id });
