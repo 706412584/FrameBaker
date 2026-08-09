@@ -28,13 +28,15 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const t = useT();
   useModalEscClose(onClose);
   const isVideo = m.kind === "video";
-  const [pos, setPos] = useState(55);
+  const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
+  const canCompare = Boolean(m.processed_path);
+  const [pos, setPos] = useState(50);
   const [busy, setBusy] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
-  const [showSplit, setShowSplit] = useState(false);
+  const [showSplit, setShowSplit] = useState(guidedSkeletalSplit);
   const [showActions, setShowActions] = useState(false);
   const [showExtract, setShowExtract] = useState(false);
   const [extractFps, setExtractFps] = useState(8);
@@ -171,33 +173,28 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
           </div>
         ) : (
           <div
-            className="compare"
+            className={`compare${canCompare ? " is-comparing" : " preview-only"}`}
             ref={wrapRef}
             onPointerDown={(e) => {
+              if (!canCompare) return;
               e.currentTarget.setPointerCapture(e.pointerId);
               updatePos(e);
             }}
             onPointerMove={(e) => {
-              if (e.buttons & 1) updatePos(e);
+              if (canCompare && e.buttons & 1) updatePos(e);
             }}
           >
             <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={t("msg.original")} draggable={false} />
-            {m.processed_path ? (
+            {canCompare && (
               <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
                 <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("msg.matted")} draggable={false} />
               </div>
-            ) : (
-              <div className="cmp-clip cmp-placeholder" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-                <span>{t("msg.not_matted")}</span>
-              </div>
             )}
-            <div className="cmp-divider" style={{ left: `${pos}%` }}>
-              <span className="cmp-handle">
-                <MoveHorizontal size={12} />
-              </span>
-            </div>
+            {canCompare && <div className="cmp-divider" style={{ left: `${pos}%` }}>
+              <span className="cmp-handle"><MoveHorizontal size={12} /></span>
+            </div>}
             <span className="cmp-tag left">{t("msg.original")}</span>
-            <span className="cmp-tag right">{m.processed_path ? t("msg.matted") : t("msg.not_matted")}</span>
+            <span className="cmp-tag right">{canCompare ? t("msg.matted") : t("msg.not_matted")}</span>
           </div>
         )}
 
@@ -267,12 +264,12 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
-                className="px-btn"
+                className={`px-btn${guidedSkeletalSplit ? " accent" : ""}`}
                 disabled={busy}
                 title={t("msg.split_sprite_grid_into_separate_materials_by_rows_cols")}
                 onClick={() => setShowSplit(true)}
               >
-                <Grid3x3 size={14} /> {t("msg.grid_split")}
+                <Grid3x3 size={14} /> {t(guidedSkeletalSplit ? "skeletal.split.reviewAndCreate" : "msg.grid_split")}
               </motion.button>
               <motion.button
                 type="button"

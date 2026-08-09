@@ -60,4 +60,17 @@ describe("骨骼分件图像质量检查", () => {
     expect(issues).toContainEqual({ code: "fragmented", cells: [4] });
     expect(issues).toContainEqual({ code: "duplicate", cells: [1, 5] });
   });
+
+  test("左右对应肢体使用更敏感的重复阈值", () => {
+    const cells = Array.from({ length: 12 }, (_, index) => block(3 + index % 3, 2, 5, 10));
+    const leftUpperArm = image(16, 16, (set) => {
+      for (let y = 2; y < 13; y++) for (let x = 4; x < 9; x++) set(x, y);
+    });
+    const reusedRightUpperArm = image(16, 16, (set) => {
+      for (let y = 2; y < 13; y++) for (let x = 4; x < 9; x++) set(x, y, [124, 84, 44, 255]);
+    });
+    cells[4] = leftUpperArm;
+    cells[6] = reusedRightUpperArm;
+    expect(findSkeletalPartQualityIssues(cells)).toContainEqual({ code: "duplicate", cells: [5, 7] });
+  });
 });

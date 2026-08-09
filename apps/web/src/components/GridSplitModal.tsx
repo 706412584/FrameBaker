@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Bone, Grid3x3, Scan, X } from "lucide-react";
-import { CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
+import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
-import { cropImage, findOpaqueBounds } from "../imageops/client";
-import type { CropRect } from "../imageops/ops";
+import { analyzeImage, cropImage, findOpaqueBounds } from "../imageops/client";
+import { findSkeletalPartQualityIssues, type CropRect, type SkeletalPartQualityIssue } from "../imageops/ops";
 import { notify } from "../notice";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -21,7 +21,13 @@ interface Props {
 }
 
 const clampCell = (n: number) => Math.max(1, Math.min(8, Math.floor(n) || 1));
-const DEFAULT_PART_ROLES: CharacterPartRole[] = ["head", "torso", "arm-left", "arm-right", "leg-left", "leg-right", "weapon", "accessory"];
+const DEFAULT_PART_ROLES: CharacterPartRole[] = [...ARTICULATED_CHARACTER_PART_ROLES];
+
+interface SkeletalReview {
+  cells: Blob[];
+  previews: string[];
+  issues: SkeletalPartQualityIssue[];
+}
 
 function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
   let { x, y, w, h } = r;
@@ -43,8 +49,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const slot = m.processed_path ? "processed" : "raw";
   const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
   const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
-  const [rows, setRows] = useState(2);
-  const [cols, setCols] = useState(guidedSkeletalSplit ? 3 : 2);
+  const [rows, setRows] = useState(guidedSkeletalSplit ? 3 : 2);
+  const [cols, setCols] = useState(guidedSkeletalSplit ? 4 : 2);
   const [autoMatting, setAutoMatting] = useState(true);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
@@ -54,6 +60,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const [partSetId, setPartSetId] = useState(hintedPartSetId);
   const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
   const [partDrafts, setPartDrafts] = useState<Array<{ role: CharacterPartRole; name: string }>>([]);
+  const [skeletalReview, setSkeletalReview] = useState<SkeletalReview | null>(null);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [region, setRegion] = useState<CropRect | null>(null);
   const [disp, setDisp] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
@@ -63,6 +71,17 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   useModalEscClose(onClose);
 
   const total = rows * cols;
+
+  useEffect(() => () => {
+    skeletalReview?.previews.forEach((url) => URL.revokeObjectURL(url));
+  }, [skeletalReview]);
+
+  useEffect(() => {
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot]);
+
+  useEffect(() => setReviewConfirmed(false), [partSetId]);
 
   useEffect(() => {
     api.listCharacterPartSets().then((sets) => {
@@ -173,8 +192,61 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     setRegion(clampRegion({ ...region, x: region.x + dx, y: region.y + dy }, imgSize.w, imgSize.h));
   };
 
+  const selectSplitLine = (line: "frame" | "skeletal") => {
+    setSplitLine(line);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+    if (line === "skeletal") {
+      setCols(4);
+      setRows(3);
+    }
+  };
+
+  const prepareSkeletalReview = async () => {
+    if (!region || !imgSize || rows !== 3 || cols !== 4) return;
+    setBusy(true);
+    setProgress(t("skeletal.split.analyzing"));
+    try {
+      const res = await fetch(materialImageUrl(m.id, v, slot));
+      if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
+      const blob = await res.blob();
+      const cw = Math.floor(region.w / cols);
+      const ch = Math.floor(region.h / rows);
+      const cells: Blob[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const w = c === cols - 1 ? region.w - cw * c : cw;
+          const h = r === rows - 1 ? region.h - ch * r : ch;
+          cells.push(await cropImage(blob, { x: region.x + cw * c, y: region.y + ch * r, w, h }));
+        }
+      }
+      const analyses = await Promise.all(cells.map(analyzeImage));
+      const issues = findSkeletalPartQualityIssues(analyses);
+      setSkeletalReview({ cells, issues, previews: cells.map((cell) => URL.createObjectURL(cell)) });
+      setReviewConfirmed(false);
+      if (issues.length > 0) notify(t("skeletal.split.qualityBlocked", { count: issues.length }));
+    } catch (e) {
+      notify(t("skeletal.split.analysisFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  };
+
   const split = async () => {
     if (busy || !region || !imgSize) return;
+    if (splitLine === "skeletal" && !skeletalReview) {
+      await prepareSkeletalReview();
+      return;
+    }
+    if (splitLine === "skeletal" && skeletalReview?.issues.length) {
+      notify(t("skeletal.split.mustFixQuality"));
+      return;
+    }
+    if (splitLine === "skeletal" && !reviewConfirmed) {
+      notify(t("skeletal.split.mustConfirmReview"));
+      return;
+    }
     if (region.w < cols || region.h < rows) {
       notify(t("msg.region_w_h_smaller_than_grid_cols_rows", { w: region.w, h: region.h, cols, rows }));
       return;
@@ -190,6 +262,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const blob = await res.blob();
       const cw = Math.floor(region.w / cols);
       const ch = Math.floor(region.h / rows);
+      const preparedCells = splitLine === "skeletal" ? skeletalReview!.cells : null;
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -198,7 +271,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
             const h = r === rows - 1 ? region.h - ch * r : ch;
-            let cell = await cropImage(blob, {
+            let cell = preparedCells?.[i - 1] ?? await cropImage(blob, {
               x: region.x + cw * c,
               y: region.y + ch * r,
               w,
@@ -211,15 +284,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                 trimmed++;
               }
             }
+            const draft = splitLine === "skeletal" ? partDrafts[i - 1] : undefined;
             const fd = new FormData();
-            fd.append("file", cell, `${base}_r${r + 1}c${c + 1}.png`);
+            fd.append("file", cell, draft ? `${base}_${draft.role}.png` : `${base}_r${r + 1}c${c + 1}.png`);
             fd.append("autoMatting", String(autoMatting));
             if (m.folder_id) fd.append("folderId", m.folder_id);
             const uploaded = await api.uploadMaterial(fd);
             if (splitLine === "skeletal") {
               if (!("materialId" in uploaded)) throw new Error(t("skeletal.split.imageUploadExpected"));
-              const draft = partDrafts[i - 1];
-              createdMembers.push({ materialId: uploaded.materialId, role: draft.role, name: draft.name.trim() || `${base} ${i}` });
+              createdMembers.push({ materialId: uploaded.materialId, role: draft!.role, name: draft!.name.trim() || `${base} ${i}` });
             }
             ok++;
           } catch {
@@ -227,20 +300,25 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           }
         }
       }
-      if (splitLine === "skeletal" && createdMembers.length > 0) {
+      if (splitLine === "skeletal" && (fail > 0 || createdMembers.length !== ARTICULATED_CHARACTER_PART_ROLES.length)) {
+        throw new Error(t("skeletal.split.partialUploadBlocked", { ok, fail }));
+      }
+      if (splitLine === "skeletal") {
+        const lineageReferenceId = typeof m.metadata.referenceMaterialId === "string" ? m.metadata.referenceMaterialId : null;
         if (partSetId) {
           const target = partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId);
+          const preservedMembers = target.members.filter((member) => !ARTICULATED_CHARACTER_PART_ROLES.includes(member.role as typeof ARTICULATED_CHARACTER_PART_ROLES[number]));
           const updated = await api.putCharacterPartSet(target.id, {
             name: target.name,
-            referenceMaterialId: target.referenceMaterialId ?? m.id,
-            members: [...target.members, ...createdMembers],
+            referenceMaterialId: lineageReferenceId ?? target.referenceMaterialId,
+            members: [...preservedMembers, ...createdMembers],
           });
           setPartSets((items) => items.map((set) => set.id === updated.id ? updated : set));
         } else {
           const created = await api.createCharacterPartSet({
             name: partSetName.trim(),
             source: "decomposed",
-            referenceMaterialId: m.id,
+            referenceMaterialId: lineageReferenceId,
             members: createdMembers,
           });
           setPartSets((items) => [created, ...items]);
@@ -298,10 +376,10 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         </header>
 
         <div className="generation-line-tabs" role="tablist" aria-label={t("skeletal.split.lineTitle")}>
-          <button type="button" role="tab" aria-selected={splitLine === "frame"} className={splitLine === "frame" ? "active" : ""} disabled={busy} onClick={() => setSplitLine("frame")}>
+          <button type="button" role="tab" aria-selected={splitLine === "frame"} className={splitLine === "frame" ? "active" : ""} disabled={busy} onClick={() => selectSplitLine("frame")}>
             <Grid3x3 size={14} /> {t("skeletal.split.frameCells")}
           </button>
-          <button type="button" role="tab" aria-selected={splitLine === "skeletal"} className={splitLine === "skeletal" ? "active" : ""} disabled={busy} onClick={() => setSplitLine("skeletal")}>
+          <button type="button" role="tab" aria-selected={splitLine === "skeletal"} className={splitLine === "skeletal" ? "active" : ""} disabled={busy} onClick={() => selectSplitLine("skeletal")}>
             <Bone size={14} /> {t("skeletal.split.characterParts")}
           </button>
         </div>
@@ -371,7 +449,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                     min={1}
                     max={8}
                     value={cols}
-                    disabled={busy}
+                    disabled={busy || splitLine === "skeletal"}
                     onChange={(e) => setCols(clampCell(Number(e.target.value)))}
                   />
                 </label>
@@ -383,7 +461,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                     min={1}
                     max={8}
                     value={rows}
-                    disabled={busy}
+                    disabled={busy || splitLine === "skeletal"}
                     onChange={(e) => setRows(clampCell(Number(e.target.value)))}
                   />
                 </label>
@@ -405,6 +483,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
               <div>
                 <strong>{t("skeletal.split.destination")}</strong>
                 <div className="hint">{t("skeletal.split.destinationHint")}</div>
+                <div className="hint">{t("skeletal.split.qualityHint")}</div>
               </div>
               <PxSelect
                 value={partSetId}
@@ -414,26 +493,38 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
               {!partSetId && (
                 <input className="px-input" value={partSetName} disabled={busy} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} />
               )}
+              {(() => {
+                const target = partSets.find((set) => set.id === partSetId);
+                const lineageReferenceId = typeof m.metadata.referenceMaterialId === "string" ? m.metadata.referenceMaterialId : null;
+                const referenceId = lineageReferenceId ?? target?.referenceMaterialId;
+                return referenceId ? <div className="skeletal-identity-reference">
+                  <img src={materialImageUrl(referenceId, v, "processed")} alt={t("skeletal.split.identityReference")} />
+                  <span><strong>{t("skeletal.split.identityReference")}</strong><small>{t("skeletal.split.identityReferenceHint")}</small></span>
+                </div> : null;
+              })()}
+              {skeletalReview && <div className={`skeletal-quality-summary ${skeletalReview.issues.length ? "error" : "ok"}`}>
+                <strong>{t(skeletalReview.issues.length ? "skeletal.split.qualityFailed" : "skeletal.split.qualityPassed")}</strong>
+                {skeletalReview.issues.map((issue, index) => <span key={`${issue.code}-${issue.cells.join("-")}-${index}`}>
+                  {t(`skeletal.split.quality.${issue.code}`, { cells: issue.cells.join(", ") })}
+                </span>)}
+              </div>}
               <div className="skeletal-split-members">
                 {partDrafts.map((draft, index) => (
-                  <div className="skeletal-split-member" key={index}>
+                  <div className={`skeletal-split-member${skeletalReview?.issues.some((issue) => issue.cells.includes(index + 1)) ? " error" : ""}`} key={index}>
+                    <div className="skeletal-part-preview">
+                      {skeletalReview?.previews[index]
+                        ? <img src={skeletalReview.previews[index]} alt={draft.name} />
+                        : <span>{index + 1}</span>}
+                    </div>
                     <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
-                    <PxSelect
-                      value={draft.role}
-                      options={CHARACTER_PART_ROLES.map((role) => ({ value: role, label: t(`skeletal.partRole.${role}`) }))}
-                      onChange={(role) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, role: role as CharacterPartRole } : item))}
-                      disabled={busy}
-                    />
-                    <input
-                      className="px-input"
-                      value={draft.name}
-                      disabled={busy}
-                      onChange={(e) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, name: e.target.value } : item))}
-                      aria-label={t("skeletal.split.partName", { index: index + 1 })}
-                    />
+                    <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
                   </div>
                 ))}
               </div>
+              {skeletalReview && skeletalReview.issues.length === 0 && <label className="px-check skeletal-review-confirm">
+                <input type="checkbox" checked={reviewConfirmed} disabled={busy} onChange={(event) => setReviewConfirmed(event.target.checked)} />
+                <span>{t("skeletal.split.semanticConfirmation")}</span>
+              </label>}
             </aside>
           )}
         </div>
@@ -446,10 +537,18 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             type="button"
             whileTap={{ scale: 0.95 }}
             className="px-btn accent"
-            disabled={busy || !region || (splitLine === "skeletal" && !partSetId && !partSetName.trim())}
+            disabled={busy || !region || (splitLine === "skeletal" && (
+              (!partSetId && !partSetName.trim())
+              || Boolean(skeletalReview?.issues.length)
+              || Boolean(skeletalReview && !reviewConfirmed)
+            ))}
             onClick={() => void split()}
           >
-            <Grid3x3 size={14} /> {busy ? progress || t("msg.splitting") : t("msg.split_into_total_materials", { total })}
+            <Grid3x3 size={14} /> {busy
+              ? progress || t("msg.splitting")
+              : splitLine === "skeletal" && !skeletalReview
+                ? t("skeletal.split.runQualityCheck")
+                : t("msg.split_into_total_materials", { total })}
           </motion.button>
         </footer>
       </motion.div>

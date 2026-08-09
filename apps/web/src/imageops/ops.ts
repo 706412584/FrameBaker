@@ -194,6 +194,7 @@ export function imageAnalysisSimilarity(a: ImageAnalysis, b: ImageAnalysis, mirr
  */
 export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[]): SkeletalPartQualityIssue[] {
   const issues: SkeletalPartQualityIssue[] = [];
+  const oppositeSidePairs = new Set(["4:6", "5:7", "8:10", "9:11"]);
   analyses.forEach((analysis, index) => {
     const cell = index + 1;
     if (!analysis.bounds) {
@@ -215,13 +216,14 @@ export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[]): Skelet
       if (!b.bounds) continue;
       const aspectA = a.bounds.w / a.bounds.h;
       const aspectB = b.bounds.w / b.bounds.h;
-      const sameShape = Math.abs(aspectA - aspectB) / Math.max(aspectA, aspectB) < .04
-        && Math.abs(a.opaqueRatio - b.opaqueRatio) < .015;
+      const oppositeSides = oppositeSidePairs.has(`${left}:${right}`);
+      const sameShape = Math.abs(aspectA - aspectB) / Math.max(aspectA, aspectB) < (oppositeSides ? .08 : .04)
+        && Math.abs(a.opaqueRatio - b.opaqueRatio) < (oppositeSides ? .03 : .015);
       if (!sameShape) continue;
       const direct = imageAnalysisSimilarity(a, b);
-      if (direct >= .995) {
+      if (direct >= (oppositeSides ? .84 : .995)) {
         issues.push({ code: "duplicate", cells: [left + 1, right + 1] });
-      } else if (imageAnalysisSimilarity(a, b, true) >= .997) {
+      } else if (imageAnalysisSimilarity(a, b, true) >= (oppositeSides ? .9 : .997)) {
         issues.push({ code: "mirrored-duplicate", cells: [left + 1, right + 1] });
       }
     }
