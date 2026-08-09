@@ -206,8 +206,8 @@ export const frameImageUrl = (id: string, v?: number) =>
   `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}`;
 
 /** 素材图片 URL；type=raw 强制原图，默认 processed（缺失时服务端回退 raw） */
-export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed") =>
-  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}`;
+export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed", strict = false) =>
+  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}${strict ? "&strict=1" : ""}`;
 
 /** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
 export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>

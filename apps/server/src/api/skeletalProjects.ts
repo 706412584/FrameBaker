@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { validateCharacterBinding, type CharacterBinding, type SkeletalProjectDocument, type Skeleton } from "@framebaker/shared";
+import { isFbanimV2Id, validateCharacterBinding, type CharacterBinding, type SkeletalProjectDocument, type Skeleton } from "@framebaker/shared";
 import { db } from "../db";
 
 type ProjectRow = { id: string; kind: string };
@@ -25,7 +25,7 @@ function validateDocument(value: unknown, projectId: string): string | null {
   const ids = new Set<string>(), names = new Set<string>();
   for (const item of document.animations) {
     if (!item || typeof item !== "object") return "动作配置必须是对象";
-    if (typeof item.id !== "string" || !item.id.trim() || item.id.length > 128) return "动作 id 必须为非空且不超过 128 字符";
+    if (!isFbanimV2Id(item.id)) return "动作 id 必须是可导出的 ASCII 标识符";
     if (typeof item.name !== "string" || !item.name.trim() || item.name.length > 200) return "动作名称必须为非空且不超过 200 字符";
     if (ids.has(item.id) || names.has(item.name)) return "动作 id 与名称必须各自唯一";
     ids.add(item.id); names.add(item.name);

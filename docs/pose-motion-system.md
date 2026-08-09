@@ -234,17 +234,14 @@ character.fbanim
 │   └── <sha256>.json
 ├── motions/
 │   └── <sha256>.json
-│
-│   # 以下目录由后续独立资产 schema 启用，v1 暂不接受
 ├── bindings/
-│   └── default.json
+│   └── <sha256>.json
 ├── constraints/
 │   └── feet.json
 ├── render-profiles/
 │   └── pixel-side-view.json
 ├── textures/
-│   ├── body.png
-│   └── sword.png
+│   └── <sha256>.png
 ├── previews/
 └── provenance.json
 ```
@@ -253,6 +250,9 @@ character.fbanim
 
 - `manifest.json` 包含包版本、资产索引、依赖关系、内容哈希和创建工具版本；
 - v1 资产文件名是规范 JSON 内容的 SHA-256，摘要与字节数都针对未压缩的 RFC 8785 UTF-8 字节；
+- v2 是与 v1 平行的运行时包 API（`buildFbanimV2Entries` / `verifyFbanimV2Entries`），`format: "fbanim"`、`version: 2`。每个包只闭包一个项目本地 `CharacterBinding` 及其 `Skeleton`，并按项目动作 ID 排序收录动作名、MotionClip 路径、speed、repeat 和 loop；不会改变 v1 的多资产交换行为；
+- v2 的 JSON 和 PNG 均以内容摘要命名。manifest 的 `entry` 显式记录 skeleton、characterBinding、actions、textures 的路径、SHA-256、字节数和骨架依赖；每个 attachmentId 必须恰好映射一个 `textures/*.png`。绑定中的 materialId 仅作来源记录，运行时纹理由该映射解析；
+- v2 构建与验证拒绝未知核心字段、重复 ID/路径、非规范 JSON、路径穿越、摘要或字节数不符、非 PNG 签名、缺失/多余文件、附件引用和 Skeleton 不匹配，并在读取内容前执行文件数、单文件及总解压字节预算；
 - 当前实现以 `{ path, bytes }` 逻辑条目建立、验证和往返，ZIP 仅是后续传输层；在具备重复路径、压缩炸弹、CRC、大小与压缩比防护的读取器前，不复用现有仅导出用途的 ZIP 写入器；
 - 路径必须相对包根且禁止 `..`，解包时防止路径穿越和压缩炸弹；
 - JSON 使用正式 schema 校验，未知可选扩展在往返保存时尽量保留；

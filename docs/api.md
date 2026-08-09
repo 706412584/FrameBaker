@@ -187,9 +187,9 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 }
 ```
 
-### GET /api/materials/:id/image?type=raw|processed
+### GET /api/materials/:id/image?type=raw|processed&strict=1
 
-图片流（`image/png`，no-store）。`type=processed` 且无 processed 时回退 raw。
+图片流（`image/png`，no-store）。`type=processed` 且无 processed 时默认回退 raw；`strict=1` 会在指定槽位缺失时直接返回 404，供运行时包导出避免槽位语义漂移。
 
 ### POST /api/materials/upload
 

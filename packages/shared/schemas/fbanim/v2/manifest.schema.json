@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:framebaker:schema:fbanim:manifest:2",
+  "type": "object",
+  "required": ["format", "version", "createdBy", "entry"],
+  "properties": {
+    "format": { "const": "fbanim" },
+    "version": { "const": 2 },
+    "createdBy": { "$ref": "#/$defs/tool" },
+    "entry": {
+      "type": "object", "required": ["skeleton", "characterBinding", "actions", "textures"], "additionalProperties": false,
+      "properties": {
+        "skeleton": { "type": "object", "allOf": [{ "$ref": "#/$defs/jsonFile" }, { "type": "object", "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" }, "path": { "type": "string", "pattern": "^skeletons/" } } }], "unevaluatedProperties": false },
+        "characterBinding": { "type": "object", "allOf": [{ "$ref": "#/$defs/jsonFile" }, { "type": "object", "required": ["id", "dependencies"], "properties": { "id": { "$ref": "#/$defs/id" }, "path": { "type": "string", "pattern": "^bindings/" }, "dependencies": { "$ref": "#/$defs/skeletonDependency" } } }], "unevaluatedProperties": false },
+        "actions": { "type": "array", "maxItems": 1021, "items": { "$ref": "#/$defs/action" } },
+        "textures": { "type": "array", "maxItems": 1021, "items": { "$ref": "#/$defs/texture" } }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "tool": { "type": "object", "required": ["name", "version"], "properties": { "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "fileProperties": { "path": { "type": "string", "maxLength": 160 }, "digest": { "$ref": "#/$defs/digest" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 33554432 } },
+    "jsonFile": { "type": "object", "required": ["path", "digest", "byteLength"], "properties": { "path": { "type": "string", "pattern": "^(skeletons|bindings|motions)/[a-f0-9]{64}\\.json$", "maxLength": 160 }, "digest": { "$ref": "#/$defs/digest" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 33554432 } } },
+    "skeletonDependency": { "type": "object", "required": ["skeletonId"], "properties": { "skeletonId": { "$ref": "#/$defs/id" } }, "additionalProperties": false },
+    "action": { "type": "object", "allOf": [{ "$ref": "#/$defs/jsonFile" }, { "type": "object", "required": ["id", "name", "motionClipId", "speed", "repeat", "loop", "dependencies"], "properties": { "id": { "$ref": "#/$defs/id" }, "name": { "type": "string", "minLength": 1 }, "motionClipId": { "$ref": "#/$defs/id" }, "path": { "type": "string", "pattern": "^motions/" }, "speed": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 }, "repeat": { "type": "integer", "minimum": 1, "maximum": 100 }, "loop": { "type": "boolean" }, "dependencies": { "$ref": "#/$defs/skeletonDependency" } } }], "unevaluatedProperties": false },
+    "texture": { "type": "object", "required": ["attachmentId", "path", "digest", "byteLength"], "properties": { "attachmentId": { "$ref": "#/$defs/id" }, "path": { "type": "string", "pattern": "^textures/[a-f0-9]{64}\\.png$", "maxLength": 160 }, "digest": { "$ref": "#/$defs/digest" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 33554432 } }, "additionalProperties": false }
+  }
+}

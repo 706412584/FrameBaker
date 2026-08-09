@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AnimationAssetSummary, CharacterBinding, Material, MotionClip, SkeletalProjectAnimation, Skeleton } from "@framebaker/shared";
-import { ArrowLeft, Bone, Boxes, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Bone, Boxes, Download, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { api, type Project, type SkeletalProjectDocument } from "../api";
 import { useT } from "../i18n";
 import { notify } from "../notice";
+import { exportSkeletalProjectPackage } from "../export";
 import { BindingEditor, CharacterPreview } from "./AnimationAssetsWorkspace";
 import PxSelect from "./PxSelect";
 
@@ -22,6 +23,19 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
+
+  const exportPackage = async () => {
+    if (!skeleton || !document?.character || !document.animations.length) return;
+    setBusy(true);
+    try {
+      await exportSkeletalProjectPackage(project.name, document, skeleton);
+      notify(t("skeletal.export.done"), "info");
+    } catch (e) {
+      notify(t("skeletal.export.failed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -158,6 +172,7 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
       <nav className="skeletal-project-tabs" aria-label={t("skeletal.workspaceTabs")}>
         <button type="button" className={tab === "character" ? "active" : ""} onClick={() => setTab("character")}><Boxes size={17} /> {t("skeletal.tab.character")}</button>
         <button type="button" className={tab === "animations" ? "active" : ""} onClick={() => setTab("animations")} disabled={!binding}><Play size={17} /> {t("skeletal.tab.animations")} <span>{document.animations.length}</span></button>
+        <button type="button" className="skeletal-export-button" disabled={busy || !binding || !document.animations.length} onClick={() => void exportPackage()}><Download size={17} /> {t("skeletal.export.runtime")}</button>
       </nav>
 
       {tab === "character" && <main className="skeletal-character-workspace">

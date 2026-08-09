@@ -736,6 +736,9 @@ export const zh = {
   "skeletal.animations.loop": "持续循环",
   "skeletal.animations.remove": "移除动作",
   "skeletal.animations.events": "动作事件",
+  "skeletal.export.runtime": "导出骨骼运行时包",
+  "skeletal.export.done": "骨骼运行时包已导出",
+  "skeletal.export.failed": "骨骼运行时包导出失败：{msg}",
 } as const;
 
 export type MsgKey = keyof typeof zh;

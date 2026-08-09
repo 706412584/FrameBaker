@@ -70,12 +70,13 @@ const materialImageHandler = ({
   status,
 }: {
   params: { id: string };
-  query: { type?: string };
+  query: { type?: string; strict?: string };
   status: (code: number, msg: string) => unknown;
 }) => {
   const m = getMaterial(params.id);
   if (!m) return status(404, "素材不存在");
   let path: string | null = query.type === "raw" ? m.raw_path : m.processed_path;
+  if (query.strict === "1" && (!path || !existsSync(path))) return status(404, "指定图片槽位不存在");
   if (!path || !existsSync(path)) path = m.raw_path;
   if (!path || !existsSync(path)) return status(404, "文件不存在");
   const lower = path.toLowerCase();

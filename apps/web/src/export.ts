@@ -1,4 +1,5 @@
-import { frameImageUrl, materialImageUrl, type Frame } from "./api";
+import { buildFbanimV2Entries, type MotionClip, type SkeletalProjectDocument, type Skeleton } from "@framebaker/shared";
+import { api, frameImageUrl, materialImageUrl, type Frame } from "./api";
 import { transformedFrameBounds } from "./frameGeometry";
 import { createZip } from "./zip";
 
@@ -13,6 +14,29 @@ function download(blob: Blob, filename: string) {
 /** 文件名安全化：去掉路径非法字符 */
 function safeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").trim() || "material";
+}
+
+/** 导出可直接接入游戏运行时的骨骼包：骨架、项目角色、动作配置、MotionClip 与 PNG 纹理闭包。 */
+export async function exportSkeletalProjectPackage(name: string, document: SkeletalProjectDocument, skeleton: Skeleton): Promise<void> {
+  if (!document.character) throw new Error("项目尚未组装角色");
+  const actions = await Promise.all(document.animations.map(async (action) => {
+    const { asset } = await api.getAnimationAsset(action.motionClipId);
+    if (asset.kind !== "motion-clip") throw new Error(`动作「${action.name}」引用的资产无效`);
+    return { ...action, motionClip: asset as MotionClip };
+  }));
+  const textures = await Promise.all(document.character.binding.attachments.map(async (attachment) => {
+    const response = await fetch(materialImageUrl(attachment.materialId, undefined, attachment.imageSlot, true));
+    if (!response.ok) throw new Error(`附件「${attachment.name}」纹理读取失败`);
+    return { attachmentId: attachment.id, bytes: new Uint8Array(await response.arrayBuffer()) };
+  }));
+  const entries = await buildFbanimV2Entries({
+    createdBy: { name: "FrameBaker", version: "0.1.0" },
+    skeleton,
+    characterBinding: document.character.binding,
+    actions,
+    textures,
+  });
+  download(await createZip(entries.map((entry) => ({ name: entry.path, data: entry.bytes }))), `${safeFilename(name)}.fbanim`);
 }
 
 /** 导出单个素材图片：raw=原图，processed=抠图后（单张直接下载） */

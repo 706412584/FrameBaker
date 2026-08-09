@@ -736,6 +736,9 @@ export const en = {
   "skeletal.animations.loop": "Loop continuously",
   "skeletal.animations.remove": "Remove action",
   "skeletal.animations.events": "Action events",
+  "skeletal.export.runtime": "Export skeletal runtime",
+  "skeletal.export.done": "Skeletal runtime package exported",
+  "skeletal.export.failed": "Could not export skeletal runtime package: {msg}",
 } as const;
 
 export type MsgKey = keyof typeof en;

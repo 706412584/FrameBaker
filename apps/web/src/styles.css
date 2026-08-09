@@ -606,6 +606,7 @@ input[type="range"] {
 .skeletal-project-tabs button:hover:not(:disabled), .skeletal-project-tabs button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--selected); }
 .skeletal-project-tabs button:disabled { opacity: .45; cursor: not-allowed; }
 .skeletal-project-tabs button span { min-width: 20px; padding: 1px 5px; border: 1px solid var(--border); background: var(--elevated); font-size: 11px; }
+.skeletal-project-tabs .skeletal-export-button { margin-left: auto; color: var(--accent); }
 .skeletal-character-workspace, .skeletal-animation-workspace { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 12px; align-items: start; }
 .skeletal-setup-panel, .skeletal-action-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
