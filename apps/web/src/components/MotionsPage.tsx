@@ -139,8 +139,5 @@ export function LegacyMotionsPage({ onShowAssets }: { onShowAssets: () => void }
 }
 
 export default function MotionsPage() {
-  const t = useT();
-  const [mode, setMode] = useState<"assets" | "legacy">("assets");
-  if (mode === "legacy") return <LegacyMotionsPage onShowAssets={() => setMode("assets")} />;
-  return <div className="page animation-assets-page"><div className="motion-mode-switch"><button className="px-btn accent">{t("animation.officialAssets")}</button><button className="px-btn" onClick={() => setMode("legacy")}>{t("animation.posePrototype")}</button></div><AnimationAssetsWorkspace /></div>;
+  return <div className="page animation-assets-page"><AnimationAssetsWorkspace /></div>;
 }

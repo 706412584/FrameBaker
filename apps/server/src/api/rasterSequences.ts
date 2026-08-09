@@ -57,7 +57,7 @@ export const rasterSequencesApi = new Elysia({ prefix: "/api" })
   }, { body: t.Object({ manifest: t.Any(), name: t.String(), parentId: t.Optional(t.String()), frames: t.Files() }) })
   .post("/raster-sequences/:id/import-project", ({ params, body, status }) => {
     const found = row(params.id); if (!found) return status(404, "RasterSequence 不存在");
-    if (!db.query("SELECT id FROM projects WHERE id = ?").get(body.projectId)) return status(404, "项目不存在");
+    if (!db.query("SELECT id FROM projects WHERE id = ? AND kind = 'frame'").get(body.projectId)) return status(400, "RasterSequence 只能导入逐帧项目");
     const sequence = parse(found), importId = uid(), staging = join(STORAGE_ROOT, "staging", `raster-import-${importId}`), moved: string[] = [];
     try {
       mkdirSync(staging, { recursive: true });

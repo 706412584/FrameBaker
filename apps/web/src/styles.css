@@ -637,6 +637,15 @@ input[type="range"] {
 .skeletal-action-settings { padding: 10px; border: 1px solid var(--border); background: var(--surface); display: grid; grid-template-columns: 2fr 1fr 1fr auto auto; align-items: end; gap: 8px; }
 .skeletal-action-settings > label:not(.px-check) { display: grid; gap: 4px; color: var(--text-muted); }
 .skeletal-action-settings .px-check { align-self: center; }
+.skeletal-raster-workspace { max-width: 760px; margin: 0 auto; padding: 18px; display: grid; gap: 14px; }
+.skeletal-raster-workspace > header h2 { margin-top: 7px; }
+.skeletal-raster-workspace > header p { margin-top: 6px; color: var(--text-muted); line-height: 1.6; }
+.skeletal-raster-summary { display: flex; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--border); background: var(--selected); }
+.skeletal-raster-summary span { color: var(--text-muted); }
+.skeletal-raster-config { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.skeletal-raster-config label, .skeletal-raster-result label { display: grid; gap: 5px; color: var(--text-muted); }
+.skeletal-raster-result { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 9px; padding: 12px; border: 2px solid var(--accent); background: var(--selected); }
+.skeletal-raster-result label, .skeletal-raster-result > .px-input { grid-column: 1 / -1; }
 .skeletal-event-strip { height: 72px; margin: 8px 10px 0; position: relative; border-top: 2px solid var(--border); }
 .skeletal-event-strip > strong { position: absolute; top: 8px; left: 0; color: var(--text-muted); }
 .skeletal-event-strip button { position: absolute; top: 34px; width: 8px; height: 20px; padding: 0; transform: translateX(-50%); border: 1px solid var(--accent); background: var(--accent); }
@@ -649,6 +658,8 @@ input[type="range"] {
   .skeletal-project-welcome { padding: 24px 16px; }
   .skeletal-character-workspace, .skeletal-animation-workspace { grid-template-columns: 1fr; }
   .skeletal-action-settings { grid-template-columns: 1fr 1fr; }
+  .skeletal-raster-config { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skeletal-raster-result { grid-template-columns: 1fr; }
   .skeletal-playback-controls { grid-template-columns: auto 1fr; }
   .skeletal-playback-controls span { grid-column: 1 / -1; }
 }

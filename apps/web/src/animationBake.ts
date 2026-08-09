@@ -21,6 +21,29 @@ export function assertBakePixelBudget(width: number, height: number, frameCount:
   if (width * height * frameCount > MAX_BAKED_RASTER_PIXELS) throw new Error(`烘焙总像素超过上限 ${MAX_BAKED_RASTER_PIXELS}`);
 }
 
+/** 把项目动作的速度与有限重复次数烘进临时 clip；项目的无限 loop 不进入兼容逐帧输出。 */
+export function configuredMotionClipForRaster(clip: MotionClip, speed: number, repeat: number): MotionClip {
+  const safeSpeed = Math.min(8, Math.max(0.1, speed));
+  const safeRepeat = Math.min(100, Math.max(1, Math.round(repeat)));
+  const cycleDuration = clip.duration / safeSpeed;
+  return {
+    ...clip,
+    duration: cycleDuration * safeRepeat,
+    loop: false,
+    tracks: clip.tracks.map((track) => ({
+      ...track,
+      keyframes: Array.from({ length: safeRepeat }, (_, cycle) => track.keyframes.map((keyframe) => ({
+        ...keyframe,
+        time: cycle * cycleDuration + keyframe.time / safeSpeed,
+      }))).flat(),
+    })) as MotionClip["tracks"],
+    events: Array.from({ length: safeRepeat }, (_, cycle) => clip.events.map((event) => ({
+      ...event,
+      time: cycle * cycleDuration + event.time / safeSpeed,
+    }))).flat(),
+  };
+}
+
 /** Canvas Y-down × 骨架 Y-up × 图片本地 Y 翻转，保证源图片保持正向。 */
 export function canvasRegionTransform(world: Mat4, profile: RenderProfile): [number, number, number, number, number, number] {
   const s = profile.scale;

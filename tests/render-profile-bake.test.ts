@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { validateFbanimEntryPath, validateFbanimManifest, validateRenderProfile, type CharacterBinding, type Mat4, type RenderProfile } from "../packages/shared/src";
-import { animationBakeTimes, assertBakePixelBudget, canvasRegionTransform, sortedBindingSlots } from "../apps/web/src/animationBake";
+import { animationBakeTimes, assertBakePixelBudget, canvasRegionTransform, configuredMotionClipForRaster, sortedBindingSlots } from "../apps/web/src/animationBake";
 
 const profile: RenderProfile = { schemaVersion: 1, kind: "render-profile", id: "profile", name: "Profile", width: 64, height: 64, fps: 4, origin: [10, 20], scale: 2, background: "transparent" };
 describe("RenderProfile 与烘焙纯逻辑", () => {
@@ -10,5 +10,13 @@ describe("RenderProfile 与烘焙纯逻辑", () => {
   test("拦截内存危险的总像素量", () => expect(() => assertBakePixelBudget(4096, 4096, 5)).toThrow());
   test("按 drawOrder 排序", () => { const binding = { slots: [{ drawOrder: 2 }, { drawOrder: -1 }] } as CharacterBinding; expect(sortedBindingSlots(binding).map((slot) => slot.drawOrder)).toEqual([-1, 2]); });
   test("映射原点、Y 翻转且抵消图片倒置", () => { const matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3, 4, 0, 1] as Mat4; expect(canvasRegionTransform(matrix, profile)).toEqual([2, -0, -0, 2, 16, 12]); });
+  test("项目动作速度与重复次数可烘进兼容逐帧 clip", () => {
+    const clip = { schemaVersion: 1 as const, kind: "motion-clip" as const, id: "clip", name: "attack", skeletonId: "skeleton", duration: 2, loop: true, tracks: [{ targetId: "root", property: "translation" as const, interpolation: "linear" as const, keyframes: [{ time: 0, value: [0, 0, 0] as [number, number, number] }, { time: 2, value: [1, 0, 0] as [number, number, number] }] }], events: [{ time: 1, type: "hit", name: "hit" }] };
+    const configured = configuredMotionClipForRaster(clip, 2, 3);
+    expect(configured.duration).toBe(3);
+    expect(configured.loop).toBe(false);
+    expect(configured.tracks[0]?.keyframes.map((key) => key.time)).toEqual([0, 1, 1, 2, 2, 3]);
+    expect(configured.events.map((event) => event.time)).toEqual([0.5, 1.5, 2.5]);
+  });
   test("fbanim v1 明确拒绝 profile", () => { const hash = "a".repeat(64); expect(validateFbanimEntryPath(`profiles/${hash}.json`).length).toBeGreaterThan(0); expect(validateFbanimManifest({ format: "framebaker-animation-package", packageVersion: 1, createdBy: { name: "t", version: "1" }, assets: [{ kind: "render-profile", id: "profile", schemaVersion: 1, path: `profiles/${hash}.json`, byteLength: 0, digest: `sha256:${hash}`, dependencies: [] }] }).ok).toBeFalse(); });
 });
