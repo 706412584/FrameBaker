@@ -44,7 +44,7 @@ describe("CharacterPartSet API", () => {
     expect(response.status).toBe(400);
   });
 
-  test("骨骼部件生成产物自动加入目标部件集", async () => {
+  test("骨骼部件表产物保留目标部件集关联但不冒充独立部件", async () => {
     const committer = createGeneratedArtifactCommitter({
       target: { kind: "materials" },
       count: 1,
@@ -63,8 +63,8 @@ describe("CharacterPartSet API", () => {
     committer.finish();
     generatedMaterialIds.push(result.id);
 
-    const member = db.query("SELECT role, name FROM character_part_set_members WHERE set_id = ? AND material_id = ?").get(setId, result.id) as { role: string; name: string } | null;
-    expect(member).toEqual({ role: "custom", name: "Generated arm" });
+    const member = db.query("SELECT role, name FROM character_part_set_members WHERE set_id = ? AND material_id = ?").get(setId, result.id);
+    expect(member).toBeNull();
     const metadata = JSON.parse((db.query("SELECT metadata FROM materials WHERE id = ?").get(result.id) as { metadata: string }).metadata);
     expect(metadata.intent).toBe("skeletal-parts");
     expect(metadata.characterPartSetId).toBe(setId);

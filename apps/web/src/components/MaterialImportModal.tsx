@@ -55,6 +55,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">("frame");
+  const [skeletalMode, setSkeletalMode] = useState<"parts" | "decompose">("parts");
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
   const [partSetId, setPartSetId] = useState("");
   const [partSetName, setPartSetName] = useState("");
@@ -98,7 +99,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
 
   // 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示
   const submitGenerate = async () => {
-    if (!prompt.trim() || submitting || (generationLine === "skeletal" && !partSetId)) return;
+    if (submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && !reference)))) return;
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
@@ -106,15 +107,21 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         videoOnly: mediaKind === "video",
         preferI2v: mediaKind === "video" && !!reference,
       });
+      if (generationLine === "skeletal" && skeletalMode === "decompose" && reference?.kind === "material") {
+        const target = partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId);
+        const updated = await api.putCharacterPartSet(target.id, { name: target.name, referenceMaterialId: reference.id, members: target.members });
+        setPartSets((sets) => sets.map((set) => set.id === updated.id ? updated : set));
+      }
+      const skeletalPrompt = skeletalMode === "decompose"
+        ? `Reconstruct the exact character from the reference image as a modular pixel-art skeletal animation parts sheet. Preserve the character identity, outfit, colors and proportions. Output exactly six isolated pieces in a strict 3 columns by 2 rows layout: head, torso, left arm, right arm, left leg, right leg. Transparent background, generous empty spacing, no overlap, no labels, no assembled character.${prompt.trim() ? ` Extra requirements: ${prompt.trim()}` : ""}`
+        : `Create a modular pixel-art skeletal animation parts sheet. Output exactly six isolated pieces in a strict 3 columns by 2 rows layout: head, torso, left arm, right arm, left leg, right leg. Transparent background, generous empty spacing, no overlap, no labels, no assembled character. Character description: ${prompt.trim()}`;
       await api.generateMaterial({
-        prompt: generationLine === "skeletal"
-          ? `Modular pixel-art character component sheet on transparent background. Keep every component fully separated with generous empty spacing and no overlap. Include: head, torso, left arm, right arm, left leg, right leg, weapon and accessories. Consistent scale, lighting and palette. Character description: ${prompt.trim()}`
-          : prompt.trim(),
+        prompt: generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
         count: generationLine === "skeletal" ? 1 : count,
         autoMatting,
         ...sel,
         folderId,
-        ...(generationLine === "skeletal" ? { intent: "skeletal-parts" as const, characterPartSetId: partSetId } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
+        ...(generationLine === "skeletal" ? { intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-parts" as const, characterPartSetId: partSetId } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
@@ -139,7 +146,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
     try {
       const made = await api.createCharacterPartSet({
         name: partSetName.trim(),
-        source: "generated",
+        source: skeletalMode === "decompose" ? "decomposed" : "generated",
         referenceMaterialId: reference?.kind === "material" ? reference.id : null,
         members: [],
       });
@@ -277,6 +284,11 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             </div>
             {generationLine === "skeletal" && <div className="skeletal-parts-setup">
               <div className="hint">{t("skeletal.parts.generateHint")}</div>
+              <div className="skeletal-mode-tabs" role="tablist" aria-label={t("skeletal.generate.modeTitle")}>
+                <button type="button" role="tab" aria-selected={skeletalMode === "parts"} className={skeletalMode === "parts" ? "active" : ""} onClick={() => setSkeletalMode("parts")}>{t("skeletal.generate.fromDescription")}</button>
+                <button type="button" role="tab" aria-selected={skeletalMode === "decompose"} className={skeletalMode === "decompose" ? "active" : ""} onClick={() => setSkeletalMode("decompose")}>{t("skeletal.generate.fromReference")}</button>
+              </div>
+              <div className="hint">{t(skeletalMode === "decompose" ? "skeletal.generate.decomposeHint" : "skeletal.generate.partsHint")}</div>
               <label>{t("skeletal.parts.targetSet")}<PxSelect value={partSetId} options={partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))} onChange={setPartSetId} placeholder={t("skeletal.parts.chooseSet")} /></label>
               <div className="form-inline"><input className="px-input" value={partSetName} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} /><button type="button" className="px-btn" disabled={!partSetName.trim()} onClick={() => void createPartSet()}>{t("skeletal.parts.createSet")}</button></div>
             </div>}
@@ -296,8 +308,8 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             </div>
             <PromptEnhancer
               mediaKind={mediaKind}
-              label={t("msg.prompt")}
-              placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
+              label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPrompt") : t("msg.prompt")}
+              placeholder={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPromptPlaceholder") : mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
               value={prompt}
               onChange={setPrompt}
             />
@@ -310,7 +322,13 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             {mediaKind === "video" && (
               <div className="hint">{t("msg.saves_video_only_open_the_material_later_and_extract_fra")}</div>
             )}
-            <ReferencePicker value={reference} onChange={setReference} showFrames={false} />
+            <ReferencePicker
+              value={reference}
+              onChange={setReference}
+              showFrames={false}
+              label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceRequired") : undefined}
+              description={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceDescription") : undefined}
+            />
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}

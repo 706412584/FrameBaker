@@ -136,12 +136,6 @@ export function createGeneratedArtifactCommitter(options: {
         metadata(allocation.index),
         Date.now()
       );
-      if (options.intent === "skeletal-parts" && options.characterPartSetId) {
-        const materialName = total > 1 ? `${options.name} #${allocation.index + 1}` : options.name;
-        // INSERT…SELECT 保证集合若在排队期间被删除，不会产生孤儿成员。
-        db.query("INSERT INTO character_part_set_members (set_id, material_id, role, name) SELECT id, ?, 'custom', ? FROM character_part_sets WHERE id = ?").run(id, materialName, options.characterPartSetId);
-        db.query("UPDATE character_part_sets SET updated_at = ? WHERE id = ?").run(Date.now(), options.characterPartSetId);
-      }
     }
     ids.push(id);
     return id;

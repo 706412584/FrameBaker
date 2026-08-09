@@ -203,9 +203,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         characterPartSetId: t.Optional(t.String()),
       }),
       beforeHandle({ body, status }) {
-        if (body.intent === "skeletal-parts") {
-          if ((body.mediaKind ?? "image") !== "image") return status(400, "skeletal-parts 生成意图仅支持图片模式");
-          if (!body.characterPartSetId || !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "skeletal-parts 生成意图需要已存在的角色部件集");
+        if (body.intent === "skeletal-parts" || body.intent === "skeletal-decompose") {
+          if ((body.mediaKind ?? "image") !== "image") return status(400, "骨骼部件生成意图仅支持图片模式");
+          if (!body.characterPartSetId || !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "骨骼部件生成意图需要已存在的角色部件集");
+          if (body.intent === "skeletal-decompose" && !body.referenceMaterialId && !body.referenceFrameId) return status(400, "精灵拆分生成需要引用图片");
         }
       },
     }

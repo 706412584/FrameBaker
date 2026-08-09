@@ -41,15 +41,17 @@ function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
 export default function GridSplitModal({ material: m, v, onClose, onDone, onToast }: Props) {
   const t = useT();
   const slot = m.processed_path ? "processed" : "raw";
+  const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
+  const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
   const [rows, setRows] = useState(2);
-  const [cols, setCols] = useState(2);
+  const [cols, setCols] = useState(guidedSkeletalSplit ? 3 : 2);
   const [autoMatting, setAutoMatting] = useState(true);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
-  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">("frame");
+  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(guidedSkeletalSplit ? "skeletal" : "frame");
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
-  const [partSetId, setPartSetId] = useState("");
+  const [partSetId, setPartSetId] = useState(hintedPartSetId);
   const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
   const [partDrafts, setPartDrafts] = useState<Array<{ role: CharacterPartRole; name: string }>>([]);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -63,8 +65,11 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const total = rows * cols;
 
   useEffect(() => {
-    api.listCharacterPartSets().then(setPartSets).catch(() => setPartSets([]));
-  }, []);
+    api.listCharacterPartSets().then((sets) => {
+      setPartSets(sets);
+      if (hintedPartSetId && !sets.some((set) => set.id === hintedPartSetId)) setPartSetId("");
+    }).catch(() => setPartSets([]));
+  }, [hintedPartSetId]);
 
   useEffect(() => {
     setPartDrafts((current) => Array.from({ length: total }, (_, index) => current[index] ?? {
