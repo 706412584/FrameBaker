@@ -277,24 +277,25 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   return (
     <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}  >
       <motion.div
-        className="modal pixel-panel gs-modal"
+        className={`modal pixel-panel gs-modal ${splitLine === "skeletal" ? "skeletal-mode" : "frame-mode"}`}
         initial={{ scale: 0.92, y: 24 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 24 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="form-inline">
-          <h2 style={{ flex: 1 }}>{t("msg.grid_split")}</h2>
+        <header className="gs-header">
+          <div>
+            <h2>{t("msg.grid_split")}</h2>
+            <p>
+              {t("msg.target_target_drag_grid_to_align_split_cells_into_materi", {
+                target: slot === "processed" ? t("msg.matted") : t("msg.original"),
+              })}
+            </p>
+          </div>
           <IconBtn onClick={onClose} title={t("common.close")}>
             <X size={16} />
           </IconBtn>
-        </div>
-
-        <div className="hint">
-          {t("msg.target_target_drag_grid_to_align_split_cells_into_materi", {
-            target: slot === "processed" ? t("msg.matted") : t("msg.original"),
-          })}
-        </div>
+        </header>
 
         <div className="generation-line-tabs" role="tablist" aria-label={t("skeletal.split.lineTitle")}>
           <button type="button" role="tab" aria-selected={splitLine === "frame"} className={splitLine === "frame" ? "active" : ""} disabled={busy} onClick={() => setSplitLine("frame")}>
@@ -305,132 +306,142 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           </button>
         </div>
 
-        <div
-          className="gs-wrap"
-          ref={wrapRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <img
-            ref={imgRef}
-            src={materialImageUrl(m.id, v, slot)}
-            alt={m.name}
-            draggable={false}
-            onLoad={syncDisp}
-          />
-          {regionStyle && (
-            <div className="gs-region" style={regionStyle}>
-              {Array.from({ length: cols - 1 }, (_, i) => (
-                <div key={`v${i}`} className="gs-line v" style={{ left: `${((i + 1) / cols) * 100}%` }} />
-              ))}
-              {Array.from({ length: rows - 1 }, (_, i) => (
-                <div key={`h${i}`} className="gs-line h" style={{ top: `${((i + 1) / rows) * 100}%` }} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="form-inline gs-tools">
-          <IconBtn title={t("msg.fit_opaque_bounds")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
-            <Scan size={14} />
-          </IconBtn>
-          <button type="button" className="px-btn mini" disabled={busy || !imgSize} onClick={resetRegion}>
-            {t("msg.reset_to_full_image")}
-          </button>
-          <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(-1, 0)}>
-            ←
-          </button>
-          <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(1, 0)}>
-            →
-          </button>
-          <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(0, -1)}>
-            ↑
-          </button>
-          <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(0, 1)}>
-            ↓
-          </button>
-          {region && imgSize && (
-            <span className="gs-total">
-              {t("msg.region_x_y_w_h", { x: region.x, y: region.y, w: region.w, h: region.h })}
-            </span>
-          )}
-        </div>
-
-        <div className="form-inline">
-          <label className="px-check">
-            {t("msg.cols")}
-            <input
-              className="px-input num"
-              type="number"
-              min={1}
-              max={8}
-              value={cols}
-              disabled={busy}
-              onChange={(e) => setCols(clampCell(Number(e.target.value)))}
-            />
-          </label>
-          <label className="px-check">
-            {t("msg.rows")}
-            <input
-              className="px-input num"
-              type="number"
-              min={1}
-              max={8}
-              value={rows}
-              disabled={busy}
-              onChange={(e) => setRows(clampCell(Number(e.target.value)))}
-            />
-          </label>
-          <span className="gs-total">{t("msg.total_cells", { total })}</span>
-        </div>
-
-        <label className="px-check">
-          <input type="checkbox" checked={autoTrim} disabled={busy} onChange={(e) => setAutoTrim(e.target.checked)} />
-          {t("msg.auto_trim_transparent_edges_per_cell")}
-        </label>
-
-        <MattingOption checked={autoMatting} onChange={setAutoMatting} />
-
-        {splitLine === "skeletal" && (
-          <div className="skeletal-split-setup">
-            <div>
-              <strong>{t("skeletal.split.destination")}</strong>
-              <div className="hint">{t("skeletal.split.destinationHint")}</div>
-            </div>
-            <PxSelect
-              value={partSetId}
-              options={[{ value: "", label: t("skeletal.split.createNewSet") }, ...partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))]}
-              onChange={setPartSetId}
-            />
-            {!partSetId && (
-              <input className="px-input" value={partSetName} disabled={busy} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} />
-            )}
-            <div className="skeletal-split-members">
-              {partDrafts.map((draft, index) => (
-                <div className="skeletal-split-member" key={index}>
-                  <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
-                  <PxSelect
-                    value={draft.role}
-                    options={CHARACTER_PART_ROLES.map((role) => ({ value: role, label: t(`skeletal.partRole.${role}`) }))}
-                    onChange={(role) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, role: role as CharacterPartRole } : item))}
-                    disabled={busy}
-                  />
-                  <input
-                    className="px-input"
-                    value={draft.name}
-                    disabled={busy}
-                    onChange={(e) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, name: e.target.value } : item))}
-                    aria-label={t("skeletal.split.partName", { index: index + 1 })}
-                  />
+        <div className="gs-layout">
+          <section className="gs-preview-pane">
+            <div
+              className="gs-wrap"
+              ref={wrapRef}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              <img
+                ref={imgRef}
+                src={materialImageUrl(m.id, v, slot)}
+                alt={m.name}
+                draggable={false}
+                onLoad={syncDisp}
+              />
+              {regionStyle && (
+                <div className="gs-region" style={regionStyle}>
+                  {Array.from({ length: cols - 1 }, (_, i) => (
+                    <div key={`v${i}`} className="gs-line v" style={{ left: `${((i + 1) / cols) * 100}%` }} />
+                  ))}
+                  {Array.from({ length: rows - 1 }, (_, i) => (
+                    <div key={`h${i}`} className="gs-line h" style={{ top: `${((i + 1) / rows) * 100}%` }} />
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        )}
 
-        <div className="modal-actions">
+            <div className="gs-preview-controls">
+              <div className="form-inline gs-tools">
+                <IconBtn title={t("msg.fit_opaque_bounds")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
+                  <Scan size={14} />
+                </IconBtn>
+                <button type="button" className="px-btn mini" disabled={busy || !imgSize} onClick={resetRegion}>
+                  {t("msg.reset_to_full_image")}
+                </button>
+                <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(-1, 0)}>
+                  ←
+                </button>
+                <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(1, 0)}>
+                  →
+                </button>
+                <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(0, -1)}>
+                  ↑
+                </button>
+                <button type="button" className="px-btn mini" disabled={busy || !region} onClick={() => nudge(0, 1)}>
+                  ↓
+                </button>
+                {region && imgSize && (
+                  <span className="gs-total">
+                    {t("msg.region_x_y_w_h", { x: region.x, y: region.y, w: region.w, h: region.h })}
+                  </span>
+                )}
+              </div>
+
+              <div className="form-inline gs-grid-settings">
+                <label className="px-check">
+                  {t("msg.cols")}
+                  <input
+                    className="px-input num"
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={cols}
+                    disabled={busy}
+                    onChange={(e) => setCols(clampCell(Number(e.target.value)))}
+                  />
+                </label>
+                <label className="px-check">
+                  {t("msg.rows")}
+                  <input
+                    className="px-input num"
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={rows}
+                    disabled={busy}
+                    onChange={(e) => setRows(clampCell(Number(e.target.value)))}
+                  />
+                </label>
+                <strong className="gs-total">{t("msg.total_cells", { total })}</strong>
+              </div>
+
+              <div className="gs-options">
+                <label className="px-check">
+                  <input type="checkbox" checked={autoTrim} disabled={busy} onChange={(e) => setAutoTrim(e.target.checked)} />
+                  {t("msg.auto_trim_transparent_edges_per_cell")}
+                </label>
+                <MattingOption checked={autoMatting} onChange={setAutoMatting} />
+              </div>
+            </div>
+          </section>
+
+          {splitLine === "skeletal" && (
+            <aside className="skeletal-split-setup">
+              <div>
+                <strong>{t("skeletal.split.destination")}</strong>
+                <div className="hint">{t("skeletal.split.destinationHint")}</div>
+              </div>
+              <PxSelect
+                value={partSetId}
+                options={[{ value: "", label: t("skeletal.split.createNewSet") }, ...partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))]}
+                onChange={setPartSetId}
+              />
+              {!partSetId && (
+                <input className="px-input" value={partSetName} disabled={busy} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} />
+              )}
+              <div className="skeletal-split-members">
+                {partDrafts.map((draft, index) => (
+                  <div className="skeletal-split-member" key={index}>
+                    <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
+                    <PxSelect
+                      value={draft.role}
+                      options={CHARACTER_PART_ROLES.map((role) => ({ value: role, label: t(`skeletal.partRole.${role}`) }))}
+                      onChange={(role) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, role: role as CharacterPartRole } : item))}
+                      disabled={busy}
+                    />
+                    <input
+                      className="px-input"
+                      value={draft.name}
+                      disabled={busy}
+                      onChange={(e) => setPartDrafts((items) => items.map((item, i) => i === index ? { ...item, name: e.target.value } : item))}
+                      aria-label={t("skeletal.split.partName", { index: index + 1 })}
+                    />
+                  </div>
+                ))}
+              </div>
+            </aside>
+          )}
+        </div>
+
+        <footer className="modal-actions gs-footer">
+          <button type="button" className="px-btn" disabled={busy} onClick={onClose}>
+            {t("common.cancel")}
+          </button>
           <motion.button
             type="button"
             whileTap={{ scale: 0.95 }}
@@ -440,7 +451,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           >
             <Grid3x3 size={14} /> {busy ? progress || t("msg.splitting") : t("msg.split_into_total_materials", { total })}
           </motion.button>
-        </div>
+        </footer>
       </motion.div>
     </motion.div>
   );
