@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { EXTRACT_TIMESTAMPS_MAX } from "@framebaker/shared";
+import { EXTRACT_TIMESTAMPS_MAX, type GenerationIntent } from "@framebaker/shared";
 import { db, nextFrameIdx, STORAGE_ROOT, uid } from "../db";
 import { createProviderAdapter } from "../providerAdapter";
 import { broadcast } from "../ws";
@@ -67,6 +67,10 @@ export interface GeneratePayload {
   fps?: number;
   /** 素材入库目标文件夹（NULL = 根目录） */
   folderId?: string | null;
+  /** 上层工作流意图；provider adapter 不消费此字段。 */
+  intent?: GenerationIntent;
+  /** skeletal-parts 产物要追加到的角色部件集。 */
+  characterPartSetId?: string;
 }
 
 type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
@@ -242,6 +246,8 @@ export async function generateFrames(
     model: p.model ?? (adapter.model || undefined),
     size: p.size,
     enqueueMatting,
+    intent: p.intent,
+    characterPartSetId: p.characterPartSetId,
   });
 
   const produceAndCommit = async (kind: "image" | "video", index: number) => {

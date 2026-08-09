@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Scissors, Sparkles, Upload, X } from "lucide-react";
-import { api } from "../api";
+import { Bone, Scissors, Sparkles, Upload, X } from "lucide-react";
+import { api, type CharacterPartSet } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -54,6 +54,10 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [reference, setReference] = useState<ReferenceSelection | null>(null);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
+  const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">("frame");
+  const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
+  const [partSetId, setPartSetId] = useState("");
+  const [partSetName, setPartSetName] = useState("");
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = useServerConfig();
@@ -63,6 +67,14 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   // 剪裁队列：逐张剪裁 / 单张重裁（确认后 PNG 替换原文件并标 cropped）
   const crop = useCropQueue(items, (i, file) => updateItem(i, { file, cropped: true }));
   const imageCount = items.filter((it) => !isVideoFile(it.file)).length;
+
+  useEffect(() => {
+    if (tab !== "cli" || generationLine !== "skeletal") return;
+    api.listCharacterPartSets().then((sets) => {
+      setPartSets(sets);
+      setPartSetId((current) => sets.some((set) => set.id === current) ? current : sets[0]?.id ?? "");
+    }).catch(() => undefined);
+  }, [tab, generationLine]);
 
   const resetAll = workflow.reset;
 
@@ -86,7 +98,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
 
   // 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示
   const submitGenerate = async () => {
-    if (!prompt.trim() || submitting) return;
+    if (!prompt.trim() || submitting || (generationLine === "skeletal" && !partSetId)) return;
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
@@ -95,11 +107,14 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         preferI2v: mediaKind === "video" && !!reference,
       });
       await api.generateMaterial({
-        prompt: prompt.trim(),
-        count,
+        prompt: generationLine === "skeletal"
+          ? `Modular pixel-art character component sheet on transparent background. Keep every component fully separated with generous empty spacing and no overlap. Include: head, torso, left arm, right arm, left leg, right leg, weapon and accessories. Consistent scale, lighting and palette. Character description: ${prompt.trim()}`
+          : prompt.trim(),
+        count: generationLine === "skeletal" ? 1 : count,
         autoMatting,
         ...sel,
         folderId,
+        ...(generationLine === "skeletal" ? { intent: "skeletal-parts" as const, characterPartSetId: partSetId } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
         ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
@@ -116,6 +131,23 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
     } catch (e) {
       notify(t("msg.submit_failed_msg", { msg: (e as Error).message }));
       setSubmitting(false);
+    }
+  };
+
+  const createPartSet = async () => {
+    if (!partSetName.trim()) return;
+    try {
+      const made = await api.createCharacterPartSet({
+        name: partSetName.trim(),
+        source: "generated",
+        referenceMaterialId: reference?.kind === "material" ? reference.id : null,
+        members: [],
+      });
+      setPartSets((items) => [made, ...items]);
+      setPartSetId(made.id);
+      setPartSetName("");
+    } catch (e) {
+      notify(t("skeletal.parts.createFailed", { msg: (e as Error).message }));
     }
   };
 
@@ -239,13 +271,22 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
           </>
         ) : (
           <>
+            <div className="generation-line-tabs" role="tablist" aria-label={t("generation.line.title")}>
+              <button type="button" role="tab" aria-selected={generationLine === "frame"} className={generationLine === "frame" ? "active" : ""} onClick={() => setGenerationLine("frame")}><Sparkles size={14} /> {t("generation.line.frame")}</button>
+              <button type="button" role="tab" aria-selected={generationLine === "skeletal"} className={generationLine === "skeletal" ? "active" : ""} onClick={() => { setGenerationLine("skeletal"); setMediaKind("image"); setCount(1); }}><Bone size={14} /> {t("generation.line.skeletal")}</button>
+            </div>
+            {generationLine === "skeletal" && <div className="skeletal-parts-setup">
+              <div className="hint">{t("skeletal.parts.generateHint")}</div>
+              <label>{t("skeletal.parts.targetSet")}<PxSelect value={partSetId} options={partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))} onChange={setPartSetId} placeholder={t("skeletal.parts.chooseSet")} /></label>
+              <div className="form-inline"><input className="px-input" value={partSetName} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} /><button type="button" className="px-btn" disabled={!partSetName.trim()} onClick={() => void createPartSet()}>{t("skeletal.parts.createSet")}</button></div>
+            </div>}
             <div className="form-row">
               <label>{t("msg.generate_as")}</label>
               <PxSelect
                 value={mediaKind}
                 options={[
                   { value: "image", label: t("msg.images_one_by_one") },
-                  { value: "video", label: t("msg.video_then_extract_in_materials") },
+                  ...(generationLine === "frame" ? [{ value: "video", label: t("msg.video_then_extract_in_materials") }] : []),
                 ]}
                 onChange={(v) => {
                   setMediaKind(v as "image" | "video");
@@ -260,7 +301,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
               value={prompt}
               onChange={setPrompt}
             />
-            {mediaKind === "image" && (
+            {mediaKind === "image" && generationLine === "frame" && (
               <div className="form-row">
                 <label>{t("msg.count_count", { count })}</label>
                 <input type="range" min={1} max={16} value={count} onChange={(e) => setCount(Number(e.target.value))} />
@@ -297,7 +338,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 className="px-btn accent"
-                disabled={!prompt.trim() || submitting}
+                disabled={!prompt.trim() || submitting || (generationLine === "skeletal" && !partSetId)}
                 onClick={submitGenerate}
               >
                 <Sparkles size={14} /> {t("msg.start_generate")}

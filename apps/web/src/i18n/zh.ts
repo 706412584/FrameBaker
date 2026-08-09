@@ -719,6 +719,8 @@ export const zh = {
   "skeletal.character.hint": "从动作资产中导入一份角色绑定作为起点。导入后是项目内副本，调整部件不会修改原资产。",
   "skeletal.character.template": "角色绑定模板",
   "skeletal.character.chooseTemplate": "选择角色绑定",
+  "skeletal.character.partSet": "组装素材范围",
+  "skeletal.character.allMaterials": "全部图片素材",
   "skeletal.character.import": "导入并开始组装",
   "skeletal.character.replace": "替换当前角色",
   "skeletal.character.noTemplates": "动作库中还没有角色绑定。可先在动作页创建骨架与绑定模板。",
@@ -739,6 +741,15 @@ export const zh = {
   "skeletal.export.runtime": "导出骨骼运行时包",
   "skeletal.export.done": "骨骼运行时包已导出",
   "skeletal.export.failed": "骨骼运行时包导出失败：{msg}",
+  "generation.line.title": "生成用途",
+  "generation.line.frame": "逐帧素材",
+  "generation.line.skeletal": "骨骼角色部件",
+  "skeletal.parts.generateHint": "生成一张部件互不重叠的标准角色部件表，并归入角色部件集。生成后可在素材详情用网格拆分，再到骨骼项目中组装。",
+  "skeletal.parts.targetSet": "目标角色部件集",
+  "skeletal.parts.chooseSet": "选择角色部件集",
+  "skeletal.parts.newSetName": "新部件集名称",
+  "skeletal.parts.createSet": "新建部件集",
+  "skeletal.parts.createFailed": "部件集创建失败：{msg}",
 } as const;
 
 export type MsgKey = keyof typeof zh;

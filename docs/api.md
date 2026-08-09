@@ -203,7 +203,19 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…", "poseReferenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。普通引用与动作参考字段、校验和 provider 限制均与 `/api/import/generate` 一致。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…", "poseReferenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。普通引用与动作参考字段、校验和 provider 限制均与 `/api/import/generate` 一致。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。可选 `intent`：`frame-image|frame-sheet|frame-video|skeletal-parts|skeletal-decompose|skeletal-repair-part|motion-clip`，以及 `characterPartSetId`。`skeletal-parts` 必须指定现有部件集且为图片模式；每个成功入库的素材自动以 `custom` 角色和素材名称追加到该集合。缺省 intent 保持旧行为。
+
+## 角色部件集
+
+`CharacterPartSet` 显式组织骨骼角色素材：`{ id, name, source: "manual"|"generated"|"decomposed", referenceMaterialId, members: [{ materialId, role, name }], created_at, updated_at }`。role 为 `head|torso|arm-left|arm-right|leg-left|leg-right|weapon|accessory|custom`。
+
+- `GET /api/character-part-sets` → `{ "characterPartSets": [...] }`
+- `GET /api/character-part-sets/:id` → `{ "characterPartSet": {...} }`
+- `POST /api/character-part-sets`：提交 `name/source/referenceMaterialId?/members`；校验全部素材存在且素材不重复。
+- `PUT /api/character-part-sets/:id`：全量替换 `name/referenceMaterialId?/members`；`source` 不可修改。
+- `DELETE /api/character-part-sets/:id`：删除集合及成员关系，不删除素材。
+
+删除素材时会移除成员关系；若素材是集合参考图，则清空引用，保证无悬挂素材引用。
 
 ### POST /api/materials/:id/extract
 

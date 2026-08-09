@@ -719,6 +719,8 @@ export const en = {
   "skeletal.character.hint": "Import a character binding as a starting point. It becomes a project-local copy, so part changes do not modify the source asset.",
   "skeletal.character.template": "Character binding template",
   "skeletal.character.chooseTemplate": "Choose character binding",
+  "skeletal.character.partSet": "Assembly material scope",
+  "skeletal.character.allMaterials": "All image materials",
   "skeletal.character.import": "Import and assemble",
   "skeletal.character.replace": "Replace character",
   "skeletal.character.noTemplates": "There are no character bindings in the motion library yet. Create a skeleton and binding template on the Motion page first.",
@@ -739,6 +741,15 @@ export const en = {
   "skeletal.export.runtime": "Export skeletal runtime",
   "skeletal.export.done": "Skeletal runtime package exported",
   "skeletal.export.failed": "Could not export skeletal runtime package: {msg}",
+  "generation.line.title": "Generation purpose",
+  "generation.line.frame": "Frame assets",
+  "generation.line.skeletal": "Skeletal character parts",
+  "skeletal.parts.generateHint": "Generate a standardized non-overlapping character parts sheet and group it in a Character Part Set. Split it from Material details, then assemble it in a skeletal project.",
+  "skeletal.parts.targetSet": "Target Character Part Set",
+  "skeletal.parts.chooseSet": "Choose Character Part Set",
+  "skeletal.parts.newSetName": "New part set name",
+  "skeletal.parts.createSet": "Create part set",
+  "skeletal.parts.createFailed": "Could not create part set: {msg}",
 } as const;
 
 export type MsgKey = keyof typeof en;

@@ -16,6 +16,7 @@ import { foldersApi } from "./api/folders";
 import { animationAssetsApi } from "./api/animationAssets";
 import { rasterSequencesApi } from "./api/rasterSequences";
 import { skeletalProjectsApi } from "./api/skeletalProjects";
+import { characterPartSetsApi } from "./api/characterPartSets";
 import { cancelJob } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
@@ -160,6 +161,7 @@ export const app = new Elysia()
   .use(framesApi)
   .use(importApi)
   .use(materialsApi)
+  .use(characterPartSetsApi)
   .use(foldersApi)
   .use(animationAssetsApi)
   .use(rasterSequencesApi)

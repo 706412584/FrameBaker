@@ -66,6 +66,24 @@ CREATE TABLE IF NOT EXISTS materials (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS character_part_sets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('manual', 'generated', 'decomposed')),
+  reference_material_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS character_part_set_members (
+  set_id TEXT NOT NULL,
+  material_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('head','torso','arm-left','arm-right','leg-left','leg-right','weapon','accessory','custom')),
+  name TEXT NOT NULL,
+  UNIQUE(set_id, material_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_part_set_members_set ON character_part_set_members(set_id);
+CREATE INDEX IF NOT EXISTS idx_character_part_set_members_material ON character_part_set_members(material_id);
+
 CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

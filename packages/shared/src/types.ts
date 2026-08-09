@@ -34,6 +34,26 @@ export type FolderKind = (typeof FOLDER_KINDS)[number];
 export const PROJECT_KINDS = ["frame", "skeletal"] as const;
 export type ProjectKind = (typeof PROJECT_KINDS)[number];
 
+export const CHARACTER_PART_ROLES = ["head", "torso", "arm-left", "arm-right", "leg-left", "leg-right", "weapon", "accessory", "custom"] as const;
+export type CharacterPartRole = (typeof CHARACTER_PART_ROLES)[number];
+export const CHARACTER_PART_SET_SOURCES = ["manual", "generated", "decomposed"] as const;
+export type CharacterPartSetSource = (typeof CHARACTER_PART_SET_SOURCES)[number];
+export interface CharacterPartSetMember { materialId: string; role: CharacterPartRole; name: string }
+export interface CharacterPartSet {
+  id: string;
+  name: string;
+  source: CharacterPartSetSource;
+  referenceMaterialId: string | null;
+  members: CharacterPartSetMember[];
+  created_at: number;
+  updated_at: number;
+}
+export interface CharacterPartSetsResponse { characterPartSets: CharacterPartSet[] }
+export interface CharacterPartSetResponse { characterPartSet: CharacterPartSet }
+
+export const GENERATION_INTENTS = ["frame-image", "frame-sheet", "frame-video", "skeletal-parts", "skeletal-decompose", "skeletal-repair-part", "motion-clip"] as const;
+export type GenerationIntent = (typeof GENERATION_INTENTS)[number];
+
 /** 抠图引擎（服务端启动时探测一次，解析顺序 a→d） */
 export const MATTING_ENGINES = ["custom-cli", "rembg-bundled", "rembg-path", "none"] as const;
 export type MattingEngine = (typeof MATTING_ENGINES)[number];

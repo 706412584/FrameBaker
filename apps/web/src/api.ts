@@ -38,9 +38,15 @@ import type {
   SkeletalProjectDocument,
   SkeletalProjectDocumentResponse,
   WSMessage,
+  CharacterPartSet,
+  CharacterPartSetResponse,
+  CharacterPartSetsResponse,
+  CharacterPartSetSource,
+  CharacterPartSetMember,
+  GenerationIntent,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -78,6 +84,8 @@ interface GenerateBody {
   fps?: number;
   /** 落入的素材文件夹（null/缺省 = 未分组） */
   folderId?: string | null;
+  intent?: GenerationIntent;
+  characterPartSetId?: string;
 }
 
 export const api = {
@@ -163,6 +171,14 @@ export const api = {
     req<OkResponse & { deleted: number }>("/api/materials/batch-delete", { method: "POST", ...json({ ids }) }),
   batchImportMaterials: (ids: string[], projectId: string) =>
     req<OkResponse & { count: number }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId }) }),
+
+  listCharacterPartSets: () => req<CharacterPartSetsResponse>("/api/character-part-sets").then((r) => r.characterPartSets),
+  getCharacterPartSet: (id: string) => req<CharacterPartSetResponse>(`/api/character-part-sets/${id}`).then((r) => r.characterPartSet),
+  createCharacterPartSet: (body: { name: string; source: CharacterPartSetSource; referenceMaterialId?: string | null; members: CharacterPartSetMember[] }) =>
+    req<CharacterPartSetResponse>("/api/character-part-sets", { method: "POST", ...json(body) }).then((r) => r.characterPartSet),
+  putCharacterPartSet: (id: string, body: { name: string; referenceMaterialId?: string | null; members: CharacterPartSetMember[] }) =>
+    req<CharacterPartSetResponse>(`/api/character-part-sets/${id}`, { method: "PUT", ...json(body) }).then((r) => r.characterPartSet),
+  deleteCharacterPartSet: (id: string) => req<OkResponse>(`/api/character-part-sets/${id}`, { method: "DELETE" }),
 
   // ---- 文件夹（素材 / 项目多级目录） ----
   listFolders: (kind: FolderKind) =>

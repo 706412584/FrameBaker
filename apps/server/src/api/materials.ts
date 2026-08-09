@@ -177,6 +177,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           mediaKind: body.mediaKind,
           fps: body.fps,
           folderId: body.folderId ?? null,
+          intent: body.intent,
+          characterPartSetId: body.characterPartSetId,
         },
       });
       return { jobId };
@@ -197,7 +199,15 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
         fps: t.Optional(t.Integer({ minimum: 1, maximum: 60 })),
         folderId: t.Optional(t.Union([t.String(), t.Null()])),
+        intent: t.Optional(t.Union([t.Literal("frame-image"), t.Literal("frame-sheet"), t.Literal("frame-video"), t.Literal("skeletal-parts"), t.Literal("skeletal-decompose"), t.Literal("skeletal-repair-part"), t.Literal("motion-clip")])),
+        characterPartSetId: t.Optional(t.String()),
       }),
+      beforeHandle({ body, status }) {
+        if (body.intent === "skeletal-parts") {
+          if ((body.mediaKind ?? "image") !== "image") return status(400, "skeletal-parts 生成意图仅支持图片模式");
+          if (!body.characterPartSetId || !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "skeletal-parts 生成意图需要已存在的角色部件集");
+        }
+      },
     }
   )
   // 执行抠图：入队异步执行（模型首次下载可能耗时数分钟，同步会挂死请求；与批量抠图同路径）
@@ -364,7 +374,11 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       for (const id of body.ids) {
         const m = getMaterial(id);
         if (!m) continue;
-        stmt.run(id);
+        db.transaction(() => {
+          db.query("DELETE FROM character_part_set_members WHERE material_id = ?").run(id);
+          db.query("UPDATE character_part_sets SET reference_material_id = NULL, updated_at = ? WHERE reference_material_id = ?").run(Date.now(), id);
+          stmt.run(id);
+        })();
         deleted++;
         rmSync(join(STORAGE_ROOT, "materials", id), { recursive: true, force: true });
       }

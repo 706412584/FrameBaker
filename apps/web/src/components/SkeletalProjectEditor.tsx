@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AnimationAssetSummary, CharacterBinding, Material, MotionClip, SkeletalProjectAnimation, Skeleton } from "@framebaker/shared";
+import type { AnimationAssetSummary, CharacterBinding, CharacterPartSet, Material, MotionClip, SkeletalProjectAnimation, Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Download, Pause, Play, Plus, Trash2 } from "lucide-react";
 import { api, type Project, type SkeletalProjectDocument } from "../api";
 import { useT } from "../i18n";
@@ -16,6 +16,8 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
   const [document, setDocument] = useState<SkeletalProjectDocument>();
   const [assets, setAssets] = useState<AnimationAssetSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
+  const [partSetId, setPartSetId] = useState("");
   const [skeleton, setSkeleton] = useState<Skeleton>();
   const [clip, setClip] = useState<MotionClip>();
   const [bindingTemplateId, setBindingTemplateId] = useState("");
@@ -39,12 +41,13 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
 
   useEffect(() => {
     let active = true;
-    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials()])
-      .then(([nextDocument, nextAssets, nextMaterials]) => {
+    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listCharacterPartSets()])
+      .then(([nextDocument, nextAssets, nextMaterials, nextPartSets]) => {
         if (!active) return;
         setDocument(nextDocument);
         setAssets(nextAssets);
         setMaterials(nextMaterials.filter((item) => item.kind === "image"));
+        setPartSets(nextPartSets);
       })
       .catch((e) => active && notify(t("skeletal.loadFailed", { msg: (e as Error).message })));
     return () => { active = false; };
@@ -113,6 +116,8 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
     : 0;
   const bindingTemplates = assets.filter((item) => item.kind === "character-binding");
   const compatibleClips = assets.filter((item) => item.kind === "motion-clip" && item.skeleton_id === binding?.skeletonId);
+  const selectedPartSet = partSets.find((set) => set.id === partSetId);
+  const assemblyMaterials = selectedPartSet ? materials.filter((material) => selectedPartSet.members.some((member) => member.materialId === material.id)) : materials;
 
   const importCharacter = async () => {
     if (!document || !bindingTemplateId) return;
@@ -182,11 +187,14 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
           <label>{t("skeletal.character.template")}
             <PxSelect value={bindingTemplateId} options={bindingTemplates.map((item) => ({ value: item.id, label: item.name }))} onChange={setBindingTemplateId} placeholder={t("skeletal.character.chooseTemplate")} />
           </label>
+          <label>{t("skeletal.character.partSet")}
+            <PxSelect value={partSetId} options={[{ value: "", label: t("skeletal.character.allMaterials") }, ...partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))]} onChange={setPartSetId} />
+          </label>
           <button type="button" className="px-btn accent" disabled={busy || !bindingTemplateId} onClick={() => void importCharacter()}>{binding ? t("skeletal.character.replace") : t("skeletal.character.import")} </button>
           {!bindingTemplates.length && <p className="animation-empty">{t("skeletal.character.noTemplates")}</p>}
         </section>
         <section className="pixel-panel skeletal-character-editor">
-          {binding && skeleton ? <BindingEditor binding={binding} skeleton={skeleton} materials={materials} busy={busy} onSave={async (next: CharacterBinding) => {
+          {binding && skeleton ? <BindingEditor binding={binding} skeleton={skeleton} materials={assemblyMaterials} busy={busy} onSave={async (next: CharacterBinding) => {
             await save({ ...document, character: { sourceBindingId: document.character?.sourceBindingId ?? null, binding: next } });
           }} /> : <div className="skeletal-empty-state"><Bone size={38} /><h2>{t("skeletal.character.empty")}</h2><p>{t("skeletal.character.emptyHint")}</p></div>}
         </section>
