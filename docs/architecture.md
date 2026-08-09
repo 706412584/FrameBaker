@@ -66,6 +66,9 @@
 
 ## 关键设计
 
+- **统一入口、双项目类型（Phase C 基线）**：`/project/:id` 保持统一路由，项目以创建后不可修改的 `frame | skeletal` 判别字段分派编辑器。存量项目和旧创建请求均兼容为 `frame`。FrameProject 继续以 `Frame[] + PNG` 为事实源；SkeletalProject 以项目角色、动作引用和命名序列为事实源，主输出是包含绑定与纹理闭包的 `.fbanim` 运行时包。RasterSequence 只作为骨骼项目的可选兼容输出，并通过复制创建/追加 FrameProject，不替代骨骼项目。
+- **动作资产与角色项目分工**：`/motions` 只生产可复用 Skeleton/Rig、MotionClip、事件与绑定模板，不选择目标项目或管理最终 Raster 版本。骨骼项目从素材或 CharacterPartSet 组装具体角色，引用共享动作或复制为项目动作，并负责最终编排、预览和导出。
+- **双生成线路**：底层 provider adapter、任务队列、matting 与 imageops 保持共享；上层请求按逐帧单图/序列/视频、骨骼部件、参考角色拆分和 MotionClip 等 generation intent 分派。逐帧项目与骨骼项目使用各自上下文内的 Tab，避免把两种产物放进同一组生成按钮。
 - **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/`、`/project/:id`、`/materials`、`/motions` 与 `/settings`；前端读 `location.pathname` 恢复页面上下文（无路由库）。`/motions` 默认进入正式 Skeleton / MotionClip 资产工作台，支持动画目录、JSON 导入、连续时间采样、通用 SVG 骨架选择、基础 2D TRS key、step/linear、事件 type/name CRUD、根运动策略和基础循环接缝；全部 clip 修改即时持久化并进入会话 Undo/Redo。“姿态表原型”切换项仍按需挂载固定 `humanoid-v1` Pixi/FK 编辑器，不迁移其浏览器内存数据。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
 - **通用动画内核（Phase A）**：`packages/shared/src/animation.ts` 定义 provider/格式无关的 Skeleton、连续时间 MotionClip、右/左手坐标声明、局部 TRS（四元数 `x,y,z,w`）、有界运行时校验、slerp、关键帧与事件不可变编辑、基础循环接缝和 FK 求值；世界变换以列向量 `T * R * S` 的完整 4×4 矩阵为权威结果，正确保留层级非均匀缩放。`packages/shared/schemas/` 发布独立 Draft 2020-12 schema；`animationPackage.ts` 与 `json.ts` 实现 `.fbanim` v1 的逻辑 manifest、RFC 8785 规范字节、SHA-256 内容路径、依赖闭包、路径/大小限制与往返验证。ZIP 暂只视为后续受限传输层。`bun run check:animation` 同时检查矩阵 FK、时间边界、schema 严格编译、包篡改/路径攻击、确定性往返和 FK 等价。当前不含 cubic、事件 payload UI、根运动提取算法/可视化和接触感知接缝；烘焙仍待后续阶段实现。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
