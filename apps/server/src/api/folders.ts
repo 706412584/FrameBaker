@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { FOLDER_KINDS, type FolderKind } from "@framebaker/shared";
+import { FOLDER_KINDS, isBuiltinAnimationAssetId, type FolderKind } from "@framebaker/shared";
 import { db, uid } from "../db";
 import { broadcast } from "../ws";
 
@@ -152,6 +152,7 @@ export const foldersApi = new Elysia({ prefix: "/api" })
         if (!f) return status(404, "文件夹不存在");
         if (f.kind !== body.kind) return status(400, "文件夹类型不匹配");
       }
+      if (body.kind === "animation" && body.ids.some(isBuiltinAnimationAssetId)) return status(403, "内置动画资产不可移动，请先复制");
       const table = itemTable(body.kind);
       let moved = 0;
       for (const id of body.ids) {

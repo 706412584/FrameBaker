@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Frame, FrameRow, Material, MaterialRow } from "@framebaker/shared";
+import { ensureBuiltinAnimationAssets } from "./builtinAnimationAssets";
 
 // 仓库根目录（apps/server/src → 根）：storage 固定放在根级，与启动时的 cwd 无关
 export const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
@@ -157,6 +158,9 @@ function ensureColumn(table: string, column: string, decl: string) {
 ensureColumn("projects", "folder_id", "TEXT");
 ensureColumn("projects", "kind", "TEXT NOT NULL DEFAULT 'frame'");
 ensureColumn("materials", "folder_id", "TEXT");
+
+// 固定安装并升级最早六组动作；先完成全部表/列迁移，保证依赖资产和骨骼项目可事务化重映射。
+ensureBuiltinAnimationAssets(db);
 
 // 视频/GIF 抽帧入库曾误标 source=mp4|gif；PNG 产物改为 extract
 db.query(

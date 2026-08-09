@@ -203,6 +203,8 @@ export const api = {
     req<AnimationAssetResponse>("/api/animation-assets", { method: "POST", ...json({ asset, folderId: folderId ?? null }) }).then((r) => r.animationAsset),
   putAnimationAsset: (id: string, asset: AnimationAsset, folderId?: string | null) =>
     req<AnimationAssetResponse>(`/api/animation-assets/${id}`, { method: "PUT", ...json({ asset, ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
+  copyAnimationAsset: (id: string, name?: string, folderId?: string | null) =>
+    req<AnimationAssetResponse>(`/api/animation-assets/${id}/copy`, { method: "POST", ...json({ ...(name ? { name } : {}), ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
   deleteAnimationAsset: (id: string) => req<OkResponse>(`/api/animation-assets/${id}`, { method: "DELETE" }),
 
   listRasterSequences: () => req<RasterSequencesResponse>("/api/raster-sequences").then((r) => r.rasterSequences),

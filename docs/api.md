@@ -286,6 +286,8 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 Skeleton、MotionClip 与 CharacterBinding 以正式共享 schema 独立持久化。MotionClip/CharacterBinding 创建或替换时会对其引用的 Skeleton 做完整校验。CharacterBinding v1 仅支持 Region；每个 attachment 的 materialId 与显式 raw/processed 路径必须存在且具有 PNG 签名，不做槽位回退。
 
+服务启动时会事务化安装并校验最早分支提交中的 6 组 Quaternius 人形动作（待机、走路、奔跑、攻击、受击、死亡）及其稳定骨架。它们使用固定 ID 和 `extensions.app.framebaker.builtin` 标记，禁止通过普通 POST/PUT/DELETE 或文件夹移动覆盖；需要修改时必须先调用 copy。升级会保留固定资产 ID，并按 humanoid 语义迁移依赖的自定义动作、绑定和骨骼项目内联绑定；无法无损映射时整次升级回滚并报错。
+
 ### GET /api/animation-assets?kind=skeleton|motion-clip|character-binding
 
 返回轻量索引 `{ "assets": [{ id, kind, name, skeleton_id, folder_id, created_at, updated_at }] }`；省略 `kind` 返回全部资产。
@@ -295,18 +297,25 @@ Skeleton、MotionClip 与 CharacterBinding 以正式共享 schema 独立持久�
 `{ "asset": { /* Skeleton、MotionClip 或 CharacterBinding */ }, "folderId": null }` → `{ "animationAsset": { "asset": {…}, "folder_id": null, "created_at": 0, "updated_at": 0 } }`。
 
 ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨骼/素材/PNG 槽位不存在返回 400。成功广播 `animation_assets_changed`。
+固定内置 ID 或伪造内置扩展返回 403。
 
 ### GET /api/animation-assets/:id
 
 返回完整资产正文与存储元数据；不存在返回 404。
 
+### POST /api/animation-assets/:id/copy
+
+`{ "name"?: "攻击 · 自定义", "folderId"?: null }` 深复制一个 MotionClip，并生成新 ID。复制保留骨架、轨道、时长、循环、事件和来源信息，但移除内置只读标记；返回的新资产可正常改名、编辑、移动和删除。非 MotionClip 返回 409。
+
 ### PUT /api/animation-assets/:id
 
 请求同 POST。资产 ID 与种类不可修改；省略 `folderId` 保持原文件夹，传 `null` 移到未分组。替换骨架前会用新骨架重新校验全部依赖动作和角色绑定，任何骨骼引用失效时返回 409，不会部分写入。
+固定内置资产返回 403；普通资产不能携带内置扩展，也不能原地更换 `skeletonId`，重定向须创建新资产。
 
 ### DELETE /api/animation-assets/:id
 
 删除动作、角色绑定或未被引用的骨架。仍有 MotionClip/CharacterBinding 引用的骨架返回 409；素材批量删除（含单项调用）若被 CharacterBinding Region 引用也返回 409。
+固定内置资产返回 403；仍被骨骼项目动作序列引用的 MotionClip 返回 409。
 
 ## 文件夹 /api/folders
 
@@ -331,6 +340,7 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
 ### POST /api/folders/move-items
 
 `{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }`（`folderId: null` = 未分组）。
+动画内置资产不可移动；请求中包含任一固定内置 ID 时整体返回 403，不会部分移动。
 
 ## WebSocket /ws
 

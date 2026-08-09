@@ -1,5 +1,8 @@
 import { Elysia, t } from "elysia";
 import {
+  BUILTIN_ANIMATION_EXTENSION,
+  isBuiltinAnimationAssetId,
+  stripBuiltinAnimationMarker,
   validateCharacterBinding,
   validateMotionClip,
   validateSkeleton,
@@ -109,6 +112,20 @@ function assetSkeletonId(asset: AnimationAsset): string | null {
   return asset.kind === "motion-clip" || asset.kind === "character-binding" ? asset.skeletonId : null;
 }
 
+function carriesBuiltinMarker(asset: AnimationAsset): boolean {
+  return !!asset.extensions && Object.prototype.hasOwnProperty.call(asset.extensions, BUILTIN_ANIMATION_EXTENSION);
+}
+
+function referencedBySkeletalProject(id: string): string | null {
+  const rows = db.query("SELECT document FROM skeletal_projects").all() as Array<{ document: string }>;
+  for (const row of rows) {
+    const document = JSON.parse(row.document) as { animations?: Array<{ name?: string; motionClipId?: string }> };
+    const action = document.animations?.find((item) => item.motionClipId === id);
+    if (action) return action.name || id;
+  }
+  return null;
+}
+
 /** 骨架替换不能让已保存动作失效。 */
 function validateDependents(skeleton: Skeleton): string | null {
   const rows = db.query("SELECT data FROM animation_assets WHERE kind = 'motion-clip' AND skeleton_id = ?").all(skeleton.id) as Array<{ data: string }>;
@@ -143,6 +160,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       const validation = await validateAsset(body.asset);
       if ("error" in validation) return status(400, validation.error);
       const asset = validation.asset;
+      if (isBuiltinAnimationAssetId(asset.id) || carriesBuiltinMarker(asset)) return status(403, "内置动画资产只能由 FrameBaker 安装");
       if (rowById(asset.id)) return status(409, "资产 ID 已存在");
       const folderId = body.folderId ?? null;
       const folderError = validateFolder(folderId);
@@ -160,16 +178,44 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
     if (!row) return status(404, "动画资产不存在");
     return { animationAsset: parseRow(row) };
   })
+  .post(
+    "/animation-assets/:id/copy",
+    async ({ params, body, status }) => {
+      const current = rowById(params.id);
+      if (!current) return status(404, "动画资产不存在");
+      if (current.kind !== "motion-clip") return status(409, "仅动作片段可以复制编辑");
+      const source = JSON.parse(current.data) as MotionClip;
+      const asset: MotionClip = {
+        ...stripBuiltinAnimationMarker(source),
+        id: `motion-copy-${crypto.randomUUID()}`,
+        name: body.name?.trim() || `${source.name} · 副本`,
+      };
+      const validation = await validateAsset(asset);
+      if ("error" in validation) return status(400, validation.error);
+      const folderId = body.folderId ?? current.folder_id;
+      const folderError = validateFolder(folderId);
+      if (folderError) return status(400, folderError);
+      const now = Date.now();
+      db.query("INSERT INTO animation_assets (id, kind, name, skeleton_id, folder_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(asset.id, asset.kind, asset.name, asset.skeletonId, folderId, JSON.stringify(asset), now, now);
+      broadcast("animation_assets_changed", { id: asset.id, kind: asset.kind });
+      return { animationAsset: { asset, folder_id: folderId, created_at: now, updated_at: now } };
+    },
+    { body: t.Object({ name: t.Optional(t.String()), folderId: t.Optional(t.Union([t.String(), t.Null()])) }) },
+  )
   .put(
     "/animation-assets/:id",
     async ({ params, body, status }) => {
       const current = rowById(params.id);
       if (!current) return status(404, "动画资产不存在");
+      if (isBuiltinAnimationAssetId(params.id)) return status(403, "内置动画资产不可修改，请先复制");
       const validation = await validateAsset(body.asset);
       if ("error" in validation) return status(400, validation.error);
       const asset = validation.asset;
+      if (carriesBuiltinMarker(asset)) return status(403, "普通资产不能声明为内置动画");
       if (asset.id !== params.id) return status(400, "不能修改资产 ID");
       if (asset.kind !== current.kind) return status(400, "不能修改资产种类");
+      if (assetSkeletonId(asset) !== current.skeleton_id) return status(400, "不能直接更换资产骨架，请创建重定向副本");
       if (asset.kind === "skeleton") {
         const dependentError = validateDependents(asset);
         if (dependentError) return status(409, dependentError);
@@ -188,9 +234,14 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
   .delete("/animation-assets/:id", ({ params, status }) => {
     const row = rowById(params.id);
     if (!row) return status(404, "动画资产不存在");
+    if (isBuiltinAnimationAssetId(params.id)) return status(403, "内置动画资产不可删除");
     if (row.kind === "skeleton") {
       const dependent = db.query("SELECT name FROM animation_assets WHERE skeleton_id = ? LIMIT 1").get(params.id) as { name: string } | null;
       if (dependent) return status(409, `骨架仍被动画资产「${dependent.name}」引用`);
+    }
+    if (row.kind === "motion-clip") {
+      const action = referencedBySkeletalProject(params.id);
+      if (action) return status(409, `动作仍被骨骼项目序列「${action}」引用`);
     }
     db.query("DELETE FROM animation_assets WHERE id = ?").run(params.id);
     broadcast("animation_assets_changed", { id: params.id, kind: row.kind });
