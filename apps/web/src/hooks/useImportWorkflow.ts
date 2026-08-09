@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, type Job } from "../api";
+import { t } from "../i18n";
 
 export type FileState = "pending" | "uploading" | "queued" | "done" | "error";
 
@@ -17,6 +18,37 @@ const fileNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivi
 
 export function sortImportFiles(files: File[]): File[] {
   return [...files].sort((a, b) => fileNameCollator.compare(a.name, b.name));
+}
+
+type QueuedJobResult =
+  | { status: "done" }
+  | { status: "error" | "cancelled"; error: string | null }
+  | { status: "stale" };
+
+/** 串行导入时等待任务结束；短暂查询失败只重试，不得放行下一文件。 */
+export async function waitForQueuedJob(
+  jobId: string,
+  isActive: () => boolean,
+  getJob: (id: string) => Promise<Pick<Job, "status" | "error">> = api.getJob,
+  wait: () => Promise<void> = () => new Promise((resolve) => window.setTimeout(resolve, 250))
+): Promise<QueuedJobResult> {
+  while (isActive()) {
+    let job: Pick<Job, "status" | "error">;
+    try {
+      job = await getJob(jobId);
+    } catch {
+      if (!isActive()) return { status: "stale" };
+      await wait();
+      continue;
+    }
+    if (!isActive()) return { status: "stale" };
+    if (job.status === "done") return { status: "done" };
+    if (job.status === "error" || job.status === "cancelled") {
+      return { status: job.status, error: job.error };
+    }
+    await wait();
+  }
+  return { status: "stale" };
 }
 
 /** 导入弹窗共用的文件上传、任务收尾与汇总状态。 */
@@ -121,32 +153,41 @@ export function useImportWorkflow(onDone: () => void) {
       for (let index = 0; index < snapshot.length; index++) {
         if (!mountedRef.current || run !== runRef.current) return;
         updateItem(index, { state: "uploading", error: null });
+        let serialRequestSettled = !waitForQueued;
         try {
           const result = await upload(snapshot[index]);
           if (!mountedRef.current || run !== runRef.current) return;
           if (result.kind === "queued") {
             updateItem(index, { state: "queued" });
             if (waitForQueued) {
-              while (mountedRef.current && run === runRef.current) {
-                const job = await api.getJob(result.jobId);
-                if (job.status === "done") {
-                  updateItem(index, { state: "done" });
-                  break;
-                }
-                if (job.status === "error" || job.status === "cancelled") {
-                  throw new Error(job.error ?? "任务未完成");
-                }
-                await new Promise((resolve) => window.setTimeout(resolve, 250));
-              }
+              const job = await waitForQueuedJob(
+                result.jobId,
+                () => mountedRef.current && run === runRef.current
+              );
+              if (job.status === "stale") return;
+              serialRequestSettled = true;
+              if (job.status !== "done") throw new Error(job.error ?? "任务未完成");
+              updateItem(index, { state: "done" });
             } else {
               jobs.push({ jobId: result.jobId, index });
             }
           } else {
+            serialRequestSettled = true;
             updateItem(index, { state: "done" });
           }
         } catch (error) {
           if (!mountedRef.current || run !== runRef.current) return;
           updateItem(index, { state: "error", error: (error as Error).message });
+          if (!serialRequestSettled) {
+            setItems((prev) =>
+              prev.map((item, i) =>
+                i > index && item.state === "pending"
+                  ? { ...item, state: "error", error: t("msg.upload_result_unknown_remaining_stopped") }
+                  : item
+              )
+            );
+            break;
+          }
         }
       }
       if (jobs.length === 0) complete(run);

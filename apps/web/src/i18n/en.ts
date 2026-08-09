@@ -464,6 +464,7 @@ export const en = {
   "msg.upload_files": "Upload files",
   "msg.upload_materials": "Upload materials",
   "msg.upload_n_files": "Upload {n} files",
+  "msg.upload_result_unknown_remaining_stopped": "Previous upload result is unknown; remaining imports were stopped",
   "msg.uploading": "Uploading…",
   "msg.uploading_split_i_total": "Uploading split {i}/{total}",
   "msg.use_enhanced": "Use enhanced",

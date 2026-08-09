@@ -464,6 +464,7 @@ export const zh = {
   "msg.upload_files": "上传文件",
   "msg.upload_materials": "上传素材",
   "msg.upload_n_files": "上传 {n} 个文件",
+  "msg.upload_result_unknown_remaining_stopped": "前一上传结果不确定，已停止后续导入",
   "msg.uploading": "上传中…",
   "msg.uploading_split_i_total": "切分上传中 {i}/{total}",
   "msg.use_enhanced": "用优化后的",
