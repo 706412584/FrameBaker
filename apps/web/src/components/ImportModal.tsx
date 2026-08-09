@@ -141,7 +141,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
       fd.append("autoMatting", String(autoMatting));
       const { jobId } = await api.upload(fd);
       return { kind: "queued", jobId };
-    });
+    }, true);
   };
 
   // ---- 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示 ----

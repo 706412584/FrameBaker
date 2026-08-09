@@ -22,6 +22,17 @@ function isPng(bytes: Uint8Array): boolean {
   return bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
 }
 
+const materialNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function sortMaterialsByFrameNumber(materials: MaterialRow[]): MaterialRow[] {
+  return [...materials].sort(
+    (a, b) =>
+      materialNameCollator.compare(a.name || "", b.name || "") ||
+      a.created_at - b.created_at ||
+      a.id.localeCompare(b.id)
+  );
+}
+
 /** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
   const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
@@ -358,7 +369,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     },
     { body: t.Object({ ids: t.Array(t.String()) }) }
   )
-  // 批量导入到项目（保持给定顺序，各 1 份）
+  // 批量导入到项目（按素材名称中的帧编号自然升序，各 1 份）
   .post(
     "/materials/batch-import",
     ({ body, status }) => {
@@ -366,9 +377,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       if (!project) return status(404, "项目不存在");
       let count = 0;
       try {
-        for (const id of body.ids) {
-          const m = getMaterial(id);
-          if (!m) continue;
+        const materials = sortMaterialsByFrameNumber(
+          body.ids.map((id) => getMaterial(id)).filter((m): m is MaterialRow => m !== null)
+        );
+        for (const m of materials) {
           importMaterialToProject(m, body.projectId);
           count++;
         }
