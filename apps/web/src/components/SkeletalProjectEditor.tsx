@@ -6,6 +6,7 @@ import { bakedRasterZip, bakeAnimationPngSequence, configuredMotionClipForRaster
 import { useT } from "../i18n";
 import { notify } from "../notice";
 import { exportSkeletalProjectPackage } from "../export";
+import { areSkeletonsRetargetCompatible, retargetMotionClip } from "../motionRetarget";
 import { BindingEditor, CharacterPreview } from "./AnimationAssetsWorkspace";
 import PxSelect from "./PxSelect";
 
@@ -19,6 +20,7 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
   const [materials, setMaterials] = useState<Material[]>([]);
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
   const [frameProjects, setFrameProjects] = useState<Project[]>([]);
+  const [assetSkeletons, setAssetSkeletons] = useState<Record<string, Skeleton>>({});
   const [partSetId, setPartSetId] = useState("");
   const [skeleton, setSkeleton] = useState<Skeleton>();
   const [clip, setClip] = useState<MotionClip>();
@@ -85,6 +87,17 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
     return () => { active = false; };
   }, [binding?.skeletonId, t]);
 
+  useEffect(() => {
+    let active = true;
+    const ids = [...new Set(assets.flatMap((asset) => asset.kind === "motion-clip" && asset.skeleton_id ? [asset.skeleton_id] : []))];
+    Promise.all(ids.map((id) => api.getAnimationAsset(id).then(({ asset }) => asset.kind === "skeleton" ? asset : undefined).catch(() => undefined)))
+      .then((loaded) => {
+        if (!active) return;
+        setAssetSkeletons(Object.fromEntries(loaded.flatMap((item) => item ? [[item.id, item]] : [])));
+      });
+    return () => { active = false; };
+  }, [assets]);
+
   const activeAnimation = document?.animations.find((item) => item.id === document.activeAnimationId);
   useEffect(() => {
     let active = true;
@@ -123,7 +136,10 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
     ? (!activeAnimation.loop && elapsed >= clip.duration * activeAnimation.repeat ? clip.duration : elapsed % clip.duration)
     : 0;
   const bindingTemplates = assets.filter((item) => item.kind === "character-binding");
-  const compatibleClips = assets.filter((item) => item.kind === "motion-clip" && item.skeleton_id === binding?.skeletonId);
+  const compatibleClips = assets.filter((item) => item.kind === "motion-clip" && !!skeleton && (
+    item.skeleton_id === skeleton.id
+    || !!item.skeleton_id && !!assetSkeletons[item.skeleton_id] && areSkeletonsRetargetCompatible(assetSkeletons[item.skeleton_id]!, skeleton)
+  ));
   const selectedPartSet = partSets.find((set) => set.id === partSetId);
   const assemblyMaterials = selectedPartSet ? materials.filter((material) => selectedPartSet.members.some((member) => member.materialId === material.id)) : materials;
 
@@ -148,14 +164,37 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
   };
 
   const addAnimation = async () => {
-    if (!document || !clipToAdd) return;
+    if (!document || !skeleton || !clipToAdd) return;
     const summary = compatibleClips.find((item) => item.id === clipToAdd);
     if (!summary) return;
     let name = summary.name, suffix = 2;
     while (document.animations.some((item) => item.name === name)) name = `${summary.name} ${suffix++}`;
-    const animation: SkeletalProjectAnimation = { id: `action-${crypto.randomUUID()}`, name, motionClipId: summary.id, speed: 1, repeat: 1, loop: true };
-    await save({ ...document, animations: [...document.animations, animation], activeAnimationId: animation.id });
-    setClipToAdd("");
+    let createdId: string | undefined;
+    try {
+      const { asset } = await api.getAnimationAsset(summary.id);
+      if (asset.kind !== "motion-clip") return;
+      let motion = asset;
+      if (asset.skeletonId !== skeleton.id) {
+        const sourceSkeleton = assetSkeletons[asset.skeletonId] ?? (await api.getAnimationAsset(asset.skeletonId)).asset;
+        if (sourceSkeleton.kind !== "skeleton") throw new Error(t("skeletal.animations.retargetMissingSkeleton"));
+        motion = retargetMotionClip(asset, sourceSkeleton, skeleton, t("skeletal.animations.retargetedClipName", { name: asset.name }));
+        await api.createAnimationAsset(motion);
+        createdId = motion.id;
+      }
+      const animation: SkeletalProjectAnimation = { id: `action-${crypto.randomUUID()}`, name, motionClipId: motion.id, speed: 1, repeat: 1, loop: motion.loop };
+      if (!(await save({ ...document, animations: [...document.animations, animation], activeAnimationId: animation.id }))) {
+        if (createdId) await api.deleteAnimationAsset(createdId).catch(() => undefined);
+        return;
+      }
+      if (createdId) {
+        setAssets(await api.listAnimationAssets().catch(() => assets));
+        notify(t("skeletal.animations.retargeted", { name: asset.name }), "info");
+      }
+      setClipToAdd("");
+    } catch (e) {
+      if (createdId) await api.deleteAnimationAsset(createdId).catch(() => undefined);
+      notify(t("skeletal.animations.retargetFailed", { msg: (e as Error).message }));
+    }
   };
 
   const patchAnimation = async (id: string, patch: Partial<SkeletalProjectAnimation>) => {
@@ -295,8 +334,8 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
             </div>
             <div className="skeletal-action-settings">
               <label>{t("skeletal.animations.name")}<input className="px-input" value={activeAnimation.name} onChange={(e) => setDocument({ ...document, animations: document.animations.map((item) => item.id === activeAnimation.id ? { ...item, name: e.target.value } : item) })} onBlur={(e) => void patchAnimation(activeAnimation.id, { name: e.target.value.trim() || activeAnimation.name })} /></label>
-              <label>{t("skeletal.animations.speed")}<input className="px-input" type="number" min="0.1" max="8" step="0.1" value={activeAnimation.speed} onChange={(e) => void patchAnimation(activeAnimation.id, { speed: Math.min(8, Math.max(.1, +e.target.value || 1)) })} /></label>
-              <label>{t("skeletal.animations.repeat")}<input className="px-input" type="number" min="1" max="100" step="1" value={activeAnimation.repeat} onChange={(e) => void patchAnimation(activeAnimation.id, { repeat: Math.min(100, Math.max(1, Math.round(+e.target.value || 1))) })} /></label>
+              <label>{t("skeletal.animations.speed")}<input key={`speed-${activeAnimation.id}-${activeAnimation.speed}`} className="px-input" type="number" min="0.1" max="8" step="0.1" defaultValue={activeAnimation.speed} onBlur={(e) => void patchAnimation(activeAnimation.id, { speed: Math.min(8, Math.max(.1, +e.target.value || 1)) })} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /></label>
+              <label>{t("skeletal.animations.repeat")}<input key={`repeat-${activeAnimation.id}-${activeAnimation.repeat}`} className="px-input" type="number" min="1" max="100" step="1" defaultValue={activeAnimation.repeat} onBlur={(e) => void patchAnimation(activeAnimation.id, { repeat: Math.min(100, Math.max(1, Math.round(+e.target.value || 1))) })} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /></label>
               <label className="px-check"><input type="checkbox" checked={activeAnimation.loop} onChange={(e) => void patchAnimation(activeAnimation.id, { loop: e.target.checked })} />{t("skeletal.animations.loop")}</label>
               <button type="button" className="px-btn danger" onClick={() => void deleteAnimation(activeAnimation.id)}><Trash2 size={14} /> {t("skeletal.animations.remove")}</button>
             </div>
