@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { join } from "node:path";
 import type { ServerConfig } from "@framebaker/shared";
-import { PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
+import { ENHANCE_PROMPT_INTENTS, PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
 import { enhancerConfigured, getGenProviders, getPromptEnhancers, providerConfigured } from "./provider";
@@ -81,6 +81,7 @@ export const app = new Elysia()
         prompt: t.String(),
         style: t.Optional(t.String()),
         mediaKind: t.Optional(t.Union([t.Literal("image"), t.Literal("video")])),
+        intent: t.Optional(t.Union(ENHANCE_PROMPT_INTENTS.map((intent) => t.Literal(intent)))),
       }),
     }
   )

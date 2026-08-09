@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Wand2, X } from "lucide-react";
-import { ENHANCE_STYLES } from "@framebaker/shared";
+import { ENHANCE_STYLES, type EnhancePromptIntent } from "@framebaker/shared";
 import { api } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
@@ -14,6 +14,8 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   mediaKind?: "image" | "video";
+  /** 仅骨骼生产流程传入，普通生图/视频不应受到骨骼约束。 */
+  intent?: EnhancePromptIntent;
 }
 
 interface EnhanceResult {
@@ -27,7 +29,7 @@ interface EnhanceResult {
  * 提示词输入行 + 「优化提示词」：调用设置页配置的加强模型，
  * 原/优化后提示词并排展示，由用户点按钮决定用哪版（原文永不覆盖）
  */
-export default function PromptEnhancer({ label, placeholder, value, onChange, mediaKind = "image" }: Props) {
+export default function PromptEnhancer({ label, placeholder, value, onChange, mediaKind = "image", intent }: Props) {
   const t = useT();
   const cfg = useServerConfig();
   const enhancers = cfg?.promptEnhancers ?? [];
@@ -44,7 +46,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange, me
     }
     setBusy(true);
     try {
-      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style, mediaKind);
+      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style, mediaKind, intent);
       // original 快照保留发起时的原文，之后用户怎么改输入框都不影响对比
       setResult({
         original: value.trim(),

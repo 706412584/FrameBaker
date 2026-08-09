@@ -17,6 +17,7 @@ import { useModalEscClose } from "../hooks/useModalEscClose";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
+import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import PxSelect from "./PxSelect";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
@@ -347,16 +348,14 @@ export default function ActionGenModal({ material: m, v, onClose, onToast, initi
           </div>
         </div>
 
-        <div className="form-row">
-          <label>{isVideo ? t("msg.extra_desc_optional_appended_to_video_prompt") : t("msg.extra_desc_optional_appended_to_sheet_prompt")}</label>
-          <input
-            className="px-input"
-            value={extra}
-            disabled={submitting}
-            placeholder={t("msg.e_g_holding_a_sword_facing_right_pixel_art")}
-            onChange={(e) => setExtra(e.target.value)}
-          />
-        </div>
+        <PromptEnhancer
+          intent="motion-clip"
+          mediaKind={mediaKind}
+          label={isVideo ? t("msg.extra_desc_optional_appended_to_video_prompt") : t("msg.extra_desc_optional_appended_to_sheet_prompt")}
+          value={extra}
+          placeholder={t("msg.e_g_holding_a_sword_facing_right_pixel_art")}
+          onChange={setExtra}
+        />
 
         {!isVideo && (
           <ReferencePicker

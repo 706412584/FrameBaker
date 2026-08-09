@@ -308,6 +308,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             </div>
             <PromptEnhancer
               mediaKind={mediaKind}
+              intent={generationLine === "skeletal" ? (skeletalMode === "decompose" ? "skeletal-decompose" : "skeletal-parts") : undefined}
               label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPrompt") : t("msg.prompt")}
               placeholder={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.extraPromptPlaceholder") : mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
               value={prompt}

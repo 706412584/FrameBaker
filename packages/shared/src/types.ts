@@ -394,7 +394,7 @@ export function buildActionSheetPrompt(opts: {
   const empty = cols * rows - n;
   if (empty > 0) parts.push(`Blank last ${empty} panel(s).`);
   const extra = opts.extra?.trim();
-  if (extra) parts.push(clip(extra, 100));
+  if (extra) parts.push(clip(extra, 600));
   // 再保险：整体压到 1400，给 MiniMax 1500 限留余量
   return clip(parts.join(" "), 1400);
 }
@@ -418,9 +418,13 @@ export function buildActionVideoPrompt(opts: {
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Char: ${clip(character, 200)}`);
   const extra = opts.extra?.trim();
-  if (extra) parts.push(clip(extra, 120));
+  if (extra) parts.push(clip(extra, 600));
   return clip(parts.join(" "), 1400);
 }
+
+/** 提示词优化可识别的生成阶段；缺省表示普通图片/视频生成。 */
+export const ENHANCE_PROMPT_INTENTS = ["skeletal-character", "skeletal-parts", "skeletal-decompose", "skeletal-repair-part", "motion-clip"] as const;
+export type EnhancePromptIntent = (typeof ENHANCE_PROMPT_INTENTS)[number];
 
 /** POST /api/enhance-prompt 请求/响应 */
 export interface EnhancePromptRequest {
@@ -430,6 +434,8 @@ export interface EnhancePromptRequest {
   /** 目标风格（ENHANCE_STYLES 的 id）；缺省/未知值按 pixel 处理 */
   style?: string;
   mediaKind?: "image" | "video";
+  /** 骨骼生成阶段；服务端据此注入对应的失败经验，普通生成不传。 */
+  intent?: EnhancePromptIntent;
 }
 
 export interface EnhancePromptResponse {

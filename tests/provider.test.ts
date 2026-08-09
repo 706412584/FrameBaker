@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { db } from "../apps/server/src/db";
+import { app } from "../apps/server/src/app";
+import { buildEnhanceSystem } from "../apps/server/src/enhance";
 import {
   enhancerConfigured,
   getGenProviders,
@@ -84,6 +86,79 @@ describe("生成 provider 配置解析", () => {
 });
 
 describe("提示词加强器关联", () => {
+  test("普通优化不注入骨骼约束，骨骼各阶段注入对应的失败经验", () => {
+    const ordinary = buildEnhanceSystem("pixel", "image");
+    expect(ordinary).not.toContain("neutral T-pose");
+    expect(ordinary).not.toContain("strict 4x3");
+    expect(ordinary).not.toContain("bone lengths");
+
+    const character = buildEnhanceSystem("pixel", "image", "skeletal-character");
+    expect(character).toContain("exactly one full-body character");
+    expect(character).toContain("neutral T-pose");
+    expect(character).toContain("双手空置");
+    expect(character).toContain("肘和膝");
+    expect(character).toContain("披风、裙摆、长发");
+    expect(character).toContain("parts sheet");
+
+    const parts = buildEnhanceSystem("pixel", "image", "skeletal-decompose");
+    expect(parts).toContain("strict 4x3 character parts sheet");
+    expect(parts).toContain("head, torso, pelvis, weapon");
+    expect(parts).toContain("upper-arm-left, forearm-left, upper-arm-right, forearm-right");
+    expect(parts).toContain("thigh-left, shin-left, thigh-right, shin-right");
+    expect(parts).toContain("不得跨 cell boundary");
+    expect(parts).toContain("禁止 whole arm 或 whole leg");
+    expect(parts).toContain("recursive parts sheet");
+
+    const repair = buildEnhanceSystem("pixel", "image", "skeletal-repair-part");
+    expect(repair).toContain("one missing or incorrect body part");
+    expect(repair).toContain("禁止完整人物、完整分件表或任何其他部件");
+
+    const motion = buildEnhanceSystem("pixel", "video", "motion-clip");
+    expect(motion).toContain("bone lengths");
+    expect(motion).toContain("preparation/wind-up, contact/hit, recovery");
+    expect(motion).toContain("root drift");
+    expect(motion).toContain("hand/socket attachment");
+    expect(motion).toContain("seamless first/last-frame continuity");
+  });
+
+  test("提示词加强 API 接受合法骨骼 intent 并拒绝未知值", async () => {
+    saveSetting("genProviders", [{
+      id: "api", type: "api", apiBaseUrl: "https://api.example/v1", apiKey: "key", textModels: ["text-1"],
+    }]);
+    saveSetting("promptEnhancers", [{ id: "enh", name: "骨骼优化", providerId: "api", model: "text-1" }]);
+    let systemPrompt = "";
+    let requestCount = 0;
+    globalThis.fetch = (async (_input, init) => {
+      const payload = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      systemPrompt = payload.messages[0]?.content ?? "";
+      requestCount += 1;
+      if (requestCount === 1) return new Response("upstream stream closed", { status: 408 });
+      return Response.json({ choices: [{ message: { content: `<think>private reasoning</think>\n\`\`\`text\nPrompt: enhanced attack\nwith no drift ${"detail ".repeat(150)}\n\`\`\`` } }] });
+    }) as typeof fetch;
+
+    const valid = await app.handle(new Request("http://localhost/api/enhance-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "sword attack", mediaKind: "video", intent: "motion-clip" }),
+    }));
+    expect(valid.status).toBe(200);
+    const validBody = await valid.json() as { enhanced: string; enhancerName: string };
+    expect(validBody.enhancerName).toBe("骨骼优化");
+    expect(validBody.enhanced).toStartWith("enhanced attack with no drift");
+    expect(validBody.enhanced.length).toBeLessThanOrEqual(700);
+    expect(validBody.enhanced).not.toContain("\n");
+    expect(validBody.enhanced).not.toContain("private reasoning");
+    expect(requestCount).toBe(2);
+    expect(systemPrompt).toContain("preparation/wind-up, contact/hit, recovery");
+
+    const invalid = await app.handle(new Request("http://localhost/api/enhance-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "sword attack", intent: "unknown-skeletal-stage" }),
+    }));
+    expect(invalid.status).toBe(422);
+  });
+
   test("通过 providerId 复用 DashScope 凭证并标准化端点", () => {
     saveSetting("genProviders", [{
       id: "dash", type: "dashscope", apiBaseUrl: "https://dash.example.com/compatible-mode/v1/", apiKey: " secret ", textModels: ["qwen-plus"],

@@ -71,6 +71,7 @@ describe("动作生成 prompt", () => {
       extra: "x".repeat(2_000),
     });
     expect(sheet).toContain("1:walk/walk cycle");
+    expect(sheet).toContain("x".repeat(500));
     expect(sheet.length).toBeLessThanOrEqual(1400);
 
     expect(buildActionVideoPrompt({ actions: [] })).toBe("Pixel art game character idle loop. Plain bg, no text.");
@@ -82,5 +83,9 @@ describe("动作生成 prompt", () => {
     expect(video).toContain("continuous run cycle loop");
     expect(video).toContain("Char: runner");
     expect(video).toContain("fast");
+    expect(buildActionVideoPrompt({
+      actions: [{ id: "run", label: "跑", prompt: "run cycle" }],
+      extra: "x".repeat(1_000),
+    })).toContain("x".repeat(500));
   });
 });

@@ -5,6 +5,7 @@ import type {
   FrameResponse,
   FramesResponse,
   DoctorResponse,
+  EnhancePromptIntent,
   EnhancePromptResponse,
   Job,
   JobCreatedResponse,
@@ -130,8 +131,8 @@ export const api = {
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
   listProviderModels: (body: ProviderModelsRequest) =>
     req<ProviderModelsResponse>("/api/provider/models", { method: "POST", ...json(body) }),
-  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video") =>
-    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind }) }),
+  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video", intent?: EnhancePromptIntent) =>
+    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind, intent }) }),
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),
