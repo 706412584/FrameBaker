@@ -1,8 +1,10 @@
 import type { GenProviderInfo } from "@framebaker/shared";
-import { pickPreferredVideoModel } from "@framebaker/shared";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
+import { isProviderEligible, resolveProviderSelection } from "../providerSelection";
 import PxSelect from "./PxSelect";
+
+export { resolveProviderSelection } from "../providerSelection";
 
 interface Props {
   providerId: string;
@@ -13,27 +15,6 @@ interface Props {
   videoOnly?: boolean;
   /** 视频模式且有引用图时，优先选 i2v（如 happyhorse-1.1-i2v） */
   preferI2v?: boolean;
-}
-
-/** 提交生成时解析 providerId/model：缺省取第一个已配置 provider；api 系模型缺省取列表第一项（视频模式避开图模） */
-export function resolveProviderSelection(
-  providers: GenProviderInfo[],
-  providerId: string,
-  model: string,
-  opts?: { videoOnly?: boolean; preferI2v?: boolean }
-): { providerId?: string; model?: string } {
-  const eligible = providers.filter((p) => opts?.videoOnly
-    ? p.type === "cli" || (p.video && p.videoModels.length > 0)
-    : p.type === "cli" || p.imageModels.length > 0 || p.type === "api");
-  const p = eligible.find((x) => x.id === providerId) ?? eligible.find((x) => x.configured) ?? eligible[0];
-  if (!p) return {};
-  let m = model.trim();
-  if (!m && p.type !== "cli") {
-    m = opts?.videoOnly ? pickPreferredVideoModel(p.videoModels, { preferI2v: opts.preferI2v }) : (p.imageModels[0] ?? "");
-  } else if (m && !((opts?.videoOnly ? p.videoModels : p.imageModels).includes(m)) && (opts?.videoOnly ? p.videoModels : p.imageModels).length > 0) {
-    m = opts?.videoOnly ? pickPreferredVideoModel(p.videoModels, { preferI2v: opts.preferI2v }) : p.imageModels[0];
-  }
-  return { providerId: p.id, model: m || undefined };
 }
 
 const TYPE_LABEL: Record<GenProviderInfo["type"], string> = {
@@ -55,33 +36,19 @@ export default function ProviderModelPicker({
 }: Props) {
   const t = useT();
   const cfg = useServerConfig();
-  const providers = (cfg?.gen.providers ?? []).filter((p) => videoOnly
-    ? p.type === "cli" || (p.video && p.videoModels.length > 0)
-    : p.type === "cli" || p.imageModels.length > 0 || p.type === "api");
+  const providers = (cfg?.gen.providers ?? []).filter((p) => isProviderEligible(p, { videoOnly }));
 
-  if (cfg && providers.length === 0) {
+  const selection = resolveProviderSelection(providers, providerId, model, { videoOnly, preferI2v });
+  if (cfg && !selection.providerId) {
     return videoOnly ? (
       <div className="hint warn">{t("msg.no_video_gen_provider_cli_bailian_minimax_add_in_setting")}</div>
     ) : (
       <div className="hint warn">{t("msg.no_gen_provider_add_cli_api_providers_in_settings")}</div>
     );
   }
-  const provider =
-    providers.find((p) => p.id === providerId) ?? providers.find((p) => p.configured) ?? providers[0];
+  const provider = providers.find((p) => p.id === selection.providerId);
   if (!provider) return null;
-  const defaultModel =
-    provider.type !== "cli"
-      ? videoOnly
-        ? pickPreferredVideoModel(provider.videoModels, { preferI2v })
-        : provider.imageModels[0] || ""
-      : "";
-  // 视频模式若当前仍停在图模，自动改用列表里的视频模型
-  const effectiveModel =
-    provider.type !== "cli"
-      ? model && ((videoOnly ? provider.videoModels : provider.imageModels).length === 0 || (videoOnly ? provider.videoModels : provider.imageModels).includes(model))
-        ? model
-        : defaultModel
-      : model;
+  const effectiveModel = selection.model ?? "";
 
   return (
     <div className="form-row">

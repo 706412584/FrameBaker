@@ -1,6 +1,7 @@
 import { GEN_SIZE_PRESETS, GEN_VIDEO_SIZE_PRESETS, parseSizePreview } from "@framebaker/shared";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
+import { resolveProviderSelection } from "../providerSelection";
 import PxSelect from "./PxSelect";
 
 interface Props {
@@ -21,7 +22,8 @@ export default function SizePicker({ providerId, value, onChange, forVideo }: Pr
   const t = useT();
   const cfg = useServerConfig();
   const providers = cfg?.gen.providers ?? [];
-  const provider = providers.find((p) => p.id === providerId) ?? providers.find((p) => p.configured) ?? providers[0];
+  const selected = resolveProviderSelection(providers, providerId, "", { videoOnly: forVideo });
+  const provider = providers.find((p) => p.id === selected.providerId);
   if (!provider || provider.type === "cli") return null;
 
   const presets = forVideo ? GEN_VIDEO_SIZE_PRESETS[provider.type] : GEN_SIZE_PRESETS[provider.type];
