@@ -148,7 +148,7 @@ Bun workspaces monorepo:
 
 ## Docs
 
-- [docs/guide.md](docs/guide.md) — user guide (settings page, provider setup, crop tool, material processing, editor)（中文）
+- [docs/guide.md](docs/guide.md) — user guide (settings page, provider setup, crop tool, material processing, editor)
 - [docs/architecture.md](docs/architecture.md) — architecture diagram, modules, data flows, storage layout
 - [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events, MCP endpoint
 - [docs/roadmap.md](docs/roadmap.md) — shipped features and planned work
@@ -161,7 +161,7 @@ FrameBaker includes a built-in MCP server that lets AI assistants control the fu
 
 Start the server (`bun dev` or `bun start`), then configure your AI client:
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**Claude Desktop** (macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
@@ -173,7 +173,11 @@ Start the server (`bun dev` or `bun start`), then configure your AI client:
 }
 ```
 
-**Cursor / Windsurf:** add `http://localhost:3000/mcp` as a Streamable HTTP MCP server in settings.
+**Claude Code** (CLI): `claude mcp add framebaker --transport http http://localhost:3000/mcp`
+
+**Cursor** (`.cursor/mcp.json`): `{ "mcpServers": { "framebaker": { "url": "http://localhost:3000/mcp" } } }`
+
+**Windsurf** (`~/.codeium/windsurf/mcp_config.json`): `{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
 
 The server exposes **33 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
 

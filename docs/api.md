@@ -1,0 +1,512 @@
+# FrameBaker API
+
+Base URL: `http://localhost:3000`; unless noted otherwise, all endpoints use the `/api` prefix. Request/response type definitions in `packages/shared/src/types.ts`.
+
+Conventions:
+
+- All ids are UUID strings
+- Frame `tags` / `metadata` are parsed as JSON in API output (stored as strings in DB)
+- Error responses: non-2xx + plain text error message
+- Write operations trigger WS broadcast (`/ws`, message format `{ "type": string, "payload": any }`, types listed at the end)
+
+## Projects
+
+### GET /api/projects
+
+Project list, sorted by creation time descending.
+
+```json
+{
+  "projects": [
+    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
+  ]
+}
+```
+
+### POST /api/projects
+
+```json
+// Request
+{ "name": "走路循环" }
+// Response
+{ "id": "…", "name": "走路循环" }
+```
+
+### GET /api/projects/:id
+
+```json
+{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8 } }
+```
+
+### PATCH /api/projects/:id
+
+`{ "name": "New Name" }` → `{ "ok": true }`
+
+### DELETE /api/projects/:id
+
+Deletes the project and all its frames, jobs, and disk files → `{ "ok": true }`, broadcasts `project_deleted`.
+
+## Frames
+
+### GET /api/projects/:id/frames
+
+Returns frames sorted by `idx` ascending:
+
+```json
+{
+  "frames": [
+    {
+      "id": "…", "project_id": "…", "idx": 0,
+      "raw_path": "/abs/path/storage/projects/…/raw/frame_0000.png",
+      "processed_path": null,
+      "status": "ready", "duration": 1, "is_keyframe": 0,
+      "offset_x": 0, "offset_y": 0, "scale": 1, "rotation": 0, "opacity": 1,
+      "tags": [], "source": "gif", "metadata": {}
+    }
+  ]
+}
+```
+
+### GET /api/frames/:id/image?type=raw|processed
+
+Image stream (`image/png`, `Cache-Control: no-store`). `type=processed` falls back to raw when no processed file exists. 404: frame or file not found.
+
+### PATCH /api/frames/:id
+
+Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), `tags` (string[]).
+
+```json
+// Request
+{ "offset_x": 12.5, "duration": 3, "is_keyframe": 1 }
+// Response
+{ "frame": { /* updated full frame */ } }
+```
+
+Broadcasts `frame_updated`.
+
+### POST /api/frames/:id/replace
+
+multipart/form-data: `file` (PNG, server validates file signature). The editor first crops/encodes via CropModal, then writes to `processed/<id>_replaced.png`; old processed file is cleaned up, `source` set to `upload`, status set to `ready`. Response `{ "frame": {…} }`, broadcasts `frame_updated`.
+
+### POST /api/frames/:id/duplicate?count=N
+
+Duplicates N copies (1–16, default 1) inserted after the original, copies image files and all properties, `source=duplicate`, subsequent frame indices shifted. Response `{ "ok": true, "count": 2 }`, broadcasts `frames_changed`.
+
+### DELETE /api/frames/:id
+
+Deletes frame and image files; subsequent frames in the same project have their idx decremented. `{ "ok": true }`, broadcasts `frames_changed`.
+
+### POST /api/projects/:id/reorder
+
+```json
+// Request: must contain exactly all frame ids of the project
+{ "frameIds": ["id3", "id1", "id2"] }
+// Response
+{ "ok": true }
+```
+
+Rewrites idx by array order (transaction). 400: set mismatch. Broadcasts `frames_reordered`.
+
+## Import
+
+### POST /api/import/upload
+
+multipart/form-data:
+
+| Field | Description |
+| --- | --- |
+| `file` | Source file |
+| `projectId` | Target project |
+| `type` | `gif` (all frames) / `mp4` (extract at fps) / `image` (single image → one frame) |
+| `fps` | Optional, mp4 extraction fps, default 8 (1–60) |
+| `autoMatting` | Optional, `"true"` to auto-queue matting for each frame |
+
+Response `{ "jobId": "…" }`, then poll `GET /api/jobs/:id` or wait for WS `job_done`.
+
+```bash
+curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000/api/import/upload
+```
+
+### POST /api/import/generate
+
+```json
+// Request
+{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…", "mediaKind": "image", "fps": 8 }
+// Response
+{ "jobId": "…" }
+```
+
+Provider resolution: if `providerId` is passed, looks up by id (not found → 400); default uses the first fully configured provider (settings page can configure multiple coexisting providers, types: `cli` / `api` (OpenAI-compatible) / `dashscope` (DashScope native) / `gemini` (banana) / `minimax`; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider as fallback). Optional `size` overrides the provider's `apiSize` at generation time (format varies by provider type: api e.g., `1024x1024`, dashscope e.g., `1328*1328`, gemini/minimax e.g., `16:9`; preset tiers in shared constant `GEN_SIZE_PRESETS`; CLI providers ignore size).
+
+- **CLI provider**: structured fields assemble argv (`cliBin` + parameter name mappings: `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`, empty = positional arg or not sent), no shell; env `FRAMEBAKER_GEN_CLI` and legacy data use legacy template placeholder path (`{prompt}` `{output}` `{index}` `{reference}` `{model}`).
+- **API provider (OpenAI-compatible, incl. OpenAI official / VolcEngine Doubao Seedream / various gateways)**: no reference image → `POST {apiBaseUrl}/images/generations` (JSON `{ model, prompt, size?, n: 1 }`); with reference image → `POST {apiBaseUrl}/images/edits` (multipart: image + prompt + model + size?, requires edits-capable model e.g., gpt-image series; dall-e-3 doesn't support edits). Response takes `data[0].b64_json` or `data[0].url` to download.
+- **DashScope provider (native)**: `POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation` (wan2.7-image / qwen-image etc., not in compatible mode); no reference image content is `[{text}]` only; with reference image prepends `{image: dataURI}` (base64); response takes `output.choices[0].message.content[*].image` URL to download (24h valid). `apiSize` can be `2K`/`1K`/`4K` or star format (e.g., `2048*2048`) passed through as-is. **Base URL normalization** (`normalizeDashscopeBaseUrl`): accepts Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`, or docs-style compatible address `…/compatible-mode/v1` / trailing `/api/v1` (server strips suffix then appends native path); pay-as-you-go commonly uses `https://dashscope.aliyuncs.com`.
+- **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); parts `[{text}, {inlineData: base64 reference}?]`; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`); response takes `candidates[0].content.parts[*].inlineData.data` (base64).
+- **MiniMax provider**: `POST {apiBaseUrl}/v1/image_generation` (Bearer); reference image via `subject_reference` (subject feature preservation, one image limit, base64 dataURI); `apiSize` maps to `aspect_ratio` (e.g., `16:9`); `response_format=base64`, response takes `data.image_base64[0]`; `base_resp.status_code` non-0 = failure.
+
+Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16.
+
+- **Video mode**: `mediaKind: "video"` — only generates and saves a single video material (`raw.mp4`, no frame extraction; `count`/`fps` ignored). Only supported by CLI / DashScope / MiniMax. After completion, use `POST /api/materials/:id/extract` (fps or timestamps) to extract frames.
+
+- **CLI provider**: `{output}` given `.mp4` suffix path; output detected as video by magic bytes (ftyp/EBML/RIFF-AVI) → ffmpeg frame extraction. **In image mode, CLI output that is actually video also auto-converts to frame extraction** (`count` ignored in this case).
+- **MiniMax provider**: protocol by model — `MiniMax-Hailuo-*` / `T2V-*` use v1: `POST {apiBaseUrl}/v1/video_generation` (`{ model, prompt, duration? }`) → `task_id`; poll `GET {apiBaseUrl}/v1/query/video_generation?task_id=` (`status`: Success/Fail etc.) to get `file_id`, then `GET {apiBaseUrl}/v1/files/retrieve?file_id=` to get `download_url`. `MiniMax-H3` etc. use v2: `POST {apiBaseUrl}/v2/video_generation` (`{ model, content:[{type:"text",text}], duration, ratio? }`) → `task_id`; poll `GET {apiBaseUrl}/v2/query/video_generation/{task_id}` (`task.status`: succeeded/failed/cancelled), success takes `task.content.url` to download. Default `duration=6`; text-to-video defaults to `ratio=16:9`.
+- **DashScope provider (Wanxiang / HappyHorse)**: `POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis` (header `X-DashScope-Async: enable`). Text-to-video `happyhorse-1.1-t2v`: `input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`; image-to-video `*-i2v`: `input.media[{type:first_frame,url}]` (reference image base64); reference-to-video `*-r2v`: `media[{type:reference_image}]`. → `output.task_id`; poll `GET {apiBaseUrl}/api/v1/tasks/{task_id}` (`output.task_status`: PENDING/RUNNING/SUCCEEDED/FAILED), success takes `output.video_url` to download. Legacy wanx can pass `apiSize` as `size`.
+
+Video is async (approximately 1–5 minutes); progress written to `job.progress` and pushed via WS; extracted frames committed by target (project frames / materials); `autoMatting` works as usual. Video mode does not support reference images (frontend hides the option, server ignores).
+
+Reference image (optional, image mode only): `referenceMaterialId` / `referenceFrameId` — pick one; server resolves file path by id (prefers processed, falls back to raw — prevents client path injection). API / DashScope providers natively support reference images; CLI pre-validates (400 before job creation): both ids provided / id not found / reference image selected but template lacks `{reference}` / template has `{reference}` but no reference image selected.
+
+## Material Library /api/materials
+
+Materials are first generated/uploaded to the library, matted, compared, then imported to a project as frames. Material `source` semantics are the same as frames (`cli`/`api`/`dashscope`/`gemini`/`minimax`/`upload`/`gif`/`mp4`/`image`/`duplicate`; AI generation writes actual provider type, no longer always `cli`); `status` is `raw` (original) / `matted` (background removed). Both materials and projects can have a `folder_id` (see `/api/folders`).
+
+### GET /api/materials
+
+```json
+{
+  "materials": [
+    {
+      "id": "…", "name": "slime #1", "status": "matted", "source": "cli",
+      "raw_path": "/abs/storage/materials/…/raw.png",
+      "processed_path": "/abs/storage/materials/…/processed.png",
+      "metadata": { "prompt": "pixel slime" }, "created_at": 1785912000000
+    }
+  ]
+}
+```
+
+### GET /api/materials/:id/image?type=raw|processed
+
+Image stream (`image/png`, no-store). `type=processed` falls back to raw when no processed file exists.
+
+### POST /api/materials/upload
+
+multipart/form-data: `file` + optional `autoMatting` (`"true"`), `fps` (video extraction, default 8).
+PNG/JPG single image → directly creates 1 material, response `{ "materialId": "…" }`; GIF/MP4 → queued frame extraction, one material per frame, response `{ "jobId": "…" }`.
+
+```bash
+curl -F "file=@slime.png" http://localhost:3000/api/materials/upload
+curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materials/upload
+```
+
+### POST /api/materials/generate
+
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }` (provider resolution same as `/api/import/generate`; when unconfigured, job error with setup instructions). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Reference image rules same as `/api/import/generate` (optional `referenceMaterialId` / `referenceFrameId`, pre-validated 400). Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
+
+### POST /api/materials/:id/extract
+
+Extract video/GIF material frames into individual image materials → `{ "jobId": "…" }`. Copies source file to staging then enqueues **one** `extract_frames` job; output named "originalName #i", defaults to same folder. Non-video/GIF returns 400.
+
+- **Full-range by fps** (default, GIF/video): `{ "fps"?: 8, "autoMatting"?: false, "folderId"?: null }`
+- **Point extraction** (video only): `{ "timestamps": [0.12, 0.5, 1.0], "autoMatting"?: false, "folderId"?: null }` — seconds (float), sorted and deduplicated, max 64; GIF with timestamps returns 400. Server runs one `ffmpeg -ss T -i … -frames:v 1` per timestamp (cancellable).
+
+### POST /api/materials/:id/matting
+
+Queues matting job (`matting` job, queue concurrency 2), response `{ "jobId": "…" }`; material not found → 404, missing raw file → 400. **Same material with existing queued/running matting job → 409** (prevents duplicate queueing). Engine detection order see `GET /api/config` — custom CLI → bundled rembg → PATH rembg → passthrough copy (passthrough warning written to `job.progress`). On completion, `status` set to `matted` and broadcasts `material_updated`; rembg model auto-downloads on first use (can be hundreds of MB), progress pushed via WS `job_*` events.
+
+### POST /api/materials/batch-matting
+
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2, "skipped": 1 }`. Only queues matting for `status=raw` materials; already matted or **with active matting job** counted as `skipped` (detail page can still re-mat individually, but active job returns 409).
+
+### POST /api/materials/:id/replace-image
+
+multipart/form-data: `file` (PNG) + `slot` (`"raw"` | `"processed"`). Crop tool's save endpoint: overwrites the corresponding slot file; `slot=processed` when no processed exists creates one and sets `status=matted`; `slot=raw` doesn't affect existing processed. Response `{ "material": {…} }`, broadcasts `material_updated`.
+
+### POST /api/materials/:id/unmatting
+
+Deletes processed, restores to `raw` status. Response `{ "material": {…} }`.
+
+### POST /api/materials/:id/import
+
+```json
+// Request
+{ "projectId": "…", "count": 2 }
+// Response
+{ "ok": true, "count": 2, "frameIds": ["…", "…"] }
+```
+
+Copies material as project frame(s) appended to end: raw and processed slots copied separately to avoid matting result overwriting frame original; falls back to processed only for legacy materials missing raw. `source` inherited from material source, `metadata` merged with `{fromMaterial: id, ...}`. `count` 1–16, default 1. Broadcasts `frames_changed`.
+
+### POST /api/materials/batch-delete
+
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "deleted": 2 }` (including disk files), broadcasts `materials_changed`.
+
+### POST /api/materials/batch-import
+
+`{ "ids": ["…", "…"], "projectId": "…" }` → `{ "ok": true, "count": 2 }`. Imports 1 frame each in the given order.
+
+## Jobs
+
+### GET /api/jobs
+
+→ `{ "jobs": [ {…}, … ] }`, latest 50 by creation time descending (used for frontend job panel initial load; afterwards WS events are primary).
+
+### GET /api/jobs/:id
+
+```json
+{
+  "job": {
+    "id": "…", "project_id": "…", "type": "extract_frames",
+    "status": "done", "progress": "完成", "error": null, "created_at": 1785912000000
+  }
+}
+```
+
+`status`: `queued` / `running` / `done` / `error` / `cancelled`. Job payloads are in memory; on server restart, orphaned `queued` / `running` jobs are marked as `error` ("server restarted, job interrupted").
+
+### POST /api/jobs/:id/cancel
+
+Cancels a queued or running job → `{ "ok": true }`. `queued` immediately dequeued and marked `cancelled`; `running` triggers AbortSignal (kills `runCmd` subprocess / interrupts API polling). Already-finished status returns 409. Broadcasts `job_cancelled`.
+
+## Folders /api/folders
+
+Material library and project list share multi-level folders (`kind`: `material` | `project`). Resources belong via `folder_id`; deleting a folder moves contents up to the parent (resources are not deleted).
+
+### GET /api/folders?kind=material|project
+
+→ `{ "folders": [ { id, kind, parent_id, name, sort, created_at }, … ] }` (flat list, frontend builds tree).
+
+### POST /api/folders
+
+`{ "kind": "material", "name": "Characters", "parentId": null }` → `{ "folder": {…} }`, broadcasts `folders_changed`.
+
+### PATCH /api/folders/:id
+
+`{ "name"?, "parentId"? }` (cannot move to self or descendants).
+
+### DELETE /api/folders/:id
+
+Moves subtree resources up to parent, then deletes the entire folder subtree.
+
+### POST /api/folders/move-items
+
+`{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }` (`folderId: null` = ungrouped).
+
+## WebSocket /ws
+
+Server → client one-way broadcast, JSON:
+
+```json
+{ "type": "frame_updated", "payload": { "id": "…", "projectId": "…" } }
+```
+
+| type | When |
+| --- | --- |
+| `job_queued` / `job_running` / `job_progress` / `job_done` / `job_error` / `job_cancelled` | Job lifecycle |
+| `frame_updated` | PATCH / replace / frame matting complete |
+| `frames_changed` | Import complete / duplicate / delete / material import to project |
+| `frames_reordered` | Reorder |
+| `project_deleted` | Delete project |
+| `material_updated` | Material matting complete / restore raw / crop replace image |
+| `materials_changed` | Material upload / generate / batch delete / move folder |
+| `folders_changed` | Folder add/remove/update / move |
+| `settings_changed` | Setting written (layout / theme / lang / genProvider / matting) |
+
+Frontend recommendation: on receiving `frame_updated` / `frames_reordered` / `frames_changed` / `job_done`, re-fetch frame list; on `material_updated` / `materials_changed`, re-fetch material list; reconnect 3s after disconnect.
+
+## UI Preferences /api/settings
+
+Layout (editor panel sizes), theme mode, interface language, generation providers, matting config, etc. are persisted server-side in `settings` table (SQLite) — survives browser changes and restarts; theme and language use frontend localStorage as first-paint cache only, silently degrades when server is unreachable.
+
+### GET /api/settings
+
+Returns entire kv object (values JSON-parsed):
+
+```json
+{
+  "layout": { "sidebarW": 260, "timelineH": 160 },
+  "theme": "dark",
+  "lang": "zh",
+  "genProviders": [
+    {
+      "id": "…", "name": "OpenAI", "type": "api",
+      "cliTemplate": "", "apiBaseUrl": "https://api.openai.com/v1", "apiKey": "sk-…",
+      "apiModels": ["gpt-image-1"], "apiSize": "1024x1024"
+    },
+    { "id": "…", "name": "Local mygen", "type": "cli", "cliTemplate": "mygen --prompt \"{prompt}\" -o {output}", "apiBaseUrl": "", "apiKey": "", "apiModels": [], "apiSize": "" }
+  ],
+  "matting": { "cliTemplate": "", "model": "u2net" }
+}
+```
+
+### PUT /api/settings/:key
+
+```json
+// Request (key allowlist: layout, theme, lang, genProviders, matting, promptEnhancers; other keys return 400)
+{ "value": { "sidebarW": 260, "timelineH": 160 } }
+// Response
+{ "ok": true }
+```
+
+`theme` valid values: `"system"` (follow system) / `"light"` / `"dark"`. `lang` valid values: `"zh"` / `"en"`. Broadcasts `settings_changed` `{ key }` after write.
+
+`genProviders`: generation provider list. Connection credentials stored once (`apiBaseUrl` / `apiKey`); capabilities split by `imageModels` / `videoModels` / `textModels`; default sizes for image and video are `imageSize` / `videoSize` respectively. Server still reads legacy `apiModels` / `apiSize`: legacy models are migrated by name to image or video capabilities; legacy sizes serve as fallback for both types; settings page only writes new fields. CLI continues using `cliBin`, parameter names, and `cliExtraArgs` structured argv — no shell; when list is empty, env `FRAMEBAKER_GEN_CLI` is fallback.
+
+`promptEnhancers` elements are `{ id, name, providerId, model }`, reusing `api` or `dashscope` provider connection credentials; legacy `{ apiBaseUrl, apiKey, apiModel }` still readable at runtime. `POST /api/enhance-prompt` accepts `mediaKind: "image" | "video"` — video mode uses action-temporal, camera-focused, consistency-oriented system prompts.
+
+`matting`: structured matting command `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg` (all empty → falls back to env `FRAMEBAKER_MATTING_CLI` template → auto-detection); `model` empty falls back to `FRAMEBAKER_MATTING_MODEL` / default `u2net`.
+
+## Other
+
+- `GET /api/health` → `{ "ok": true, "name": "FrameBaker" }`
+- `GET /api/config` → server capability detection (resolved in real-time per request, settings page changes take effect immediately):
+
+```json
+{
+  "matting": {
+    "engine": "rembg-bundled",
+    "model": "u2net",
+    "hint": null,
+    "modelCached": true
+  },
+  "gen": {
+    "providers": [
+      { "id": "…", "name": "OpenAI", "type": "api", "models": ["gpt-image-1"], "configured": true }
+    ]
+  }
+}
+```
+
+  `engine`: `custom-cli` (settings page matting.cliTemplate or `FRAMEBAKER_MATTING_CLI`) / `rembg-bundled` (`.venv-matting` bundled) / `rembg-path` (found in PATH) / `none` (not installed, matting only copies raw, `hint` contains install instructions). `model` is rembg model name (settings page matting.model → `FRAMEBAKER_MATTING_MODEL` → default `u2net`); `modelCached` indicates model file exists in `storage/models` (uncached models auto-download on first matting). `gen.providers` is a summary of all generation providers (no apiKey; `models` for generation dialog dropdown, `configured` indicates key fields are complete, `video` indicates video generation support — CLI/DashScope/MiniMax only, mapping in shared constant `PROVIDER_VIDEO_SUPPORT`).
+- `GET /api/doctor` → health check: checks storage directory writable / ffmpeg / matting engine & model cache / each generation provider (CLI validates command existence; OpenAI-compatible sends `GET /models`, Gemini sends `GET /v1beta/models`, DashScope sends `GET /compatible-mode/v1/models` for connectivity test; MiniMax has no probe endpoint, field validation only) → `{ "checks": [{ "id", "ok", "label", "detail" }] }`.
+- `POST /api/provider/test` → API provider connectivity test (uses current form values, no need to save first): `{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`; api sends `GET {baseUrl}/models` + Bearer, gemini sends `GET {baseUrl}/v1beta/models` (x-goog-api-key), dashscope sends `GET {baseUrl}/compatible-mode/v1/models` + Bearer, returns `{ "ok", "status", "latencyMs", "modelsFound" }` (401/403 = authentication failure); minimax has no lightweight probe endpoint, field validation only with explanation in `note`.
+- `POST /api/provider/models` → API provider model list (settings page "Fetch Models", uses current form values, no need to save first): `{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`; endpoints same source as connectivity test (api `/models`, dashscope `/compatible-mode/v1/models`, gemini `/v1beta/models` strips `models/` prefix; minimax best-effort tries `/v1/models`); failure returns `{ "ok": false, "error" }`, frontend keeps manual input.
+- `POST /api/enhance-prompt` → prompt enhancement (enhancer model configured in settings page, OpenAI-compatible `chat/completions`, enhancement system prompt built-in server-side, assembled by `style`): `{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`; `enhancerId` defaults to first fully configured; `style` takes shared constant `ENHANCE_STYLES` id (pixel/anime/illustration/3d/realistic/general), default or unknown → `pixel`; unconfigured/call failure returns 400 text. Frontend preserves original prompt and shows both versions side by side for selection.
+- `GET /fonts/:name` → font files from `apps/web/public/fonts/` (woff2 / OFL.txt)
+- `GET /imageops/imageOps.worker.js` → frontend crop worker script (server `Bun.build`s `apps/web/src/imageops/imageOps.worker.ts` on demand; development mode rebuilds each time, production caches)
+
+## MCP (Model Context Protocol) Endpoint
+
+FrameBaker includes a built-in MCP server that allows AI assistants (Claude Desktop / Claude Code / Cursor / Windsurf etc.) to operate on projects, frames, materials, jobs, and all other features via the MCP protocol.
+
+### Transport
+
+Based on `@modelcontextprotocol/server` SDK v2 Streamable HTTP transport, auto-compatible with 2025-era (`initialize` handshake) and 2026-07-28 (stateless core) protocol versions.
+
+- `POST /mcp`: receives JSON-RPC requests, returns JSON responses
+- `GET /mcp`: SSE channel (server → client notifications)
+- `DELETE /mcp`: end session
+
+Protocol version negotiation and session management are handled automatically by the SDK; all tools are stateless direct db operations.
+
+### Client Setup
+
+**Claude Desktop** (macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Claude Code** (CLI):
+
+```bash
+claude mcp add framebaker --transport http http://localhost:3000/mcp
+```
+
+**Cursor** (`.cursor/mcp.json` in project root, or global settings):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Windsurf** (`~/.codeium/windsurf/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "serverUrl": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+### Quick Start for AI Agents
+
+Copy and paste the following to your AI agent to get started:
+
+```
+FrameBaker is running at http://localhost:3000 with an MCP server at /mcp (Streamable HTTP).
+Connect to it and use `list_projects` to get started.
+Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, matting_material, list_jobs, get_config, and 25 more.
+All tools manage pixel-art animation projects — frames, materials, generation, matting, folders, jobs, and settings.
+```
+
+### Handshake (2025-era Clients)
+
+```json
+// Request
+{ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
+// Response
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.1.0" } } }
+```
+
+After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.
+
+### Tool List
+
+| Tool | Description |
+| --- | --- |
+| `list_projects` | List all projects |
+| `get_project` | Get single project details |
+| `create_project` | Create a project |
+| `update_project` | Update project name/folder |
+| `delete_project` | Delete project and all its frames/jobs/files |
+| `list_frames` | List all frames in a project |
+| `update_frame` | Update frame properties (offset/scale/rotation/opacity/duration/is_keyframe/tags) |
+| `delete_frame` | Delete a frame |
+| `duplicate_frame` | Duplicate frame 1–16 copies |
+| `reorder_frames` | Reorder frames |
+| `generate_frames` | Generate frames for a project (AI provider) |
+| `generate_materials` | Generate materials (AI provider) |
+| `list_materials` | List all materials |
+| `matting_material` | Single material background removal |
+| `batch_matting` | Batch background removal |
+| `extract_material_frames` | Extract video/GIF material frames |
+| `import_material_to_project` | Import material as project frame |
+| `batch_import_materials` | Batch import materials to project |
+| `batch_delete_materials` | Batch delete materials |
+| `unmatting_material` | Restore raw (remove matting result) |
+| `list_folders` | List folders |
+| `create_folder` | Create folder |
+| `update_folder` | Update folder |
+| `delete_folder` | Delete folder (contents move up) |
+| `move_items_to_folder` | Move materials/projects to folder |
+| `list_jobs` | List recent jobs |
+| `get_job` | Query single job status |
+| `cancel_job` | Cancel job |
+| `get_config` | Get server config (providers/matting engine) |
+| `run_doctor` | Health check |
+| `get_settings` | Get all settings |
+| `update_setting` | Update a single setting |
+| `enhance_prompt` | Enhance prompt |
+
+### Tool Call Examples
+
+```json
+// List projects
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "list_projects", "arguments": {} } }
+
+// Create project
+{ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "create_project", "arguments": { "name": "走路循环" } } }
+
+// Generate frames
+{ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "generate_frames", "arguments": { "projectId": "…", "prompt": "pixel art knight walk cycle", "count": 4 } } }
+
+// Query job status
+{ "jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": { "name": "get_job", "arguments": { "jobId": "…" } } }
+```
+
+Tools return `content: [{ type: "text", text: "…" }]` format (text is a JSON string); on error `isError: true`.
