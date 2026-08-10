@@ -2,7 +2,7 @@
 
 像素风逐帧动画编辑器：素材导入（GIF/MP4 拆帧、PNG 上传、AI 生成）→ 剪裁/抠图加工 → 帧编辑（洋葱皮）→ 时间轴排序 → 播放预览 → 导出精灵帧。
 
-本文面向使用者，按页面讲清每个功能怎么用。接口细节见 [api.md](api.md)，内部实现见 [architecture.md](architecture.md)。
+本文面向使用者，按页面讲清每个功能怎么用。接口细节见 [api.zh-CN.md](api.zh-CN.md)，内部实现见 [architecture.zh-CN.md](architecture.zh-CN.md)。
 
 ## 快速开始
 

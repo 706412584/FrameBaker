@@ -389,9 +389,9 @@ FrameBaker 内置 MCP 服务端，允许 AI 助手（Claude Desktop / Cursor / W
 
 协议版本协商、会话管理均由 SDK 自动处理，全部工具为无状态直接 db 操作。
 
-### 客户端配置示例
+### 客户端配置
 
-**Claude Desktop**（`claude_desktop_config.json`）：
+**Claude Desktop**（macOS `~/Library/Application Support/Claude/claude_desktop_config.json`，Windows `%APPDATA%\Claude\claude_desktop_config.json`）：
 
 ```json
 {
@@ -403,7 +403,46 @@ FrameBaker 内置 MCP 服务端，允许 AI 助手（Claude Desktop / Cursor / W
 }
 ```
 
-**Cursor** / **Windsurf**：在 MCP 设置中添加 `http://localhost:3000/mcp` 作为 Streamable HTTP 类型的 MCP server。
+**Claude Code**（CLI）：
+
+```bash
+claude mcp add framebaker --transport http http://localhost:3000/mcp
+```
+
+**Cursor**（项目根目录 `.cursor/mcp.json` 或全局设置）：
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Windsurf**（`~/.codeium/windsurf/mcp_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "serverUrl": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+### 快速接入提示
+
+复制以下内容发给你的 AI 助手即可开始使用：
+
+```
+FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable HTTP）。
+请连接并调用 list_projects 开始。
+可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 33 个。
+覆盖功能：像素动画项目、帧、素材、AI 生成、抠图、文件夹、任务与系统设置。
+```
 
 ### 握手（2025-era 客户端）
 

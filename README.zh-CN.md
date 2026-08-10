@@ -148,10 +148,10 @@ Bun workspaces monorepo：
 
 ## 文档
 
-- [docs/guide.md](docs/guide.md) —— 使用指南（设置页、provider 配置、剪裁工具、素材加工、编辑器）
-- [docs/architecture.md](docs/architecture.md) —— 架构图、模块说明、数据流、存储布局
-- [docs/api.md](docs/api.md) —— API 一览（含请求/响应示例）、WS 事件、MCP 端点
-- [docs/roadmap.md](docs/roadmap.md) —— 已完成清单与后续规划
+- [docs/guide.zh-CN.md](docs/guide.zh-CN.md) —— 使用指南（设置页、provider 配置、剪裁工具、素材加工、编辑器）
+- [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) —— 架构图、模块说明、数据流、存储布局
+- [docs/api.zh-CN.md](docs/api.zh-CN.md) —— API 一览（含请求/响应示例）、WS 事件、MCP 端点
+- [docs/roadmap.zh-CN.md](docs/roadmap.zh-CN.md) —— 已完成清单与后续规划
 
 ## MCP（AI 助手集成）
 
@@ -161,7 +161,7 @@ FrameBaker 内置 MCP 服务端，让 AI 助手通过 [Model Context Protocol](h
 
 启动服务（`bun dev` 或 `bun start`），然后在 AI 客户端中配置：
 
-**Claude Desktop**（macOS 路径 `~/Library/Application Support/Claude/claude_desktop_config.json`）：
+**Claude Desktop**（macOS `~/Library/Application Support/Claude/claude_desktop_config.json`，Windows `%APPDATA%\Claude\claude_desktop_config.json`）：
 
 ```json
 {
@@ -173,9 +173,13 @@ FrameBaker 内置 MCP 服务端，让 AI 助手通过 [Model Context Protocol](h
 }
 ```
 
-**Cursor / Windsurf：** 在设置中添加 `http://localhost:3000/mcp` 作为 Streamable HTTP 类型的 MCP server。
+**Claude Code**（CLI）：`claude mcp add framebaker --transport http http://localhost:3000/mcp`
 
-服务端暴露 **33 个工具**，覆盖项目、帧、素材、生成、抠图、文件夹、任务与系统配置。完整工具列表与调用示例见 [docs/api.md](docs/api.md)。
+**Cursor**（`.cursor/mcp.json`）：`{ "mcpServers": { "framebaker": { "url": "http://localhost:3000/mcp" } } }`
+
+**Windsurf**（`~/.codeium/windsurf/mcp_config.json`）：`{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
+
+服务端暴露 **33 个工具**，覆盖项目、帧、素材、生成、抠图、文件夹、任务与系统配置。完整工具列表与调用示例见 [docs/api.zh-CN.md](docs/api.zh-CN.md)。
 
 ## 许可
 
@@ -185,4 +189,4 @@ FrameBaker 内置 MCP 服务端，让 AI 助手通过 [Model Context Protocol](h
 
 ## 已知限制
 
-任务队列在内存中（重启丢未完成任务）；GIF 拆帧忽略帧延迟；单图导入按字节落盘（建议 PNG）；精灵表不做 trim；无鉴权仅限本地。改进计划见 [roadmap](docs/roadmap.md)。
+任务队列在内存中（重启丢未完成任务）；GIF 拆帧忽略帧延迟；单图导入按字节落盘（建议 PNG）；精灵表不做 trim；无鉴权仅限本地。改进计划见 [roadmap](docs/roadmap.zh-CN.md)。

@@ -38,8 +38,8 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 - 帧变换语义统一为「图片中心锚点 → offset 像素平移 → rotation 弧度旋转 → scale 等比缩放 → opacity 合成」；纯几何唯一事实源在 `apps/web/src/frameGeometry.ts`，Pixi 编辑/预览与 `export.ts` 必须使用它保持一致，精灵帧导出把变换烘焙进共享原点的统一单元格。
 - UI 文案与代码注释用中文；用户可见文案一律走 `apps/web/src/i18n.ts` 的 `t()` / `useT()`（中文即字典 key：`t("新建项目")`，zh 直接返回 key，en 查 `apps/web/src/i18n/en.ts`，缺失回退 key；插值用 `{name}`）。界面语言 zh/en 持久化同主题：localStorage `framebaker-lang` 首屏防闪烁 + settings 表 `lang` 权威（`LangToggle` 挂在 `TopNav`，`index.html` 内联脚本预读）。日期用 `getLocale()`（`zh-CN` / `en-US`）。素材/项目支持多级文件夹（`folders` 表 + `folder_id`，UI 左树 `FolderTree`）；生成来源按 provider 类型写入 `source`（`cli`/`api`/`dashscope`/`gemini`/`minimax`…）；任务可 `POST /api/jobs/:id/cancel` 取消。像素风主题（Fusion Pixel 12 字体、box-shadow 阶梯边框、image-rendering: pixelated），配色为 Cassette Futurism 双主题调色板（深色 Magnetic Night 默认 / 浅色 Beige Terminal），全部走 `apps/web/src/styles.css` 的 CSS 变量（`[data-theme="dark"|"light"]`），不要新增硬编码色值；主题管理在 `apps/web/src/theme.ts`。
 - 不用浏览器默认弹窗（alert/confirm/prompt）：错误/提示走 `apps/web/src/notice.ts` 的 `notify()`，确认走 `await askConfirm()`，渲染由 App 根部 `AppModals` 单例完成。
-- 改动 API 时同步更新 `docs/api.md`；改动架构/目录结构时同步更新 `docs/architecture.md` 与本文件。
-- MCP 服务端在 `apps/server/src/mcp.ts`（使用 `@modelcontextprotocol/server` SDK v2，挂载 `/mcp`，Streamable HTTP 传输，自动兼容 2025-era 和 2026-07-28 协议），工具通过 `McpServer.registerTool()` 注册（Zod v4 inputSchema），直接操作 `db` / 内部模块（不走 HTTP 自调用），与对应 `/api/*` 处理器逻辑保持一致；新增/改动 API 功能时同步增改 MCP 工具。
+- 改动 API 时同步更新 `docs/api.md`（EN）和 `docs/api.zh-CN.md`（CN）；改动架构/目录结构时同步更新 `docs/architecture.md`（EN）、`docs/architecture.zh-CN.md`（CN）与本文件。
+- MCP 服务端在 `apps/server/src/mcp/`（使用 `@modelcontextprotocol/server` SDK v2，挂载 `/mcp`，Streamable HTTP 传输，自动兼容 2025-era 和 2026-07-28 协议），工具通过 `McpServer.registerTool()` 注册（Zod v4 inputSchema），直接操作 `db` / 内部模块（不走 HTTP 自调用），与对应 `/api/*` 处理器逻辑保持一致；新增/改动 API 功能时同步增改 MCP 工具。
 - `storage/` 与 `node_modules/` 已 gitignore；smoke test 后清理 storage 与 /tmp 临时文件。
 
 ## 环境变量
