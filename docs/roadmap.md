@@ -27,6 +27,7 @@
 - 素材搜索：项目导入弹窗素材库 Tab 按素材名 / prompt 本地过滤
 - AI 视频生成逐帧切割：生成弹窗「图片 / 视频」切换——CLI 产物按魔数检测自动拆帧（任何模式）、百炼（万相）与 MiniMax 视频 API 异步任务轮询 → mp4 → ffmpeg 按 fps 抽帧入库
 - 帧右键菜单：通用 `ContextMenu` 组件（视口边缘收拢、Esc/外点/滚动关闭）；帧列表/时间轴右键——单帧菜单（关键帧/时长 ±1/剪裁/复制/删除），多选内右键出批量菜单（复用 BatchBar handler）
+- **MCP 服务端**：内置 Model Context Protocol 端点（`POST /mcp`，Streamable HTTP + JSON-RPC 2.0，协议版本 `2024-11-05`），33 个工具覆盖项目/帧/素材/生成/抠图/文件夹/任务/系统配置全功能；工具直接操作 db 与内部模块（零 HTTP 自调用开销）；兼容 Claude Desktop / Cursor / Windsurf 等 AI 客户端
 
 ## M2 — 候选（按优先级排序）
 

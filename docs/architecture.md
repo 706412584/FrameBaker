@@ -29,6 +29,9 @@
 │   │                    matting 白名单）                             │
 │   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
+│  mcp.ts（MCP 服务端：POST /mcp JSON-RPC 2.0 Streamable HTTP）      │
+│         33 个工具直接操作 db/内部模块，供 AI 助手调用               │
+│                                                                     │
 │  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
 │  providerAdapter.ts（生成校验/执行 adapter + provider 模型探测）      │
 │  doctor.ts（体检 + API 联通测试：/api/doctor /api/provider/test）    │
@@ -89,7 +92,17 @@
 
 ## 数据流
 
-### 导入（GIF/MP4/单图）
+### MCP（AI 助手调用）
+
+```
+AI 客户端 → POST /mcp { jsonrpc, method: "initialize" }
+  → 服务端返回 protocolVersion/capabilities/serverInfo + Mcp-Session-Id
+  → 客户端发 notifications/initialized
+  → tools/list 获取 33 个工具
+  → tools/call { name, arguments } → 直接 db 操作 → 返回 { content: [{ type:"text", text:JSON }] }
+```
+
+`mcp.ts` 工具直接调用 `db` / `queue.ts` / `providerAdapter.ts` / `enhance.ts` / `doctor.ts`，逻辑与对应 `/api/*` 处理器一致但不走 HTTP 自调用。### 导入（GIF/MP4/单图）
 
 ```
 浏览器 FormData → POST /api/import/upload

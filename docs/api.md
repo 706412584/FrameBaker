@@ -374,3 +374,100 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 - `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置、按 `style` 组装）：`{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；`style` 取共享常量 `ENHANCE_STYLES` 的 id（pixel/anime/illustration/3d/realistic/general），缺省或未知值按 `pixel` 处理；未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
 - `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）
+
+## MCP（Model Context Protocol）端点
+
+FrameBaker 内置 MCP 服务端，允许 AI 助手（Claude Desktop / Cursor / Windsurf 等）通过 MCP 协议操作项目、帧、素材、任务等全部功能。
+
+### 传输
+
+基于 `@modelcontextprotocol/server` SDK v2 的 Streamable HTTP 传输，自动兼容 2025-era（`initialize` 握手）和 2026-07-28（无状态核心）协议版本。
+
+- `POST /mcp`：接收 JSON-RPC 请求，返回 JSON 响应
+- `GET /mcp`：SSE 通道（服务端→客户端通知）
+- `DELETE /mcp`：结束会话
+
+协议版本协商、会话管理均由 SDK 自动处理，全部工具为无状态直接 db 操作。
+
+### 客户端配置示例
+
+**Claude Desktop**（`claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Cursor** / **Windsurf**：在 MCP 设置中添加 `http://localhost:3000/mcp` 作为 Streamable HTTP 类型的 MCP server。
+
+### 握手（2025-era 客户端）
+
+```json
+// 请求
+{ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
+// 响应
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.1.0" } } }
+```
+
+握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。
+
+### 工具列表
+
+| 工具 | 说明 |
+| --- | --- |
+| `list_projects` | 列出全部项目 |
+| `get_project` | 获取单个项目详情 |
+| `create_project` | 创建项目 |
+| `update_project` | 更新项目名/文件夹 |
+| `delete_project` | 删除项目及其帧/任务/文件 |
+| `list_frames` | 列出项目全部帧 |
+| `update_frame` | 更新帧属性（offset/scale/rotation/opacity/duration/is_keyframe/tags） |
+| `delete_frame` | 删除帧 |
+| `duplicate_frame` | 复制帧 1–16 份 |
+| `reorder_frames` | 重排帧顺序 |
+| `generate_frames` | 为项目生成帧（AI provider） |
+| `generate_materials` | 生成素材（AI provider） |
+| `list_materials` | 列出全部素材 |
+| `matting_material` | 单素材抠图 |
+| `batch_matting` | 批量抠图 |
+| `extract_material_frames` | 视频/GIF 素材抽帧 |
+| `import_material_to_project` | 素材导入为项目帧 |
+| `batch_import_materials` | 批量素材导入项目 |
+| `batch_delete_materials` | 批量删除素材 |
+| `unmatting_material` | 还原图（删除抠图结果） |
+| `list_folders` | 列出文件夹 |
+| `create_folder` | 创建文件夹 |
+| `update_folder` | 更新文件夹 |
+| `delete_folder` | 删除文件夹（内容上移） |
+| `move_items_to_folder` | 移动素材/项目到文件夹 |
+| `list_jobs` | 列出最近任务 |
+| `get_job` | 查询单个任务状态 |
+| `cancel_job` | 取消任务 |
+| `get_config` | 获取服务端配置（provider/抠图引擎） |
+| `run_doctor` | 体检 |
+| `get_settings` | 获取全部设置 |
+| `update_setting` | 更新单个设置项 |
+| `enhance_prompt` | 提示词加强 |
+
+### 工具调用示例
+
+```json
+// 列出项目
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "list_projects", "arguments": {} } }
+
+// 创建项目
+{ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "create_project", "arguments": { "name": "走路循环" } } }
+
+// 生成帧
+{ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "generate_frames", "arguments": { "projectId": "…", "prompt": "pixel art knight walk cycle", "count": 4 } } }
+
+// 查询任务状态
+{ "jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": { "name": "get_job", "arguments": { "jobId": "…" } } }
+```
+
+工具返回 `content: [{ type: "text", text: "…" }]` 格式（text 为 JSON 字符串）；错误时 `isError: true`。

@@ -40,6 +40,7 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 - **Cassette Futurism themes** — dark "Magnetic Night" / light "Beige Terminal"; follows system preference until you pick one (tri-state toggle)
 - **Live sync** — WebSocket broadcasts for job progress and frame/material changes
 - **Adjustable layout** — drag the split dividers to resize the frame list and timeline (persisted)
+- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint (`POST /mcp`, Streamable HTTP) exposing 33 tools for AI assistants (Claude Desktop, Cursor, Windsurf) to manage projects, frames, materials, generation, matting, jobs, and settings programmatically
 
 ## System Requirements
 
@@ -149,8 +150,32 @@ Bun workspaces monorepo:
 
 - [docs/guide.md](docs/guide.md) — user guide (settings page, provider setup, crop tool, material processing, editor)（中文）
 - [docs/architecture.md](docs/architecture.md) — architecture diagram, modules, data flows, storage layout
-- [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events
+- [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events, MCP endpoint
 - [docs/roadmap.md](docs/roadmap.md) — shipped features and planned work
+
+## MCP (AI Assistant Integration)
+
+FrameBaker includes a built-in MCP server that lets AI assistants control the full application via the [Model Context Protocol](https://modelcontextprotocol.io).
+
+**Endpoint:** `POST /mcp` (Streamable HTTP, JSON-RPC 2.0, protocol version `2024-11-05`)
+
+Start the server (`bun dev` or `bun start`), then configure your AI client:
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Cursor / Windsurf:** add `http://localhost:3000/mcp` as a Streamable HTTP MCP server in settings.
+
+The server exposes **33 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
 
 ## License
 
