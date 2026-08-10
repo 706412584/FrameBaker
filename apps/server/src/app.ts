@@ -13,6 +13,7 @@ import { importApi } from "./api/import";
 import { materialsApi } from "./api/materials";
 import { settingsApi } from "./api/settings";
 import { foldersApi } from "./api/folders";
+import { mcpHandler } from "./mcp";
 import { cancelJob } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
@@ -157,6 +158,8 @@ export const app = new Elysia()
   .use(importApi)
   .use(materialsApi)
   .use(foldersApi)
-  .use(settingsApi);
+  .use(settingsApi)
+  // MCP（Model Context Protocol）端点：Streamable HTTP 传输（SDK v2 自动处理 POST/GET/DELETE）
+  .all("/mcp", ({ request }) => mcpHandler.fetch(request));
 
 export type App = typeof app;
