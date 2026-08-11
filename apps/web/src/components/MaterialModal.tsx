@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -15,6 +15,7 @@ import MattingOption from "./MattingOption";
 import VideoExtractModal from "./VideoExtractModal";
 import VideoPlayer from "./VideoPlayer";
 import LayerSplitModal from "./LayerSplitModal";
+import { useMaterialEditor } from "./MaterialEditor";
 
 interface Props {
   material: Material;
@@ -27,6 +28,7 @@ interface Props {
 /** 素材详情：图片对比滑杆 / 视频预览 + 抽帧编辑器；抠图/还原/导入/删除 */
 export default function MaterialModal({ material: m, v, onClose, onChanged, onToast }: Props) {
   const t = useT();
+  const openMaterialEditor = useMaterialEditor();
   useModalEscClose(onClose);
   const isVideo = m.kind === "video";
   const [pos, setPos] = useState(55);
@@ -265,6 +267,15 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               )}
               <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={openCrop}>
                 <Crop size={14} /> {t("msg.crop")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                onClick={() => openMaterialEditor({ id: m.id, name: m.name, v, onSaved: onChanged })}
+              >
+                <Pencil size={14} /> {t("materialEdit.action")}
               </motion.button>
               <motion.button
                 type="button"

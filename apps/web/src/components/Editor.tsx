@@ -47,8 +47,12 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const axisIdRef = useRef<string | null>(null);
   axisIdRef.current = axisId;
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+  const activeTrackIdRef = useRef<string | null>(null);
+  activeTrackIdRef.current = activeTrackId;
   const [activeStepId, setActiveStepId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
   const [showImport, setShowImport] = useState(false);
   const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: Blob; title: string } | null>(null);
   // 播放预览：就在 Pixi 画布内播放（不换容器）。showPreview=播放模式，paused=暂停
@@ -111,14 +115,21 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       setTimeline(data);
       setAxisId(data.axis.id);
       setFps(data.axis.fps);
-      const requestedTrackId = preferredTrackId ?? activeTrackId;
-      const trackId = data.tracks.some((x) => x.id === requestedTrackId) ? requestedTrackId : data.tracks[0]?.id ?? null;
+      const requestedTrackId = preferredTrackId ?? activeTrackIdRef.current;
+      const preserveAssetSelection = preferredTrackId === undefined && requestedTrackId === null && activeIdRef.current !== null;
+      const trackId = preserveAssetSelection
+        ? null
+        : data.tracks.some((x) => x.id === requestedTrackId) ? requestedTrackId : data.tracks[0]?.id ?? null;
       setActiveTrackId(trackId);
       const list = data.frames.filter((f) => f.track_id === trackId);
       const assets = data.assetFrames ?? data.poolFrames ?? [];
       const pool = data.poolFrames ?? [];
       setFrames([...assets, ...list.filter((frame) => !assets.some((asset) => asset.id === frame.id))]);
       setActiveStepId((currentStepId) => {
+        if (trackId === null) {
+          setActiveId((currentId) => assets.some((frame) => frame.id === currentId) ? currentId : null);
+          return null;
+        }
         const stepId = currentStepId && data.steps.some((step) => step.id === currentStepId)
           ? currentStepId
           : data.steps[0]?.id ?? null;
@@ -133,10 +144,12 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         const next = new Set([...prev].filter((id) => alive.has(id)));
         return next.size === prev.size ? prev : next;
       });
+      return data;
     } catch (e) {
       console.error(e);
+      return undefined;
     }
-  }, [projectId, axisId, activeTrackId]);
+  }, [projectId, axisId]);
 
   useEffect(() => {
     api.getProject(projectId).then(setProject).catch(() => setProject(null));
@@ -256,14 +269,17 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 右键菜单（帧列表 / 时间轴共用）：右键未选中帧 → 设为当前帧出单帧菜单；右键多选内帧 → 保留选区出批量菜单
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; frameId: string } | null>(null);
   const onFrameContextMenu = useCallback(
-    (id: string, pos: { x: number; y: number }) => {
+    (id: string, pos: { x: number; y: number }, source: "asset" | "timeline") => {
       if (!(selectedIds.size >= 2 && selectedIds.has(id))) {
+        const timelineFrame = source === "timeline" ? allFrames.find((frame) => frame.id === id) : null;
         setActiveId(id);
+        setActiveTrackId(timelineFrame?.track_id ?? null);
+        setActiveStepId(timelineFrame?.step_id ?? null);
         setSelectedIds(new Set());
       }
       setCtxMenu({ x: pos.x, y: pos.y, frameId: id });
     },
-    [selectedIds]
+    [allFrames, selectedIds]
   );
 
   // FrameList / Timeline 统一的点击入口：plain / ctrl / shift
@@ -271,6 +287,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     (id: string, mods: FrameClickMods) => {
       const idx = frames.findIndex((f) => f.id === id);
       if (idx < 0) return;
+      // 左侧资产与轨道单元格互斥选择；选资产时不保留轨道/步骤高亮。
+      setActiveTrackId(null);
+      setActiveStepId(null);
+      setActiveId(id);
       if (mods.shift && activeId) {
         // 范围选：锚点（当前帧）到点击帧，支持反向
         const anchor = frames.findIndex((f) => f.id === activeId);
@@ -281,7 +301,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         }
       }
       if (mods.ctrl) {
-        // 切换单个帧的选中状态，不改变当前编辑帧
+        // 切换单个帧的选中状态；资产同时成为当前范围选择锚点。
         setSelectedIds((prev) => {
           const next = new Set(prev);
           if (next.has(id)) next.delete(id);
@@ -292,8 +312,6 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       }
       // 单击：设为当前编辑帧，并清空多选
       setActiveId(id);
-      const chosen = allFrames.find((f) => f.id === id);
-      if (chosen) { setActiveTrackId(chosen.track_id); setActiveStepId(chosen.step_id); }
       setSelectedIds(new Set());
     },
     [frames, activeId]
@@ -373,14 +391,30 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomBy]);
 
-  // Esc 清空多选（导入弹窗/右键菜单打开时不抢按键）
+  // Esc 清空多选；Delete/Backspace 删除当前轨道单元格内容。弹窗和输入控件不抢按键。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !showImport && !ctxMenu) clearSelection();
+      if ((e.key !== "Delete" && e.key !== "Backspace") || e.repeat || showPreview || ctxMenu) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.closest("input, textarea, select, [contenteditable='true']") ||
+        document.querySelector(".modal-mask")
+      ) return;
+      const frame = allFrames.find(
+        (item) => item.id === activeId && item.track_id === activeTrackId && item.step_id === activeStepId
+      );
+      if (!frame) return;
+      e.preventDefault();
+      setActiveId(null);
+      void api.clearFrameCell(frame.id)
+        .then(() => loadFrames(activeTrackId ?? undefined))
+        .catch((error) => notify(t("timeline.moveFailed", { msg: (error as Error).message })));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showImport, ctxMenu, clearSelection]);
+  }, [showImport, showPreview, ctxMenu, clearSelection, allFrames, activeId, activeTrackId, activeStepId, loadFrames]);
 
   // ---- 批量操作：循环调现有 API，完成后统一刷新并清空选区 ----
   const selectedInOrder = useCallback(
@@ -468,7 +502,8 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const displayStep = showPreview ? steps[cursor] : steps.find((s) => s.id === activeStepId);
   const composite = displayStep ? allFrames.filter((f) => f.step_id === displayStep.id && tracks.find((tr) => tr.id === f.track_id)?.visible).sort((a,b)=>(tracks.find(x=>x.id===a.track_id)?.idx??0)-(tracks.find(x=>x.id===b.track_id)?.idx??0)) : [];
   const activeFrameId = active?.id;
-  const poolActive = !!active && !active.track_id && !active.step_id;
+  // 选择来源由 activeTrack/activeStep 表达；历史资产即使仍绑定轨道，从左侧选中时也按资产预览。
+  const poolActive = !!active && activeTrackId === null && activeStepId === null;
   const displayFrame = !showPreview && (poolActive || (active?.step_id === displayStep?.id && composite.some((frame) => frame.id === activeFrameId)))
     ? active
     : null;
@@ -574,7 +609,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           onPatch={patchFrame}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
-          onContextMenu={onFrameContextMenu}
+          onContextMenu={(id, pos) => onFrameContextMenu(id, pos, "asset")}
         />
         <SplitDivider direction="col" onDelta={onSidebarDelta} onReset={() => setLayout((l) => ({ ...l, sidebarW: LAYOUT_DEFAULTS.sidebarW }))} />
         <div className="canvas-wrap">
@@ -649,7 +684,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         onDeleteAxis={async()=>{if(await askConfirm(t("timeline.confirmDeleteAxis"))){await api.deleteAxis(timeline.axis.id);axisIdRef.current=null;setAxisId(null);void loadFrames()}}}
         onCell={(trackId,stepId,frameId)=>{setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frameId);setSelectedIds(new Set())}}
         onMoveCell={async(frameId,trackId,stepId,copy)=>{try{const {frame}=await api.moveFrameCell(frameId,trackId,stepId,true,copy);await loadFrames(trackId);setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frame.id);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
-        onPlaceBatch={async(frameIds,trackId,stepId)=>{try{await api.placeFramesBatch(trackId,{startStepId:stepId,frameIds});await loadFrames(trackId);setActiveTrackId(trackId);setActiveStepId(stepId);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
+        onPlaceBatch={async(frameIds,trackId,stepId)=>{try{const placed=await api.placeFramesBatch(trackId,{startStepId:stepId,frameIds});const refreshed=await loadFrames(trackId);const first=refreshed?.frames.find(frame=>frame.id===placed.frameIds[0]);setActiveTrackId(trackId);setActiveStepId(stepId??first?.step_id??null);setActiveId(placed.frameIds[0]??null);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
         onAddTrack={async()=>{await api.createTrack(timeline.axis.id,{name:t("timeline.defaultTrackName",{n:tracks.length+1})});void loadFrames()}}
         onPatchTrack={async(track,patch)=>{await api.patchTrack(track.id,patch);void loadFrames()}}
         onDeleteTrack={async(track)=>{if(await askConfirm(t("timeline.confirmDeleteTrack"))){await api.deleteTrack(track.id);void loadFrames()}}}
@@ -658,7 +693,8 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         onDeleteStep={async()=>{if(activeStepId&&await askConfirm(t("timeline.confirmDeleteStep"))){await api.deleteStep(activeStepId);setActiveStepId(null);setActiveId(null);void loadFrames()}}}
         onStepDuration={async(duration)=>{if(activeStepId){await api.patchStep(activeStepId,{duration});void loadFrames()}}}
         onReorderSteps={async(from,to)=>{const ordered=[...steps];const [x]=ordered.splice(from,1);ordered.splice(to,0,x);await api.reorderSteps(timeline.axis.id,ordered.map(x=>x.id));void loadFrames()}}
-        onContextMenu={onFrameContextMenu}/>} 
+        onContextMenu={(id,pos)=>onFrameContextMenu(id,pos,"timeline")}/>
+      }
 
       {/* 批量操作条：多选 >=2 时浮出 */}
       <div className="batch-dock">

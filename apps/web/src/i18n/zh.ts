@@ -641,6 +641,18 @@ export const zh = {
   "layers.submit": "开始分层",
   "layers.queued": "图片分层任务已入队",
   "layers.source": "分层",
+  "materialEdit.action": "编辑素材",
+  "materialEdit.title": "编辑素材 · {name}",
+  "materialEdit.eraser": "橡皮擦",
+  "materialEdit.rotateLeft": "向左旋转 90°",
+  "materialEdit.rotateRight": "向右旋转 90°",
+  "materialEdit.undo": "撤销上一笔（Cmd/Ctrl+Z）",
+  "materialEdit.reset": "重置全部",
+  "materialEdit.hint": "拖动擦除 · 空格/Alt/中键拖动平移",
+  "materialEdit.saveProcessed": "保存为后处理图",
+  "materialEdit.saving": "保存中…",
+  "materialEdit.saved": "素材编辑已保存，后续操作将使用编辑后的图片",
+  "materialEdit.saveFailed": "素材编辑保存失败：{msg}",
 } as const;
 
 export type MsgKey = keyof typeof zh;

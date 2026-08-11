@@ -126,6 +126,23 @@ export function deleteFrameCell(frameId: string) {
   return frame;
 }
 
+/** 清空时间轴单元格：资产退回左侧资产池，实例只删记录；两者都不删除共享图片文件。 */
+export function clearFramePlacement(frameId: string) {
+  const frame = getFrame(frameId);
+  if (!frame || !frame.track_id || !frame.step_id) return null;
+  const track = db.query("SELECT axis_id FROM animation_tracks WHERE id=?").get(frame.track_id) as { axis_id: string } | null;
+  db.transaction(() => {
+    if (frame.is_asset) {
+      db.query("UPDATE frames SET track_id=NULL,step_id=NULL WHERE id=?").run(frameId);
+    } else {
+      db.query("DELETE FROM frames WHERE id=?").run(frameId);
+    }
+    db.query("DELETE FROM animation_steps WHERE id=? AND NOT EXISTS (SELECT 1 FROM frames WHERE step_id=?)").run(frame.step_id, frame.step_id);
+  })();
+  if (track) syncAxis(track.axis_id);
+  return frame;
+}
+
 export function reorderSteps(axisId: string, ids: string[]) {
   const current = db.query("SELECT id FROM animation_steps WHERE axis_id=?").all(axisId) as Array<{id:string}>;
   const set = new Set(current.map(x=>x.id));

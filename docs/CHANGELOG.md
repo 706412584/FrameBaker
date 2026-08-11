@@ -4,9 +4,23 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-11
+
+### Added
+
+- Added a reusable material image editor with a real-time eraser, undo/reset, 90° rotation, zoom, and panning. It is available from material details, context/selection actions, project material imports, and generation reference pickers; CPU-heavy replay and PNG encoding run through the imageops worker.
+
 ### Changed
 
 - Standardized downstream material consumption to prefer valid matted output, including project imports and generation references; original images remain available only to explicit original/restore/rematting actions.
+
+### Fixed
+
+- Prevented the MCP end-to-end test from leaving `MCP测试` projects in the development database after each test run.
+- Fixed reusable frame assets being rejected when dropped onto timeline cells because the target requested a move operation while the source allowed only copying.
+- Made frame-asset and timeline-cell selection mutually exclusive, and added Delete/Backspace removal for the selected timeline cell without intercepting text inputs or dialogs.
+- Prevented a late Pixi texture request for a deleted timeline frame from surfacing as an unhandled development error overlay.
+- Allowed selected frame assets to be dropped onto a track header when no steps exist, automatically creating enough steps; dropping onto an existing cell continues filling from that step and appending any shortage.
 
 ## [0.2.3] - 2026-08-11
 

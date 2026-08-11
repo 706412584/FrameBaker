@@ -30,7 +30,7 @@
 │   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
 │  mcp.ts（MCP 服务端：POST /mcp JSON-RPC 2.0 Streamable HTTP）      │
-│         33 个工具直接操作 db/内部模块，供 AI 助手调用               │
+│         34 个工具直接操作 db/内部模块，供 AI 助手调用               │
 │                                                                     │
 │  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
 │  providerAdapter.ts（生成校验/执行 adapter + provider 模型探测）      │
@@ -101,7 +101,7 @@
 AI 客户端 → POST /mcp { jsonrpc, method: "initialize" }
   → 服务端返回 protocolVersion/capabilities/serverInfo + Mcp-Session-Id
   → 客户端发 notifications/initialized
-  → tools/list 获取 33 个工具
+  → tools/list 获取 34 个工具
   → tools/call { name, arguments } → 直接 db 操作 → 返回 { content: [{ type:"text", text:JSON }] }
 ```
 

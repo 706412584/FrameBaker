@@ -279,12 +279,17 @@ export default function FrameEditor({ frame, composite, editable, prev, next, v,
     });
     const others = composite.filter((f) => f.id !== frame?.id);
     Promise.all(others.map(async (f) => {
-      const tex: Pixi.Texture = await Assets.load(frameImageUrl(f.id, v));
-      if (dead) return null;
-      tex.source.scaleMode = "nearest";
-      const s = new Sprite(tex); s.anchor.set(0.5); s.position.set(f.offset_x,f.offset_y); s.scale.set(f.scale); s.rotation=f.rotation; s.alpha=f.opacity; s.eventMode="none";
-      p.spriteFrames.set(s, f);
-      return s;
+      try {
+        const tex: Pixi.Texture = await Assets.load(frameImageUrl(f.id, v));
+        if (dead) return null;
+        tex.source.scaleMode = "nearest";
+        const s = new Sprite(tex); s.anchor.set(0.5); s.position.set(f.offset_x,f.offset_y); s.scale.set(f.scale); s.rotation=f.rotation; s.alpha=f.opacity; s.eventMode="none";
+        p.spriteFrames.set(s, f);
+        return s;
+      } catch {
+        // 删除/替换帧时旧合成请求可能晚到 404；该帧直接跳过，等待最新 timeline 重绘。
+        return null;
+      }
     })).then((sprites) => { if (dead) return; let oi=0; for(const f of composite){if(f.id===frame?.id)p.compositeLayer.addChild(p.main);else {const s=sprites[oi++];if(s)p.compositeLayer.addChild(s);}} updateFit(); });
     return () => { dead = true; };
   }, [composite, frame?.id, ready, updateFit, v]);

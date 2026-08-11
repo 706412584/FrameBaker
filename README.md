@@ -64,7 +64,7 @@ Scene layering reconstructs a flat image as independently editable, hideable, an
 - **Cassette Futurism themes** — dark "Magnetic Night" / light "Beige Terminal"; follows system preference until you pick one (tri-state toggle)
 - **Live sync** — WebSocket broadcasts for job progress and frame/material changes
 - **Adjustable layout** — drag the split dividers to resize the frame list and timeline (persisted)
-- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint (`POST /mcp`, Streamable HTTP) exposing 33 tools for AI assistants (Claude Desktop, Cursor, Windsurf) to manage projects, frames, materials, generation, matting, jobs, and settings programmatically
+- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint (`POST /mcp`, Streamable HTTP) exposing 34 tools for AI assistants (Claude Desktop, Cursor, Windsurf) to manage projects, frames, materials, generation, matting, jobs, and settings programmatically
 
 ## System Requirements
 
@@ -205,7 +205,7 @@ Start the server (`bun dev` or `bun start`), then configure your AI client:
 
 **Windsurf** (`~/.codeium/windsurf/mcp_config.json`): `{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
 
-The server exposes **33 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
+The server exposes **34 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
 
 ## License
 

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, Pencil, X } from "lucide-react";
 import { api, frameImageUrl, materialImageUrl, type Frame, type Material } from "../api";
 import { useT } from "../i18n";
 import { notify } from "../notice";
 import IconBtn from "./IconBtn";
+import { useMaterialEditor } from "./MaterialEditor";
 
 export interface ReferenceSelection {
   kind: "material" | "frame";
@@ -25,11 +26,12 @@ interface Props {
  */
 export default function ReferencePicker({ value, onChange, showFrames, projectId }: Props) {
   const t = useT();
+  const openMaterialEditor = useMaterialEditor();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"materials" | "frames">("materials");
   const [mats, setMats] = useState<Material[] | null>(null);
   const [frames, setFrames] = useState<Frame[] | null>(null);
-  const [v] = useState(() => Date.now());
+  const [v, setV] = useState(() => Date.now());
 
   // 展开时按 Tab 懒加载
   useEffect(() => {
@@ -63,6 +65,14 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
         <div className="ref-selected">
           <img src={thumb!} alt={t("msg.reference_image")} draggable={false} />
           <span className="ref-kind">{value.kind === "material" ? t("common.material") : t("msg.project_frames")}</span>
+          {value.kind === "material" && (
+            <IconBtn
+              title={t("materialEdit.action")}
+              onClick={() => openMaterialEditor({ id: value.id, name: mats?.find((m) => m.id === value.id)?.name, v, onSaved: () => setV(Date.now()) })}
+            >
+              <Pencil size={14} />
+            </IconBtn>
+          )}
           <IconBtn title={t("msg.clear_reference")} onClick={() => onChange(null)}>
             <X size={14} />
           </IconBtn>
@@ -92,6 +102,18 @@ export default function ReferencePicker({ value, onChange, showFrames, projectId
                   <div key={m.id} className="mat-pick" title={m.name} onClick={() => pick({ kind: "material", id: m.id })}>
                     <img src={materialImageUrl(m.id, v)} alt="" draggable={false} />
                     <span className={`mat-dot ${m.status}`} />
+                    {m.kind !== "video" && (
+                      <IconBtn
+                        className="mat-pick-edit"
+                        title={t("materialEdit.action")}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openMaterialEditor({ id: m.id, name: m.name, v, onSaved: () => setV(Date.now()) });
+                        }}
+                      >
+                        <Pencil size={12} />
+                      </IconBtn>
+                    )}
                   </div>
                 ))
               )

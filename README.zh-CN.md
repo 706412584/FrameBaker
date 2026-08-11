@@ -64,7 +64,7 @@
 - **Cassette Futurism 双主题** —— 深色 Magnetic Night / 浅色 Beige Terminal；默认跟随系统，三态切换（跟随系统/浅色/深色）
 - **实时同步** —— WebSocket 广播任务进度与帧/素材变更
 - **可调布局** —— 拖拽分隔条调整帧列表宽度与时间轴高度（自动持久化）
-- **MCP 服务端** —— 内置 [Model Context Protocol](https://modelcontextprotocol.io) 端点（`POST /mcp`，Streamable HTTP），暴露 33 个工具，让 AI 助手（Claude Desktop、Cursor、Windsurf）程序化管理项目、帧、素材、生成、抠图、任务与设置
+- **MCP 服务端** —— 内置 [Model Context Protocol](https://modelcontextprotocol.io) 端点（`POST /mcp`，Streamable HTTP），暴露 34 个工具，让 AI 助手（Claude Desktop、Cursor、Windsurf）程序化管理项目、帧、素材、生成、抠图、任务与设置
 
 ## 系统要求
 
@@ -205,7 +205,7 @@ FrameBaker 内置 MCP 服务端，让 AI 助手通过 [Model Context Protocol](h
 
 **Windsurf**（`~/.codeium/windsurf/mcp_config.json`）：`{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
 
-服务端暴露 **33 个工具**，覆盖项目、帧、素材、生成、抠图、文件夹、任务与系统配置。完整工具列表与调用示例见 [docs/api.zh-CN.md](docs/api.zh-CN.md)。
+服务端暴露 **34 个工具**，覆盖项目、帧、素材、生成、抠图、文件夹、任务与系统配置。完整工具列表与调用示例见 [docs/api.zh-CN.md](docs/api.zh-CN.md)。
 
 ## 许可
 

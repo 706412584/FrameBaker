@@ -75,25 +75,40 @@ describe("MCP 端点", () => {
   });
 
   test("tools/call create_project + list_projects 端到端", async () => {
-    const { json: create } = await mcp({
-      jsonrpc: "2.0",
-      id: 3,
-      method: "tools/call",
-      params: { name: "create_project", arguments: { name: "MCP测试" } },
-    });
-    const created = JSON.parse(create.result.content[0].text);
-    expect(created.name).toBe("MCP测试");
-    expect(created.id).toBeTruthy();
+    const projectName = `MCP测试-${crypto.randomUUID()}`;
+    let projectId: string | null = null;
+    try {
+      const { json: create } = await mcp({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "create_project", arguments: { name: projectName } },
+      });
+      const created = JSON.parse(create.result.content[0].text);
+      projectId = created.id;
+      expect(created.name).toBe(projectName);
+      expect(projectId).toBeTruthy();
 
-    const { json: list } = await mcp({
-      jsonrpc: "2.0",
-      id: 4,
-      method: "tools/call",
-      params: { name: "list_projects", arguments: {} },
-    });
-    const listed = JSON.parse(list.result.content[0].text);
-    expect(listed.projects.length).toBeGreaterThanOrEqual(1);
-    expect(listed.projects.some((p: any) => p.name === "MCP测试")).toBe(true);
+      const { json: list } = await mcp({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "list_projects", arguments: {} },
+      });
+      const listed = JSON.parse(list.result.content[0].text);
+      expect(listed.projects.length).toBeGreaterThanOrEqual(1);
+      expect(listed.projects.some((p: any) => p.id === projectId && p.name === projectName)).toBe(true);
+    } finally {
+      // MCP 测试连接的是开发数据库；必须清理自己的项目，避免测试卡片残留到真实项目列表。
+      if (projectId) {
+        await mcp({
+          jsonrpc: "2.0",
+          id: 30,
+          method: "tools/call",
+          params: { name: "delete_project", arguments: { projectId } },
+        });
+      }
+    }
   });
 
   test("未知工具返回错误", async () => {

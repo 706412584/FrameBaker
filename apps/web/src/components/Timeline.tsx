@@ -11,7 +11,7 @@ interface Props {
   onAxis: (id: string) => void; onAddAxis: () => void; onDeleteAxis: () => void;
   onCell: (trackId: string, stepId: string, frameId: string | null) => void;
   onMoveCell: (frameId: string, trackId: string, stepId: string, copy?: boolean) => void;
-  onPlaceBatch: (frameIds: string[], trackId: string, stepId: string) => void;
+  onPlaceBatch: (frameIds: string[], trackId: string, stepId?: string) => void;
   onAddTrack: () => void; onPatchTrack: (track: AnimationTrack, patch: Partial<AnimationTrack>) => void;
   onDeleteTrack: (track: AnimationTrack) => void; onMoveTrack: (track: AnimationTrack, delta: number) => void;
   onAddStep: () => void; onDeleteStep: () => void; onReorderSteps: (from: number, to: number) => void; onStepDuration: (duration: number) => void;
@@ -25,6 +25,14 @@ export default function Timeline(p: Props) {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const rows = [...p.tracks].sort((a, b) => b.idx - a.idx);
   const cell = (trackId: string, stepId: string) => p.frames.find((f) => f.track_id === trackId && f.step_id === stepId) ?? null;
+  const assetFrameIds = (dataTransfer: DataTransfer): string[] => {
+    try {
+      const payload = JSON.parse(dataTransfer.getData("application/x-framebaker-frame-cell"));
+      return Array.isArray(payload?.frameIds) ? payload.frameIds.filter((id: unknown): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  };
   return <footer className="timeline timeline-matrix pixel-bar" style={p.height ? { height: p.height } : undefined}>
     <div className="tl-controls">
       <div className="tl-axis-picker">
@@ -49,7 +57,23 @@ export default function Timeline(p: Props) {
       <div className="tl-corner">{t("timeline.topmostFirst")}</div>
       {p.steps.map((s, i) => <div key={s.id} className={`tl-step ${s.id === p.activeStepId ? "active" : ""}`} draggable onDragStart={() => { dragFrom.current = i; }} onDragOver={(e) => e.preventDefault()} onDrop={() => { const from=dragFrom.current; dragFrom.current=null; if(from != null && from !== i) p.onReorderSteps(from,i); }}>#{i+1}<small>×{s.duration}</small></div>)}
       {rows.map((track) => <div className="tl-row" key={track.id} style={{ display: "contents" }}>
-        <div className={`tl-track ${track.id === p.activeTrackId ? "active" : ""}`}>
+        <div
+          className={`tl-track ${track.id === p.activeTrackId ? "active" : ""} ${dropTarget === `track:${track.id}` ? "drop-target" : ""}`}
+          onDragOver={(e) => {
+            if (track.locked || frameDrag.current || !Array.from(e.dataTransfer.types).includes("application/x-framebaker-frame-cell")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setDropTarget(`track:${track.id}`);
+          }}
+          onDragLeave={() => setDropTarget((current) => current === `track:${track.id}` ? null : current)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDropTarget(null);
+            if (track.locked || frameDrag.current) return;
+            const frameIds = assetFrameIds(e.dataTransfer);
+            if (frameIds.length) p.onPlaceBatch(frameIds, track.id);
+          }}
+        >
           <span title={track.name}>{track.name}</span>
           <IconBtn title={track.visible ? t("timeline.hideTrack") : t("timeline.showTrack")} onClick={() => p.onPatchTrack(track,{visible:track.visible?0:1})}>{track.visible?<Eye size={12}/>:<EyeOff size={12}/>}</IconBtn>
           <IconBtn title={track.locked ? t("timeline.unlockTrack") : t("timeline.lockTrack")} onClick={() => p.onPatchTrack(track,{locked:track.locked?0:1})}>{track.locked?<Lock size={12}/>:<LockOpen size={12}/>}</IconBtn>
@@ -64,7 +88,7 @@ export default function Timeline(p: Props) {
             className={`tl-cell ${track.id===p.activeTrackId&&step.id===p.activeStepId?"active":""} ${f&&!track.locked?"draggable":""} ${f?.id===draggingFrameId?"dragging":""} ${dropTarget===targetKey?"drop-target":""}`}
             draggable={!!f&&!track.locked}
             onDragStart={(e)=>{if(!f||track.locked){e.preventDefault();return;}frameDrag.current={frameId:f.id,trackId:track.id,stepId:step.id};setDraggingFrameId(f.id);e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("application/x-framebaker-frame-cell",JSON.stringify(frameDrag.current));}}
-            onDragOver={(e)=>{if(!track.locked&&(frameDrag.current||Array.from(e.dataTransfer.types).includes("application/x-framebaker-frame-cell"))){e.preventDefault();e.dataTransfer.dropEffect="move";setDropTarget(targetKey);}}}
+            onDragOver={(e)=>{if(!track.locked&&(frameDrag.current||Array.from(e.dataTransfer.types).includes("application/x-framebaker-frame-cell"))){e.preventDefault();e.dataTransfer.dropEffect=frameDrag.current?"move":"copy";setDropTarget(targetKey);}}}
             onDragLeave={()=>setDropTarget((current)=>current===targetKey?null:current)}
             onDrop={(e)=>{e.preventDefault();const reset=()=>{frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);};if(frameDrag.current){const s=frameDrag.current;reset();if(!track.locked&&(s.copy||s.trackId!==track.id||s.stepId!==step.id))p.onMoveCell(s.frameId,track.id,step.id,s.copy);return;}try{const payload=JSON.parse(e.dataTransfer.getData("application/x-framebaker-frame-cell"));if(Array.isArray(payload?.frameIds)&&payload.frameIds.length){reset();if(!track.locked)p.onPlaceBatch(payload.frameIds,track.id,step.id);return;}if(payload?.frameId){reset();const copy=payload.copy===true;if(!track.locked&&(copy||payload.trackId!==track.id||payload.stepId!==step.id))p.onMoveCell(payload.frameId,track.id,step.id,copy);return;}}catch{/* 忽略外部无效拖放 */}reset();}}
             onDragEnd={()=>{frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);}}

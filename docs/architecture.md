@@ -33,7 +33,7 @@
 │   └─ /api/jobs(/:id)   Job list (panel initial load) / single query │
 │                                                                     │
 │  mcp/ (MCP server: POST /mcp JSON-RPC 2.0 Streamable HTTP)         │
-│       33 tools directly operating db/internal modules for AI agents │
+│       34 tools directly operating db/internal modules for AI agents │
 │                                                                     │
 │  provider.ts (multi-gen provider / matting config: settings > env)  │
 │  providerAdapter.ts (generation validation/execution adapter +      │
@@ -110,7 +110,7 @@ Root `scripts/version.ts` implements the `MAJOR.WEEK.BUG` main-release policy an
 AI client → POST /mcp { jsonrpc, method: "initialize" }
   → server returns protocolVersion/capabilities/serverInfo + Mcp-Session-Id
   → client sends notifications/initialized
-  → tools/list returns 33 tools
+  → tools/list returns 34 tools
   → tools/call { name, arguments } → direct db ops → returns { content: [{ type:"text", text:JSON }] }
 ```
 

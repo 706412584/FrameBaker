@@ -5,7 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { db, getFrame, uid, STORAGE_ROOT, serializeFrame } from "../../db";
 import { broadcast } from "../../ws";
 import { ok, err } from "../helpers";
-import { deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration } from "../../timeline";
+import { clearFramePlacement, deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration } from "../../timeline";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -89,6 +89,30 @@ export function register(server: McpServer) {
       }
       deleteFrameCell(frame.id);
       broadcast("frames_changed", { projectId: frame.project_id });
+      return ok({ ok: true });
+    }
+  );
+
+  server.registerTool(
+    "clear_frame_cell",
+    {
+      title: "Clear Frame Cell",
+      description:
+        "Remove a frame from its timeline cell without deleting reusable asset files. Asset frames return to the asset pool; timeline instances are discarded.",
+      inputSchema: z.object({
+        frameId: z.string().describe("Timeline frame UUID"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async ({ frameId }) => {
+      const frame = clearFramePlacement(frameId);
+      if (!frame) return err("轨道单元格不存在");
+      broadcast("timeline_changed", {
+        projectId: frame.project_id,
+        frameId: frame.id,
+        trackId: frame.track_id,
+        stepId: frame.step_id,
+      });
       return ok({ ok: true });
     }
   );

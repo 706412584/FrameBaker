@@ -641,6 +641,18 @@ export const en = {
   "layers.submit": "Split layers",
   "layers.queued": "Image layer job queued",
   "layers.source": "Layers",
+  "materialEdit.action": "Edit material",
+  "materialEdit.title": "Edit material · {name}",
+  "materialEdit.eraser": "Eraser",
+  "materialEdit.rotateLeft": "Rotate left 90°",
+  "materialEdit.rotateRight": "Rotate right 90°",
+  "materialEdit.undo": "Undo last stroke (Cmd/Ctrl+Z)",
+  "materialEdit.reset": "Reset all",
+  "materialEdit.hint": "Drag to erase · Space/Alt/middle-drag to pan",
+  "materialEdit.saveProcessed": "Save as processed image",
+  "materialEdit.saving": "Saving…",
+  "materialEdit.saved": "Material edit saved; downstream actions will use the edited image",
+  "materialEdit.saveFailed": "Failed to save material edit: {msg}",
 } as const;
 
 export type MsgKey = keyof typeof en;

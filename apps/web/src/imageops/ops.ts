@@ -7,12 +7,24 @@ export interface CropRect {
   h: number;
 }
 
+export interface EditPoint {
+  x: number;
+  y: number;
+}
+
+export interface EraseStroke {
+  size: number;
+  points: EditPoint[];
+}
+
 /** worker 消息协议（Blob 走 structured clone，无需手动 transfer） */
 export interface ImageOpRequest {
   id: number;
-  op: "bounds" | "crop";
+  op: "bounds" | "crop" | "edit";
   blob: Blob;
   rect?: CropRect;
+  strokes?: EraseStroke[];
+  quarterTurns?: number;
 }
 
 export interface ImageOpResponse {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Package, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
+import { Check, Package, Pencil, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { useServerConfig } from "../config";
@@ -19,6 +19,7 @@ import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
+import { useMaterialEditor } from "./MaterialEditor";
 
 type Tab = "materials" | "upload" | "cli";
 
@@ -56,6 +57,7 @@ function stateIcon(s: FileState): string {
 
 export default function ImportModal({ projectId, axisId, trackId, startStepId, targetIsPrimary = true, onClose, onDone }: Props) {
   const t = useT();
+  const openMaterialEditor = useMaterialEditor();
   useModalEscClose(onClose);
   const [tab, setTab] = useState<Tab>("materials");
   // 素材库 Tab：素材多选导入
@@ -264,6 +266,26 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
                           {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}
                         </span>
                         <span className={`mat-check ${picked ? "on" : ""}`}>{picked && <Check size={12} />}</span>
+                        {m.kind !== "video" && (
+                          <IconBtn
+                            className="mat-pick-edit"
+                            title={t("materialEdit.action")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openMaterialEditor({
+                                id: m.id,
+                                name: m.name,
+                                v: matV,
+                                onSaved: () => {
+                                  setMatV(Date.now());
+                                  void api.listMaterials().then(setMats);
+                                },
+                              });
+                            }}
+                          >
+                            <Pencil size={12} />
+                          </IconBtn>
+                        )}
                       </div>
                     );
                   })}

@@ -105,6 +105,7 @@ multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器�
 - `POST /api/axes/:id/tracks`；`PATCH|DELETE /api/tracks/:id`；`POST /api/axes/:id/tracks/reorder` 接收完整且不重复的 `trackIds`。主轨/唯一轨道不可删除。
 - `POST /api/axes/:id/steps`；`PATCH|DELETE /api/steps/:id`；`POST /api/axes/:id/steps/reorder` 接收完整且不重复的 `stepIds`。时长范围 1–600，并镜像到步骤内全部单元格。
 - `PATCH /api/frames/:id/placement` 请求 `{ "trackId", "stepId", "swap"?, "copy"? }`；时间轴内部移动沿用原帧，左侧组装使用 `copy: true` 创建实例，源资产始终留在左侧并可重复使用。`swap: true` 时目标已有帧会退回资产面板。
+- `DELETE /api/frames/:id/placement` 清空单个时间轴单元格但不删除可复用图片文件；资产帧退回资产面板，复制出的时间轴实例则丢弃。
 - `POST /api/tracks/:id/place-frames` 请求 `{ "frameIds": [...], "startStepId"? }`，把同项目帧资产依次复制到目标轨道的连续单元格。已有单元格帧退回资产面板，末尾步骤不足时原子追加；跨项目来源与非资产帧会在时间轴变更前被拒绝。
 
 时间轴变更广播 `timeline_changed` 及 `projectId` 和相关 ID。删除单元格仅在步骤变空时裁剪步骤；旧复制会在源步骤后插入共享步骤；旧换序仅接受主轨“一步骤一单元格”的无歧义形态。
@@ -469,7 +470,7 @@ claude mcp add framebaker --transport http http://localhost:3000/mcp
 ```
 FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable HTTP）。
 请连接并调用 list_projects 开始。
-可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 33 个。
+可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 34 个。
 覆盖功能：像素动画项目、帧、素材、AI 生成、抠图、文件夹、任务与系统设置。
 ```
 
@@ -479,7 +480,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.3" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.4" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。
@@ -496,6 +497,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `list_frames` | 列出项目全部帧 |
 | `update_frame` | 更新帧属性（offset/scale/rotation/opacity/duration/is_keyframe/tags） |
 | `delete_frame` | 删除帧 |
+| `clear_frame_cell` | 清空时间轴单元格但不删除可复用资产文件 |
 | `duplicate_frame` | 复制帧 1–16 份 |
 | `reorder_frames` | 重排帧顺序 |
 | `generate_frames` | 为项目生成帧（AI provider） |

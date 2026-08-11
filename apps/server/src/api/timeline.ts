@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db, uid } from "../db";
-import { getTimeline, placeAssetFramesBatch, placeFrame, reorderSteps, setStepDuration, syncAxis } from "../timeline";
+import { clearFramePlacement, getTimeline, placeAssetFramesBatch, placeFrame, reorderSteps, setStepDuration, syncAxis } from "../timeline";
 import { broadcast } from "../ws";
 
 const changed = (projectId: string, extra: Record<string, unknown> = {}) => broadcast("timeline_changed", { projectId, ...extra });
@@ -26,4 +26,5 @@ export const timelineApi = new Elysia({ prefix: "/api" })
   .delete("/steps/:id",({params,status})=>{const s=stepContext(params.id);if(!s)return status(404,"步骤不存在");db.transaction(()=>{db.query("DELETE FROM frames WHERE step_id=?").run(params.id);db.query("DELETE FROM animation_steps WHERE id=?").run(params.id);})();syncAxis(s.axis_id);changed(s.project_id,{axisId:s.axis_id,stepId:params.id});return {ok:true};})
   .post("/axes/:id/steps/reorder",({params,body,status})=>{const a=axisContext(params.id);if(!a)return status(404,"动画轴不存在");try{reorderSteps(params.id,body.stepIds);}catch(e){return status(400,(e as Error).message)}changed(a.project_id,{axisId:params.id});return {ok:true};},{body:t.Object({stepIds:t.Array(t.String())})})
   .patch("/frames/:id/placement",({params,body,status})=>{try{const frame=placeFrame(params.id,body.trackId,body.stepId,body.swap??false,body.copy??false);changed(frame.project_id,{frameId:frame.id,trackId:body.trackId,stepId:body.stepId});return {frame};}catch(e){const m=(e as Error).message;return status(m==="OCCUPIED"?409:m==="帧不存在"?404:400,m==="OCCUPIED"?"目标轨道步骤已被占用":m);}},{body:t.Object({trackId:t.String(),stepId:t.String(),swap:t.Optional(t.Boolean()),copy:t.Optional(t.Boolean())})})
+  .delete("/frames/:id/placement",({params,status})=>{const frame=clearFramePlacement(params.id);if(!frame)return status(404,"轨道单元格不存在");changed(frame.project_id,{frameId:frame.id,trackId:frame.track_id,stepId:frame.step_id});return {ok:true};})
   .post("/tracks/:id/place-frames",({params,body,status})=>{const tr=trackContext(params.id);if(!tr)return status(404,"轨道不存在");try{const frameIds=placeAssetFramesBatch(tr.project_id,body.frameIds,{axisId:tr.axis_id,trackId:params.id,startStepId:body.startStepId});changed(tr.project_id,{axisId:tr.axis_id,trackId:params.id});return {frameIds};}catch(e){return status(400,(e as Error).message);}},{body:t.Object({frameIds:t.Array(t.String(),{minItems:1}),startStepId:t.Optional(t.String())})});

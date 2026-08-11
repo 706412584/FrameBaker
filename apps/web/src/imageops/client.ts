@@ -1,5 +1,5 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
-import { computeOpaqueBounds, type CropRect, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeOpaqueBounds, type CropRect, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 let worker: Worker | null = null;
 let workerBroken = false;
@@ -79,6 +79,56 @@ async function mainCrop(blob: Blob, rect: CropRect): Promise<Blob> {
   }
 }
 
+function eraseStrokes(ctx: CanvasRenderingContext2D, strokes: EraseStroke[]) {
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const stroke of strokes) {
+    const first = stroke.points[0];
+    if (!first) continue;
+    ctx.lineWidth = stroke.size;
+    if (stroke.points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(first.x, first.y, stroke.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+async function mainEdit(blob: Blob, strokes: EraseStroke[], quarterTurns: number): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const source = document.createElement("canvas");
+    source.width = bitmap.width;
+    source.height = bitmap.height;
+    const sourceCtx = source.getContext("2d")!;
+    sourceCtx.drawImage(bitmap, 0, 0);
+    eraseStrokes(sourceCtx, strokes);
+
+    const turns = ((quarterTurns % 4) + 4) % 4;
+    const output = document.createElement("canvas");
+    output.width = turns % 2 ? bitmap.height : bitmap.width;
+    output.height = turns % 2 ? bitmap.width : bitmap.height;
+    const ctx = output.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(output.width / 2, output.height / 2);
+    ctx.rotate(turns * Math.PI / 2);
+    ctx.drawImage(source, -bitmap.width / 2, -bitmap.height / 2);
+    return await new Promise((resolve, reject) =>
+      output.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))), "image/png")
+    );
+  } finally {
+    bitmap.close();
+  }
+}
+
 /** 透明像素包围盒；全透明返回 null。worker 失败自动降级主线程 */
 export async function findOpaqueBounds(blob: Blob): Promise<CropRect | null> {
   try {
@@ -98,5 +148,16 @@ export async function cropImage(blob: Blob, rect: CropRect): Promise<Blob> {
     return r.blob;
   } catch {
     return mainCrop(blob, rect);
+  }
+}
+
+/** 应用橡皮擦笔迹与 90° 旋转并编码 PNG；重放和编码优先在 worker 完成。 */
+export async function editImage(blob: Blob, strokes: EraseStroke[], quarterTurns: number): Promise<Blob> {
+  try {
+    const r = await runInWorker({ op: "edit", blob, strokes, quarterTurns });
+    if (!r.ok || !r.blob) throw new Error(r.error ?? "edit 失败");
+    return r.blob;
+  } catch {
+    return mainEdit(blob, strokes, quarterTurns);
   }
 }

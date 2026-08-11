@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Pencil, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -19,6 +19,7 @@ import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import IconBtn from "./IconBtn";
+import { useMaterialEditor } from "./MaterialEditor";
 
 const isMac = /macintosh|mac os/i.test(navigator.userAgent);
 
@@ -107,6 +108,7 @@ export default function MaterialsPage() {
   const [zoom, setZoom] = useFileZoom();
   const theme = useTheme();
   const cfg = useServerConfig();
+  const openMaterialEditor = useMaterialEditor();
 
   const loadFolders = useCallback(async () => {
     try {
@@ -130,6 +132,14 @@ export default function MaterialsPage() {
       console.error(e);
     }
   }, []);
+
+  const editMaterial = useCallback(
+    (material: Material) => {
+      if (material.kind === "video") return;
+      openMaterialEditor({ id: material.id, name: material.name, v: imgV[material.id] ?? v, onSaved: load });
+    },
+    [imgV, load, openMaterialEditor, v]
+  );
 
   // 连续 WS 事件合并成一次 load（批量抠图/导入会密集发 material_updated/materials_changed）
   const loadTimer = useRef<number | null>(null);
@@ -477,6 +487,11 @@ export default function MaterialsPage() {
                 ] satisfies CtxMenuItem[])
               : ([
                   {
+                    label: t("materialEdit.action"),
+                    icon: <Pencil size={13} />,
+                    onClick: () => editMaterial(ctxMat),
+                  },
+                  {
                     label: t("msg.import_to_project"),
                     icon: <Send size={13} />,
                     onClick: () => void openImportPicker(ctxMat.id),
@@ -643,6 +658,11 @@ export default function MaterialsPage() {
               >
                 <span className="batch-count">{t("msg.count_materials_selected", { count: selectedIds.size })}</span>
                 <span className="tb-sep" />
+                {selectedLayerMat && (
+                  <IconBtn title={t("materialEdit.action")} disabled={busy} onClick={() => editMaterial(selectedLayerMat)}>
+                    <Pencil size={14} />
+                  </IconBtn>
+                )}
                 <IconBtn className="danger" title={t("msg.batch_delete")} disabled={busy} onClick={() => void requestBatchDelete()}>
                   <Trash2 size={14} />
                 </IconBtn>
