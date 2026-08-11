@@ -3,10 +3,12 @@ import { join } from "node:path";
 import * as z from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { MaterialRow } from "@framebaker/shared";
+import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
 import { db, getMaterial, uid, STORAGE_ROOT, serializeMaterial } from "../../db";
 import { broadcast } from "../../ws";
 import { createJob, createMattingJob } from "../../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/extract";
+import { getImageLayerSettings, imageLayerConfigured } from "../../provider";
 import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
 
 export function register(server: McpServer) {
@@ -46,6 +48,36 @@ export function register(server: McpServer) {
       const r = createMattingJob("", "material", m.id);
       if (r.duplicate) return err("该素材已有进行中的抠图任务");
       return ok({ jobId: r.jobId });
+    }
+  );
+
+  server.registerTool(
+    "split_material_layers",
+    {
+      title: "Split Material Layers",
+      description: "Decompose a flat image into editable RGBA scene layers such as background, whole subject, props, and foreground. This does not split a character into body parts. Creates an async image_layers job.",
+      inputSchema: z.object({
+        materialId: z.string(),
+        layers: z.number().int().min(IMAGE_LAYER_COUNT_MIN).max(IMAGE_LAYER_COUNT_MAX).default(4),
+        numInferenceSteps: z.number().int().min(1).max(100).default(50),
+        trueCfgScale: z.number().min(0).max(20).default(4),
+        negativePrompt: z.string().optional(), seed: z.number().int().min(0).default(0),
+        autoMatting: z.boolean().optional().describe("Remove the background before splitting when the material has no processed image"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ materialId, layers, numInferenceSteps, trueCfgScale, negativePrompt, seed, autoMatting }) => {
+      const m = getMaterial(materialId);
+      if (!m) return err("素材不存在");
+      const input = m.processed_path && existsSync(m.processed_path) ? m.processed_path : m.raw_path;
+      if (!input || !existsSync(input) || /\.(mp4|mov|webm|avi|gif)$/i.test(input)) return err("只支持图片素材分层");
+      const settings = getImageLayerSettings();
+      if (!imageLayerConfigured(settings)) return err("图片分层服务未配置完整");
+      const jobId = createJob("", "image_layers", { imageLayers: {
+        materialId, model: settings.model, layers, numInferenceSteps, trueCfgScale,
+        negativePrompt: negativePrompt?.trim() || undefined, seed, autoMatting,
+      } });
+      return ok({ jobId });
     }
   );
 

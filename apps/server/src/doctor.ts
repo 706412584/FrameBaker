@@ -11,7 +11,7 @@ import type {
 import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
 import { STORAGE_ROOT } from "./db";
 import { bundledRembg, getMattingInfo } from "./jobs/matting";
-import { enhancerConfigured, getGenProviders, getMattingSettings, getPromptEnhancers, providerConfigured, resolveEnhancerRuntime } from "./provider";
+import { enhancerConfigured, getGenProviders, getImageLayerSettings, getMattingSettings, getPromptEnhancers, imageLayerConfigured, providerConfigured, resolveEnhancerRuntime } from "./provider";
 import { listProviderModels, probeProviderModels } from "./providerAdapter";
 
 /** provider 类型展示名（doctor 标签用） */
@@ -134,6 +134,22 @@ export async function runDoctor(): Promise<DoctorResponse> {
       ok: true,
       label: `抠图模型 ${matting.model}`,
       detail: cached ? "已缓存（storage/models）" : "未缓存，首次抠图会自动下载（约百 MB，耗时较长）",
+    });
+  }
+
+  // 图片分层服务（独立于生成 provider）
+  const imageLayers = getImageLayerSettings();
+  if (!imageLayerConfigured(imageLayers)) {
+    checks.push({ id: "image-layers", ok: false, label: "图片分层服务", detail: "未配置：请填写 Base URL / API Key / 模型" });
+  } else {
+    const r = await testApiProvider({ type: "api", apiBaseUrl: imageLayers.apiBaseUrl, apiKey: imageLayers.apiKey, apiModel: imageLayers.model });
+    checks.push({
+      id: "image-layers",
+      ok: r.ok,
+      label: `图片分层模型 ${imageLayers.model}`,
+      detail: r.ok
+        ? `${imageLayers.apiBaseUrl} 连通（${r.latencyMs}ms）${r.modelsFound === false ? "，但模型列表中未找到该模型" : ""}`
+        : (r.error ?? "连接失败"),
     });
   }
 

@@ -39,7 +39,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const slot = m.processed_path ? "processed" : "raw";
   const [rows, setRows] = useState(2);
   const [cols, setCols] = useState(2);
-  const [autoMatting, setAutoMatting] = useState(true);
+  const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -163,6 +163,12 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
+      let rawBlob = blob;
+      if (m.processed_path) {
+        const rawResponse = await fetch(materialImageUrl(m.id, v, "raw"));
+        if (!rawResponse.ok) throw new Error(t("msg.failed_to_read_material_image"));
+        rawBlob = await rawResponse.blob();
+      }
       const cw = Math.floor(region.w / cols);
       const ch = Math.floor(region.h / rows);
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
@@ -173,22 +179,37 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
             const h = r === rows - 1 ? region.h - ch * r : ch;
-            let cell = await cropImage(blob, {
+            const cellRect = {
               x: region.x + cw * c,
               y: region.y + ch * r,
               w,
               h,
-            });
+            };
+            let cell = await cropImage(blob, cellRect);
+            let rawCell = m.processed_path ? await cropImage(rawBlob, cellRect) : cell;
             if (autoTrim) {
               const bounds = await findOpaqueBounds(cell);
               if (bounds && (bounds.w < w || bounds.h < h || bounds.x > 0 || bounds.y > 0)) {
                 cell = await cropImage(cell, bounds);
+                if (m.processed_path) rawCell = await cropImage(rawCell, bounds);
                 trimmed++;
               }
             }
             const fd = new FormData();
-            fd.append("file", cell, `${base}_r${r + 1}c${c + 1}.png`);
-            fd.append("autoMatting", String(autoMatting));
+            fd.append("file", rawCell, `${base}_r${r + 1}c${c + 1}.png`);
+            if (m.processed_path) fd.append("processedFile", cell, `${base}_r${r + 1}c${c + 1}_processed.png`);
+            fd.append("autoMatting", String(autoMatting && !m.processed_path));
+            fd.append("metadata", JSON.stringify({
+              gridSplit: {
+                fromMaterial: m.id,
+                rows,
+                cols,
+                row: r + 1,
+                col: c + 1,
+                sourceSlot: slot,
+                autoTrim,
+              },
+            }));
             if (m.folder_id) fd.append("folderId", m.folder_id);
             await api.uploadMaterial(fd);
             ok++;
@@ -330,7 +351,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           {t("msg.auto_trim_transparent_edges_per_cell")}
         </label>
 
-        <MattingOption checked={autoMatting} onChange={setAutoMatting} />
+        {!m.processed_path && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
 
         <div className="modal-actions">
           <motion.button

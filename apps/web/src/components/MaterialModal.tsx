@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Crop, Film, Grid3x3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -14,6 +14,7 @@ import ActionGenModal from "./ActionGenModal";
 import MattingOption from "./MattingOption";
 import VideoExtractModal from "./VideoExtractModal";
 import VideoPlayer from "./VideoPlayer";
+import LayerSplitModal from "./LayerSplitModal";
 
 interface Props {
   material: Material;
@@ -35,6 +36,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   const [showSplit, setShowSplit] = useState(false);
+  const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [showExtract, setShowExtract] = useState(false);
   const [extractFps, setExtractFps] = useState(8);
@@ -44,6 +46,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const cfg = useServerConfig();
   const engine = cfg?.matting.engine;
   const engineAvailable = engine != null && engine !== "none";
+  const imageLayersAvailable = cfg?.imageLayers.configured ?? false;
 
   const updatePos = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -169,7 +172,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               </>
             )}
           </div>
-        ) : (
+        ) : m.processed_path ? (
           <div
             className="compare"
             ref={wrapRef}
@@ -182,22 +185,21 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             }}
           >
             <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={t("msg.original")} draggable={false} />
-            {m.processed_path ? (
-              <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-                <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("msg.matted")} draggable={false} />
-              </div>
-            ) : (
-              <div className="cmp-clip cmp-placeholder" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
-                <span>{t("msg.not_matted")}</span>
-              </div>
-            )}
+            <div className="cmp-clip" style={{ clipPath: `inset(0 0 0 ${pos}%)` }}>
+              <img className="cmp-img" src={materialImageUrl(m.id, v, "processed")} alt={t("msg.matted")} draggable={false} />
+            </div>
             <div className="cmp-divider" style={{ left: `${pos}%` }}>
               <span className="cmp-handle">
                 <MoveHorizontal size={12} />
               </span>
             </div>
             <span className="cmp-tag left">{t("msg.original")}</span>
-            <span className="cmp-tag right">{m.processed_path ? t("msg.matted") : t("msg.not_matted")}</span>
+            <span className="cmp-tag right">{t("msg.matted")}</span>
+          </div>
+        ) : (
+          <div className="compare single">
+            <img className="cmp-img" src={materialImageUrl(m.id, v, "raw")} alt={m.name} draggable={false} />
+            <span className="cmp-tag left">{t("common.material")}</span>
           </div>
         )}
 
@@ -274,6 +276,9 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
               >
                 <Grid3x3 size={14} /> {t("msg.grid_split")}
               </motion.button>
+              {imageLayersAvailable && <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={() => setShowLayers(true)}>
+                <Layers3 size={14} /> {t("layers.action")}
+              </motion.button>}
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.95 }}
@@ -326,6 +331,10 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
             )}
           </div>
         )}
+
+        <AnimatePresence>
+          {showLayers && <LayerSplitModal materialId={m.id} hasProcessed={Boolean(m.processed_path)} model={cfg?.imageLayers.model ?? ""} onClose={() => setShowLayers(false)} onQueued={() => { onToast(t("layers.queued")); setShowLayers(false); onClose(); }} />}
+        </AnimatePresence>
 
         <AnimatePresence>
           {crop && (

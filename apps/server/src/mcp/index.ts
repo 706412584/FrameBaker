@@ -7,6 +7,7 @@
  */
 
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import serverPackage from "../../package.json" with { type: "json" };
 import { register as registerProjectTools } from "./tools/projects";
 import { register as registerFrameTools } from "./tools/frames";
 import { register as registerGenerationTools } from "./tools/generation";
@@ -16,7 +17,7 @@ import { register as registerJobTools } from "./tools/jobs";
 import { register as registerSystemTools } from "./tools/system";
 
 export const mcpHandler = createMcpHandler(() => {
-  const server = new McpServer({ name: "framebaker", version: "0.1.0" });
+  const server = new McpServer({ name: "framebaker", version: serverPackage.version });
   registerProjectTools(server);
   registerFrameTools(server);
   registerGenerationTools(server);

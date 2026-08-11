@@ -4,7 +4,7 @@ import { SETTING_KEYS, PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "../../db";
 import { broadcast } from "../../ws";
 import { getMattingInfo } from "../../jobs/matting";
-import { getGenProviders, providerConfigured, getPromptEnhancers, enhancerConfigured } from "../../provider";
+import { getGenProviders, getImageLayerSettings, imageLayerConfigured, providerConfigured, getPromptEnhancers, enhancerConfigured } from "../../provider";
 import { isModelCached, runDoctor } from "../../doctor";
 import { enhancePrompt } from "../../enhance";
 import { ok, err } from "../helpers";
@@ -21,12 +21,17 @@ export function register(server: McpServer) {
     },
     async () => {
       const matting = getMattingInfo();
+      const imageLayers = getImageLayerSettings();
       return ok({
         matting: {
           engine: matting.engine,
           model: matting.model,
           hint: matting.hint,
           modelCached: isModelCached(matting.model),
+        },
+        imageLayers: {
+          configured: imageLayerConfigured(imageLayers),
+          model: imageLayers.model,
         },
         gen: {
           providers: getGenProviders().map((p) => ({

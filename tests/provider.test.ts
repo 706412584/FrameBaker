@@ -3,6 +3,7 @@ import { db } from "../apps/server/src/db";
 import {
   enhancerConfigured,
   getGenProviders,
+  getImageLayerSettings,
   getMattingSettings,
   getPromptEnhancers,
   providerConfigured,
@@ -14,7 +15,7 @@ import { checkVideoSupport, createProviderAdapter, listProviderModels, probeProv
 const originalFetch = globalThis.fetch;
 const originalGenCli = process.env.FRAMEBAKER_GEN_CLI;
 const originalMattingModel = process.env.FRAMEBAKER_MATTING_MODEL;
-const testSettingKeys = ["genProviders", "matting", "promptEnhancers"];
+const testSettingKeys = ["genProviders", "matting", "imageLayers", "promptEnhancers"];
 let savedSettings: Array<{ key: string; value: string; updated_at: number }> = [];
 
 function saveSetting(key: string, value: unknown) {
@@ -22,7 +23,7 @@ function saveSetting(key: string, value: unknown) {
 }
 
 beforeEach(() => {
-  savedSettings = db.query("SELECT key, value, updated_at FROM settings WHERE key IN ('genProviders', 'matting', 'promptEnhancers')").all() as Array<{
+  savedSettings = db.query("SELECT key, value, updated_at FROM settings WHERE key IN ('genProviders', 'matting', 'imageLayers', 'promptEnhancers')").all() as Array<{
     key: string;
     value: string;
     updated_at: number;
@@ -56,7 +57,7 @@ describe("生成 provider 配置解析", () => {
   test("旧模型列表按能力归类，新字段存在时优先新字段并过滤无效值", () => {
     saveSetting("genProviders", [
       { id: "legacy", type: "dashscope", apiModels: ["qwen-image", "wan-t2v", 42], apiSize: "1024x1024" },
-      { id: "modern", name: " Modern ", type: "api", imageModels: ["image-a", null], videoModels: ["video-a"], textModels: "bad" },
+      { id: "modern", name: " Modern ", type: "api", imageModels: ["image-a", null], videoModels: ["video-a"], textModels: "bad", layerModels: ["layer-a", 42] },
       { id: "invalid" },
     ]);
 
@@ -64,6 +65,7 @@ describe("生成 provider 配置解析", () => {
     expect(providers).toHaveLength(3);
     expect(providers[0]).toMatchObject({ imageModels: ["qwen-image"], videoModels: ["wan-t2v"], imageSize: "1024x1024", videoSize: "1024x1024" });
     expect(providers[1]).toMatchObject({ name: "Modern", imageModels: ["image-a"], videoModels: ["video-a"], textModels: [] });
+    expect(providers[1]).not.toHaveProperty("layerModels");
     expect(providers[2]).toMatchObject({ id: "invalid", type: "cli", name: "invalid" });
     expect(resolveGenProvider()).toMatchObject({ id: "legacy" });
     expect(resolveGenProvider("missing")).toBeNull();
@@ -80,6 +82,20 @@ describe("生成 provider 配置解析", () => {
     expect(getMattingSettings()).toMatchObject({ model: "env-model", cliBin: "" });
     saveSetting("matting", { cliBin: "rembg", model: " saved-model " });
     expect(getMattingSettings()).toMatchObject({ cliBin: "rembg", model: "saved-model" });
+  });
+
+  test("图片分层优先读取独立设置，并兼容旧 Provider 配置", () => {
+    saveSetting("genProviders", [{
+      id: "legacy-layers", type: "api", apiBaseUrl: "https://legacy.example/v1", apiKey: "legacy-key", layerModels: ["legacy-model"],
+    }]);
+    expect(getImageLayerSettings()).toEqual({
+      apiBaseUrl: "https://legacy.example/v1", apiKey: "legacy-key", model: "legacy-model",
+    });
+
+    saveSetting("imageLayers", { apiBaseUrl: "https://layers.example/v1", apiKey: "layer-key", model: " layer-model " });
+    expect(getImageLayerSettings()).toEqual({
+      apiBaseUrl: "https://layers.example/v1", apiKey: "layer-key", model: "layer-model",
+    });
   });
 });
 

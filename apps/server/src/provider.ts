@@ -1,4 +1,4 @@
-import type { GenProvider, GenProviderType, MattingSettings, PromptEnhancer } from "@framebaker/shared";
+import type { GenProvider, GenProviderType, ImageLayerSettings, MattingSettings, PromptEnhancer } from "@framebaker/shared";
 import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
 import { db } from "./db";
 
@@ -103,6 +103,32 @@ export function resolveGenProvider(providerId?: string): GenProvider | null {
   const list = getGenProviders();
   if (providerId) return list.find((p) => p.id === providerId) ?? null;
   return list.find(providerConfigured) ?? list[0] ?? null;
+}
+
+/**
+ * 图片分层独立配置。尚未保存新配置时，从旧 Provider 的 layerModels 读取一次运行时回退，
+ * 让升级前已配置的分层能力继续可用；设置页会将这份值回填到新的 imageLayers 设置。
+ */
+export function getImageLayerSettings(legacyProviderId?: string): ImageLayerSettings {
+  const saved = getSettingJson<Partial<ImageLayerSettings>>("imageLayers");
+  if (saved && typeof saved === "object") {
+    return { apiBaseUrl: str(saved.apiBaseUrl), apiKey: str(saved.apiKey), model: str(saved.model).trim() };
+  }
+  const providers = getSettingJson<unknown[]>("genProviders");
+  const entries = Array.isArray(providers) ? providers : [];
+  const findLegacy = (id?: string) => entries.find((raw) => {
+    if (!raw || typeof raw !== "object") return false;
+    const p = raw as Record<string, unknown>;
+    return p.type === "api" && (!id || p.id === id) && strings(p.layerModels).length > 0;
+  }) as Record<string, unknown> | undefined;
+  const legacy = (legacyProviderId ? findLegacy(legacyProviderId) : undefined) ?? findLegacy();
+  return legacy
+    ? { apiBaseUrl: str(legacy.apiBaseUrl), apiKey: str(legacy.apiKey), model: strings(legacy.layerModels)[0] ?? "" }
+    : { apiBaseUrl: "", apiKey: "", model: "" };
+}
+
+export function imageLayerConfigured(settings: ImageLayerSettings): boolean {
+  return !!(settings.apiBaseUrl.trim() && settings.apiKey.trim() && settings.model.trim());
 }
 
 /** 解析抠图配置：settings 表 matting 逐字段优先于 env / 默认值；cliTemplate env 模板走遗留路径 */

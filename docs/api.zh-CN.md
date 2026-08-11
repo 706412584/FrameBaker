@@ -181,7 +181,7 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 ### POST /api/materials/upload
 
-multipart/form-data：`file` + 可选 `autoMatting`(`"true"`)、`fps`（视频抽帧，默认 8）。
+multipart/form-data：`file` + 可选 `processedFile`、`metadata`（JSON 对象字符串）、`autoMatting`(`"true"`)、`fps`（视频抽帧，默认 8）。传 `processedFile` 时素材同时保存 raw/processed 两个槽位并标记 `status=matted`；网格拆分用它保留真实前后对比。
 PNG/JPG 等单图 → 直接生成 1 个素材，响应 `{ "materialId": "…" }；GIF/MP4 → 队列拆帧每帧一个素材，响应 `{ "jobId": "…" }`。
 
 ```bash
@@ -332,7 +332,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 ### PUT /api/settings/:key
 
 ```json
-// 请求（key 白名单：layout、theme、lang、genProviders、matting、promptEnhancers；其他 key 返回 400）
+// 请求（key 白名单：layout、theme、lang、genProviders、matting、imageLayers、promptEnhancers；其他 key 返回 400）
 { "value": { "sidebarW": 260, "timelineH": 160 } }
 // 响应
 { "ok": true }
@@ -345,6 +345,18 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 `promptEnhancers` 元素为 `{ id, name, providerId, model }`，复用 `api` 或 `dashscope` provider 的连接凭证；旧 `{ apiBaseUrl, apiKey, apiModel }` 仍可读取运行。`POST /api/enhance-prompt` 可传 `mediaKind: "image" | "video"`，视频模式会使用动作时序、镜头与一致性导向的系统提示词。
 
 `matting`：结构化抠图命令 `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg`（均留空走 env `FRAMEBAKER_MATTING_CLI` 模板 → 自动探测）；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
+
+`imageLayers`：独立的图片分层服务配置 `{ "apiBaseUrl", "apiKey", "model" }`，不再归属生成 Provider，执行时调用 `POST {apiBaseUrl}/images/layers`。若该设置从未保存，服务端会临时读取首个旧 `genProviders[].layerModels` 配置以兼容迁移。
+
+### POST /api/materials/:id/layers
+
+创建语义场景分层任务，把扁平图重建为背景、完整主体、道具和前景等可编辑 RGBA 层；不承诺人物肢体拆件，也不是严格的像素标签分割。素材必须为图片（优先 processed，再回退 raw），且独立的 `imageLayers` 设置必须填写 Base URL、API Key 和模型。异步任务类型为 `image_layers`。完整场景通常应传 `autoMatting: false` 保留上下文；继续细分已独立前景且素材没有处理图时，才可传 `autoMatting: true`，在同一任务内先抠图再调用分层服务。抠图失败或取消时不会发送分层请求。
+
+```json
+{ "layers": 4, "numInferenceSteps": 50, "trueCfgScale": 4, "negativePrompt": "", "seed": 0, "autoMatting": false }
+```
+
+范围：`layers` 1–4（当前 Gitee Qwen-Image-Layered 端点会拒绝大于 4 的值）、`numInferenceSteps` 1–100（UI/MCP 默认 `50`，与上游质量配置一致）、`trueCfgScale` 0–20（默认 `4`）、整数 `seed >= 0`。返回 `{ "jobId": "…" }`；结果图层作为 raw 素材写入原素材文件夹。如需继续细分，可对某个输出图层再次递归分层。
 
 ## 其他
 
@@ -359,6 +371,10 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
     "hint": null,
     "modelCached": true
   },
+  "imageLayers": {
+    "configured": true,
+    "model": "Qwen-Image-Layered"
+  },
   "gen": {
     "providers": [
       { "id": "…", "name": "OpenAI", "type": "api", "models": ["gpt-image-1"], "configured": true }
@@ -367,8 +383,8 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 }
 ```
 
-  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备，`video` 表示支持视频生成——仅 cli/dashscope/minimax，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
-- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`、百炼实发 `GET /compatible-mode/v1/models` 联通测试；MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
+  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`imageLayers` 只返回独立图片分层服务的可用状态，不暴露 API Key。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；模型能力列表供生成弹窗使用，`configured` 表示关键字段齐备，`video` 表示支持视频生成——仅 cli/dashscope/minimax，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
+- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 独立图片分层服务 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`、百炼实发 `GET /compatible-mode/v1/models` 联通测试；MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
 - `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`；api 实发 `GET {baseUrl}/models` + Bearer、gemini 实发 `GET {baseUrl}/v1beta/models`（x-goog-api-key）、dashscope 实发 `GET {baseUrl}/compatible-mode/v1/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；minimax 无轻量探测端点，仅校验字段并在 `note` 说明。
 - `POST /api/provider/models` → API provider 模型列表（设置页「获取模型」，用表单当前值拉取，不要求已保存）：`{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`；端点与联通测试同源（api `/models`、dashscope `/compatible-mode/v1/models`、gemini `/v1beta/models` 去 `models/` 前缀；minimax 为 best-effort 试 `/v1/models`），失败返回 `{ "ok": false, "error" }`，前端保持手填。
 - `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置、按 `style` 组装）：`{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；`style` 取共享常量 `ENHANCE_STYLES` 的 id（pixel/anime/illustration/3d/realistic/general），缺省或未知值按 `pixel` 处理；未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
@@ -450,7 +466,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.1.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.2" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。
@@ -473,6 +489,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `generate_materials` | 生成素材（AI provider） |
 | `list_materials` | 列出全部素材 |
 | `matting_material` | 单素材抠图 |
+| `split_material_layers` | 使用独立图片分层服务拆分素材图层 |
 | `batch_matting` | 批量抠图 |
 | `extract_material_frames` | 视频/GIF 素材抽帧 |
 | `import_material_to_project` | 素材导入为项目帧 |

@@ -2169,6 +2169,10 @@ input[type="range"] {
   touch-action: none;
   user-select: none;
 }
+.compare.single {
+  cursor: default;
+  touch-action: auto;
+}
 .cmp-img {
   position: absolute;
   inset: 0;
@@ -2181,13 +2185,6 @@ input[type="range"] {
   position: absolute;
   inset: 0;
   background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
-}
-.cmp-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  background: var(--elevated);
 }
 .cmp-divider {
   position: absolute;

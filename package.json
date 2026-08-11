@@ -1,6 +1,6 @@
 {
   "name": "framebaker",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "description": "像素风逐帧动画编辑器（Bun 全栈 monorepo）",
   "private": true,
   "license": "MIT",
@@ -14,7 +14,10 @@
     "start": "bun apps/server/src/index.ts",
     "typecheck": "tsc -p apps/server && tsc -p apps/web",
     "test": "bun test tests",
-    "test:coverage": "bun test tests --coverage --coverage-reporter=text"
+    "test:coverage": "bun test tests --coverage --coverage-reporter=text",
+    "version:check": "bun scripts/version.ts check",
+    "version:plan": "bun scripts/version.ts plan",
+    "version:bump": "bun scripts/version.ts bump"
   },
   "devDependencies": {
     "bun-types": "^1.3.0",

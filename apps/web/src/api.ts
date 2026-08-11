@@ -68,6 +68,15 @@ interface GenerateBody {
   folderId?: string | null;
 }
 
+export interface LayerMaterialBody {
+  layers: number;
+  numInferenceSteps: number;
+  trueCfgScale: number;
+  negativePrompt?: string;
+  seed: number;
+  autoMatting?: boolean;
+}
+
 export const api = {
   listProjects: () => req<ProjectsResponse>("/api/projects").then((r) => r.projects),
   createProject: (name: string, folderId?: string | null) =>
@@ -121,6 +130,8 @@ export const api = {
   generateMaterial: (body: GenerateBody) =>
     req<JobCreatedResponse>("/api/materials/generate", { method: "POST", ...json(body) }),
   matteMaterial: (id: string) => req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST" }),
+  layerMaterial: (id: string, body: LayerMaterialBody) =>
+    req<JobCreatedResponse>(`/api/materials/${id}/layers`, { method: "POST", ...json(body) }),
   /** 视频/GIF 素材抽帧 → 每帧一个新素材；timestamps 定点（仅视频），否则 fps 整段 */
   extractMaterial: (
     id: string,
