@@ -4,7 +4,7 @@
 
 多来源素材导入（GIF/MP4 拆帧、PNG 上传、外部 CLI 生成），内置 rembg 抠图引擎一键去背，在素材库里对比确认效果，再用 PixiJS 洋葱皮编辑器逐帧调整，时间轴排序，播放预览，最后导出精灵表（spritesheet）。
 
-> 🚧 **开发中：**正在支持多轴帧动画与骨骼动画绑定。
+> ✅ **多轴 / 多轨 MVP 已交付：**支持动画变体、合成轨道、共享步骤、合成预览与导出；骨骼动画绑定仍在开发中。
 
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)

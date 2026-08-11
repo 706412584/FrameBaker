@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Crosshair, Crop, Eye, Grid3x3, ImagePlus, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
+import { Crosshair, Crop, Eye, Grid3x3, ImagePlus, Maximize2, Minus, Plus, Star, ZoomIn, ZoomOut } from "lucide-react";
 import type { Frame, FramePatch } from "../api";
 import { normalizeFrameRotation } from "../frameGeometry";
 import { useT } from "../i18n";
@@ -17,6 +17,7 @@ interface Props {
   onToggleGrid: () => void;
   onZoomBy: (factor: number) => void;
   onZoomReset: () => void;
+  onFit: () => void;
   onReplace: (id: string, file: File) => void;
   /** 剪裁当前帧显示图（fetch 当前图进剪裁弹窗） */
   onCrop: (id: string) => void;
@@ -74,6 +75,7 @@ export default function CanvasToolbar({
   onToggleGrid,
   onZoomBy,
   onZoomReset,
+  onFit,
   onReplace,
   onCrop,
   onPatch,
@@ -119,6 +121,11 @@ export default function CanvasToolbar({
       <Tooltip text={t("msg.zoom_in")}>
         <IconBtn onClick={() => onZoomBy(1.25)}>
           <ZoomIn size={15} />
+        </IconBtn>
+      </Tooltip>
+      <Tooltip text={t("msg.fit")}>
+        <IconBtn onClick={onFit}>
+          <Maximize2 size={15} />
         </IconBtn>
       </Tooltip>
       <span className="tb-sep" />

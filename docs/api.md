@@ -52,6 +52,8 @@ Deletes the project and all its frames, jobs, and disk files → `{ "ok": true }
 
 Returns frames sorted by `idx` ascending:
 
+Compatibility view: this returns only the default axis primary track, ordered by canonical shared steps. `track_id` and `step_id` are included. Step `idx`/`duration` are authoritative; frame fields mirror them.
+
 ```json
 {
   "frames": [
@@ -95,6 +97,16 @@ Duplicates N copies (1–16, default 1) inserted after the original, copies imag
 ### DELETE /api/frames/:id
 
 Deletes frame and image files; subsequent frames in the same project have their idx decremented. `{ "ok": true }`, broadcasts `frames_changed`.
+
+## Canonical composited timeline
+
+- `GET /api/projects/:id/timeline?axisId=` — all project axes plus the selected/default axis, ordered tracks, shared steps, frame cells, unassigned `poolFrames`, and reusable left-panel `assetFrames`.
+- `POST /api/projects/:id/axes` (`name`, optional `fps`); `PATCH /api/axes/:id`; `DELETE /api/axes/:id` (the sole axis is protected).
+- `POST /api/axes/:id/tracks`; `PATCH|DELETE /api/tracks/:id`; `POST /api/axes/:id/tracks/reorder` with exact unique `trackIds`. The primary/sole track is protected.
+- `POST /api/axes/:id/steps`; `PATCH|DELETE /api/steps/:id`; `POST /api/axes/:id/steps/reorder` with exact unique `stepIds`. Step duration is 1–600 ticks and is mirrored to every cell.
+- `PATCH /api/frames/:id/placement` with `{ "trackId", "stepId", "swap"?, "copy"? }`. Timeline moves use the existing frame; left-panel assembly uses `copy: true` to create an instance while keeping the source asset visible and reusable. With `swap: true`, an occupied target returns to the asset panel.
+
+Timeline mutations broadcast `timeline_changed` with `projectId` and relevant axis/track/step/frame IDs. Deleting a cell prunes its step only when empty. Legacy duplication inserts shared steps after the source; legacy reorder is accepted only for an unambiguous primary-track one-cell-per-step shape.
 
 ### POST /api/projects/:id/reorder
 
@@ -225,7 +237,7 @@ Deletes processed, restores to `raw` status. Response `{ "material": {…} }`.
 { "ok": true, "count": 2, "frameIds": ["…", "…"] }
 ```
 
-Copies material as project frame(s) appended to end: raw and processed slots copied separately to avoid matting result overwriting frame original; falls back to processed only for legacy materials missing raw. `source` inherited from material source, `metadata` merged with `{fromMaterial: id, ...}`. `count` 1–16, default 1. Broadcasts `frames_changed`.
+Copies material as unassigned project frame(s) into the left-side frame pool: raw and processed slots are copied separately to avoid matting result overwriting the original; falls back to processed only for legacy materials missing raw. Frames enter a timeline only after placement. `source` and metadata are preserved. `count` 1–16, default 1. Broadcasts `frames_changed`.
 
 ### POST /api/materials/batch-delete
 

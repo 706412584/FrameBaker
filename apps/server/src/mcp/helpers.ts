@@ -4,6 +4,7 @@ import { mkdirSync, copyFileSync } from "node:fs";
 import type { FolderKind } from "@framebaker/shared";
 import { db, uid, STORAGE_ROOT, nextFrameIdx } from "../db";
 import type { MaterialRow } from "@framebaker/shared";
+import { appendFramePool } from "../timeline";
 
 export function ok(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -107,8 +108,6 @@ export function importMaterialToProject(m: MaterialRow, projectId: string): stri
   } catch {
     /* ignore */
   }
-  db.query(
-    "INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?)"
-  ).run(frameId, projectId, nextFrameIdx(projectId), rawPath, procPath, m.source, JSON.stringify(metadata));
+  appendFramePool(projectId,{id:frameId,raw_path:rawPath,processed_path:procPath,status:"ready",source:m.source,metadata:JSON.stringify(metadata)});
   return frameId;
 }

@@ -182,6 +182,8 @@ storage/
 
 - `projects(id, name, folder_id, created_at)`
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
+- 规范动画模型：`animation_axes(project_id, idx, fps)` → `animation_tracks(axis_id, idx, visible, locked, is_primary)`，并共享 `animation_steps(axis_id, idx, duration)`；`frames.track_id + step_id` 是唯一合成单元格坐标。旧 `frames.idx/duration` 暂保持同步镜像。
+- 启动迁移具备事务性和幂等性：每个历史/空项目补齐 `Default`（8 fps）/`Main`；历史帧按 `idx,id` 确定性排序后各建一步，保留 ID、文件、变换、顺序和时长。`frames.is_asset` 区分左侧可复用帧资产与时间轴实例；从左侧拖放会创建实例且不消耗源资产，时间轴内部拖动仍执行移动或交换。
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
 - `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目多级目录（kind=`material`|`project`）

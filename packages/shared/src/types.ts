@@ -483,6 +483,7 @@ export const WS_EVENTS = [
   "frame_updated",
   "frames_reordered",
   "frames_changed",
+  "timeline_changed",
   "job_queued",
   "job_running",
   "job_progress",
@@ -545,6 +546,12 @@ export interface Folder {
 export interface Frame {
   id: string;
   project_id: string;
+  /** 规范时间轴中的轨道；旧客户端可忽略。 */
+  track_id: string | null;
+  /** 规范时间轴中的共享步骤；旧客户端可忽略。 */
+  step_id: string | null;
+  /** 1 表示出现在左侧且可重复组装的帧资产；0 表示时间轴实例。 */
+  is_asset: number;
   idx: number;
   raw_path: string | null;
   processed_path: string | null;
@@ -559,6 +566,44 @@ export interface Frame {
   tags: string[];
   source: FrameSource;
   metadata: Record<string, unknown>;
+}
+
+export interface AnimationAxis {
+  id: string;
+  project_id: string;
+  name: string;
+  idx: number;
+  fps: number;
+  created_at: number;
+}
+
+export interface AnimationTrack {
+  id: string;
+  axis_id: string;
+  name: string;
+  idx: number;
+  visible: number;
+  locked: number;
+  is_primary: number;
+}
+
+export interface TimelineStep {
+  id: string;
+  axis_id: string;
+  idx: number;
+  duration: number;
+}
+
+export interface TimelineResponse {
+  axes: AnimationAxis[];
+  axis: AnimationAxis;
+  tracks: AnimationTrack[];
+  steps: TimelineStep[];
+  frames: Frame[];
+  /** 尚未放入任何动画轴的待编排帧。 */
+  poolFrames: Frame[];
+  /** 项目左侧永久保留的可复用帧资产。 */
+  assetFrames: Frame[];
 }
 
 export interface Job {

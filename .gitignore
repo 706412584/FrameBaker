@@ -2,6 +2,7 @@ node_modules/
 storage/
 coverage/
 .venv-matting/
+.zcode/
 *.log
 .DS_Store
 .aider*

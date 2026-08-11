@@ -179,7 +179,7 @@ export function register(server: McpServer) {
     {
       title: "Import Material to Project",
       description:
-        "Import a material as project frame(s), appending to the end of the project's frame list. Copies raw and processed slots separately. Video materials must be extracted first. count 1-16, default 1.",
+        "Import a material as unassigned project frame(s) in the frame pool, ready to be placed on the timeline. Copies raw and processed slots separately. Video materials must be extracted first. count 1-16, default 1.",
       inputSchema: z.object({
         materialId: z.string().describe("Source material UUID"),
         projectId: z.string().describe("Target project UUID"),
@@ -209,7 +209,7 @@ export function register(server: McpServer) {
     {
       title: "Batch Import Materials",
       description:
-        "Batch import multiple materials to a project as frames. Materials are sorted by frame number in their names (natural sort). Each material becomes 1 frame. Returns count of imported frames.",
+        "Batch import multiple materials to a project's unassigned frame pool. Materials are sorted by frame number in their names (natural sort). Each material becomes 1 frame. Returns count of imported frames.",
       inputSchema: z.object({
         ids: z.array(z.string()).describe("Material UUIDs to import"),
         projectId: z.string().describe("Target project UUID"),

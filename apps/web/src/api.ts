@@ -28,9 +28,13 @@ import type {
   ProviderModelsResponse,
   ServerConfig,
   WSMessage,
+  AnimationAxis,
+  AnimationTrack,
+  TimelineStep,
+  TimelineResponse,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -90,6 +94,19 @@ export const api = {
     req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
 
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
+  getTimeline: (projectId: string, axisId?: string) => req<TimelineResponse>(`/api/projects/${projectId}/timeline${axisId ? `?axisId=${encodeURIComponent(axisId)}` : ""}`),
+  createAxis: (projectId: string, body: { name: string; fps?: number }) => req<{ axis: AnimationAxis }>(`/api/projects/${projectId}/axes`, { method: "POST", ...json(body) }),
+  patchAxis: (id: string, body: { name?: string; fps?: number }) => req<{ axis: AnimationAxis }>(`/api/axes/${id}`, { method: "PATCH", ...json(body) }),
+  deleteAxis: (id: string) => req<OkResponse>(`/api/axes/${id}`, { method: "DELETE" }),
+  createTrack: (axisId: string, body: { name: string; visible?: number; locked?: number }) => req<{ track: AnimationTrack }>(`/api/axes/${axisId}/tracks`, { method: "POST", ...json(body) }),
+  patchTrack: (id: string, body: { name?: string; visible?: number; locked?: number }) => req<{ track: AnimationTrack }>(`/api/tracks/${id}`, { method: "PATCH", ...json(body) }),
+  deleteTrack: (id: string) => req<OkResponse>(`/api/tracks/${id}`, { method: "DELETE" }),
+  reorderTracks: (axisId: string, trackIds: string[]) => req<OkResponse>(`/api/axes/${axisId}/tracks/reorder`, { method: "POST", ...json({ trackIds }) }),
+  createStep: (axisId: string, duration = 1) => req<{ step: TimelineStep }>(`/api/axes/${axisId}/steps`, { method: "POST", ...json({ duration }) }),
+  patchStep: (id: string, body: { duration: number }) => req<{ step: TimelineStep }>(`/api/steps/${id}`, { method: "PATCH", ...json(body) }),
+  deleteStep: (id: string) => req<OkResponse>(`/api/steps/${id}`, { method: "DELETE" }),
+  reorderSteps: (axisId: string, stepIds: string[]) => req<OkResponse>(`/api/axes/${axisId}/steps/reorder`, { method: "POST", ...json({ stepIds }) }),
+  moveFrameCell: (id: string, trackId: string, stepId: string, swap = false, copy = false) => req<FrameResponse>(`/api/frames/${id}/placement`, { method: "PATCH", ...json({ trackId, stepId, swap, copy }) }),
   patchFrame: (id: string, patch: FramePatch) =>
     req<FrameResponse>(`/api/frames/${id}`, { method: "PATCH", ...json(patch) }),
   replaceFrame: (id: string, file: Blob) => {
@@ -156,8 +173,8 @@ export const api = {
     }),
   batchDeleteMaterials: (ids: string[]) =>
     req<OkResponse & { deleted: number }>("/api/materials/batch-delete", { method: "POST", ...json({ ids }) }),
-  batchImportMaterials: (ids: string[], projectId: string) =>
-    req<OkResponse & { count: number }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId }) }),
+  batchImportMaterials: (ids: string[], projectId: string, target?: { axisId: string; trackId: string; startStepId?: string }) =>
+    req<OkResponse & { count: number; frameIds?: string[] }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId, target }) }),
 
   // ---- 文件夹（素材 / 项目多级目录） ----
   listFolders: (kind: FolderKind) =>

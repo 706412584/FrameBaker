@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Copy, Star, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Copy, Star, Trash2 } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { frameImageUrl, type Frame, type FramePatch } from "../api";
 import { themedSourceColor, useTheme } from "../theme";
@@ -42,7 +42,8 @@ export default function FrameList({
   const t = useT();
   return (
     <aside className="frame-list pixel-panel" style={width ? { width } : undefined}>
-      <div className="fl-title">{t("msg.frames")}</div>
+      <div className="fl-title">{t("timeline.framePool")}</div>
+      <div className="fl-usage"><ArrowDownToLine size={15}/><span>{t("timeline.framePoolHint", { key: isMac ? "Cmd" : "Ctrl" })}</span></div>
       <div className="fl-hint">{t("msg.key_click_multi_select_shift_click_range_right_click_men", { key: isMac ? "Cmd" : "Ctrl" })}</div>
       <div
         className="fl-scroll"
@@ -58,6 +59,11 @@ export default function FrameList({
             style={{ borderLeftColor: themedSourceColor(SOURCE_COLORS[f.source] ?? "#888", theme) }}
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
+            draggable
+            onDragStartCapture={(e: React.DragEvent<HTMLDivElement>) => {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("application/x-framebaker-frame-cell", JSON.stringify({ frameId: f.id, copy: true }));
+            }}
             onClick={(e) => onFrameClick(f.id, { ctrl: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
             onContextMenu={(e) => {
               e.preventDefault();

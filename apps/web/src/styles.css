@@ -632,35 +632,53 @@ input[type="range"] {
   color: var(--text-muted);
   border-bottom: 2px solid var(--border);
 }
+.fl-usage {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:8px 8px 4px;
+  padding:7px 8px;
+  color:var(--accent);
+  background:var(--selected);
+  border:2px solid var(--border-focused);
+  font-size:11px;
+  line-height:1.35;
+}
+.fl-usage svg { flex-shrink:0; }
 .fl-scroll {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  align-content: start;
   gap: 8px;
 }
 .fl-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  padding: 4px;
   background: var(--bg);
   border-left: 4px solid var(--border);
-  cursor: pointer;
+  cursor: grab;
+  min-width: 0;
 }
 .fl-item.active {
   outline: 2px solid var(--border-focused);
   background: var(--selected);
 }
 .fl-item img {
-  width: 40px;
-  height: 40px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 8px 8px;
   flex-shrink: 0;
 }
 .fl-meta {
+  position: absolute;
+  top: 3px;
+  right: 3px;
   display: flex;
   flex-direction: column;
   font-size: 12px;
@@ -672,11 +690,14 @@ input[type="range"] {
   font-size: 11px;
 }
 .fl-ops {
-  margin-left: auto;
-  display: flex;
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: none;
   flex-direction: row;
   gap: 2px;
 }
+.fl-item:hover .fl-ops, .fl-item:focus-within .fl-ops { display:flex; }
 .fl-ops .icon-btn {
   width: 20px;
   height: 20px;
@@ -770,6 +791,24 @@ input[type="range"] {
 .pixi-wrap canvas {
   display: block;
 }
+.pixi-wrap.space-pan, .pixi-wrap.space-pan canvas { cursor:grab !important; }
+.pixi-wrap.panning, .pixi-wrap.panning canvas { cursor:grabbing !important; }
+.canvas-pan-hint {
+  position:absolute;
+  top:10px;
+  right:10px;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 7px;
+  color:var(--text-muted);
+  background:var(--panel);
+  border:2px solid var(--border);
+  font-size:10px;
+  pointer-events:none;
+}
+.canvas-pan-hint kbd { color:var(--accent); font:inherit; }
 .canvas-empty {
   position: absolute;
   inset: 0;
@@ -782,16 +821,30 @@ input[type="range"] {
 
 /* --- 底部时间轴 --- */
 .timeline {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   padding: 10px 14px;
-  overflow-x: auto;
+  overflow: auto;
   min-height: 86px;
   flex-shrink: 0;
   border-bottom: none;
   border-top: 4px solid var(--border);
 }
+.tl-controls { display:flex; align-items:center; gap:8px; position:sticky; left:0; margin-bottom:8px; white-space:nowrap; }
+.tl-axis-picker { display:flex; align-items:center; gap:6px; }
+.tl-axis-select { width:150px; }
+.tl-grid { display:grid; gap:4px; width:max-content; align-items:stretch; }
+.tl-corner,.tl-step,.tl-track,.tl-cell { background:var(--bg); border:2px solid var(--border); min-height:48px; }
+.tl-corner,.tl-step { display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
+.tl-step { cursor:grab; flex-direction:column; }
+.tl-step.active,.tl-track.active,.tl-cell.active { border-color:var(--border-focused); background:var(--selected); }
+.tl-track { display:flex; align-items:center; gap:2px; padding:2px 4px; min-width:0; }
+.tl-track > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.tl-track .icon-btn { width:18px; height:18px; }
+.tl-cell { background:repeating-conic-gradient(var(--checker-a) 0% 25%,var(--checker-b) 0% 50%) 0 0/10px 10px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.tl-cell.draggable { cursor:grab; }
+.tl-cell.dragging { opacity:.45; cursor:grabbing; }
+.tl-cell.drop-target { border-color:var(--border-focused); background:var(--selected); box-shadow:inset 0 0 0 2px var(--border-focused); }
+.tl-cell img { max-width:100%; max-height:48px; image-rendering:pixelated; }
 .tl-item {
   position: relative;
   /* 尺寸跟随时间轴高度（内容盒），保持正方形 */
@@ -1076,6 +1129,10 @@ input[type="range"] {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+.stage-shell.playing {
+  /* 播放条放进独立安全区，不覆盖 Pixi 画布；画布 resize 会触发自动适应。 */
+  padding-bottom: 64px;
 }
 .playback-bar {
   position: absolute;

@@ -24,6 +24,10 @@ type Tab = "materials" | "upload" | "cli";
 
 interface Props {
   projectId: string;
+  axisId?: string;
+  trackId?: string;
+  startStepId?: string;
+  targetIsPrimary?: boolean;
   onClose: () => void;
   onDone: () => void;
 }
@@ -50,7 +54,7 @@ function stateIcon(s: FileState): string {
   }
 }
 
-export default function ImportModal({ projectId, onClose, onDone }: Props) {
+export default function ImportModal({ projectId, axisId, trackId, startStepId, targetIsPrimary = true, onClose, onDone }: Props) {
   const t = useT();
   useModalEscClose(onClose);
   const [tab, setTab] = useState<Tab>("materials");
@@ -112,7 +116,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
     if (pickedIds.length === 0 || submitting) return;
     setSubmitting(true);
     try {
-      await api.batchImportMaterials(pickedIds, projectId);
+      await api.batchImportMaterials(pickedIds, projectId, axisId && trackId ? { axisId, trackId, ...(startStepId ? { startStepId } : {}) } : undefined);
       onDone(); // 刷新帧列表（WS 也会广播 frames_changed）
       onClose();
     } catch (e) {
@@ -213,6 +217,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             <Sparkles size={14} /> {t("msg.generate")}
           </button>
         </div>
+        {!targetIsPrimary && tab !== "materials" && <div className="up-summary">{t("timeline.asyncImportPrimaryHint")}</div>}
 
         {tab === "materials" && (
           <>

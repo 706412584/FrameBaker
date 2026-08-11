@@ -1,4 +1,4 @@
-import { frameImageUrl, materialImageUrl, type Frame } from "./api";
+import { frameImageUrl, materialImageUrl, type Frame, type TimelineResponse } from "./api";
 import { transformedFrameBounds } from "./frameGeometry";
 import { createZip } from "./zip";
 
@@ -79,22 +79,24 @@ export async function downloadMaterialImages(
  * 每帧单独导出一张 PNG（文件名按 idx 零填充编号），连同 JSON 元数据一起打包成 ZIP 下载。
  * 不会合成成一张精灵图，每帧保持独立。
  */
-export async function exportSpritesheet(frames: Frame[], name: string) {
-  if (frames.length === 0) return;
-  const ordered = [...frames].sort((a, b) => a.idx - b.idx);
-  const bitmaps = new Array<ImageBitmap>(ordered.length);
+export async function exportSpritesheet(timeline: TimelineResponse, name: string) {
+  const ordered = [...timeline.steps].sort((a,b)=>a.idx-b.idx);
+  const visible = [...timeline.tracks].filter((t)=>t.visible).sort((a,b)=>a.idx-b.idx);
+  const frames = timeline.frames.filter((f)=>visible.some((t)=>t.id===f.track_id));
+  if (ordered.length === 0) return;
+  const bitmapMap = new Map<string,ImageBitmap>();
   try {
     await Promise.all(
-      ordered.map(async (frame, i) => {
+      frames.map(async (frame) => {
         const response = await fetch(frameImageUrl(frame.id));
         if (!response.ok) throw new Error(`帧图片加载失败: ${frame.id}`);
-        bitmaps[i] = await createImageBitmap(await response.blob());
+        bitmapMap.set(frame.id,await createImageBitmap(await response.blob()));
       })
     );
 
     // 所有帧共享同一个局部原点；统一包围盒保证播放时 offset 与尺寸变化不会抖动
-    const bounds = ordered.map((frame, i) => {
-      const bitmap = bitmaps[i];
+    const bounds = frames.map((frame) => {
+      const bitmap = bitmapMap.get(frame.id)!;
       return transformedFrameBounds(bitmap.width, bitmap.height, frame);
     });
     const minX = Math.floor(Math.min(0, ...bounds.map((b) => b.left)));
@@ -106,8 +108,11 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
     const padLen = String(ordered.length - 1).length + 1;
 
     const meta = {
-      frames: [] as Array<{ file: string; w: number; h: number; duration: number }>,
+      frames: [] as Array<{ file: string; w: number; h: number; duration: number; frameIds: string[] }>,
       meta: {
+        axisId: timeline.axis.id,
+        axisName: timeline.axis.name,
+        fps: timeline.axis.fps,
         cellWidth: cellW,
         cellHeight: cellH,
         originX: -minX,
@@ -120,28 +125,22 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
     const entries: { name: string; data: Uint8Array }[] = [];
 
     for (let i = 0; i < ordered.length; i++) {
-      const frame = ordered[i];
-      const bitmap = bitmaps[i];
+      const step = ordered[i];
       const canvas = document.createElement("canvas");
       canvas.width = cellW;
       canvas.height = cellH;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("帧尺寸过大，无法创建导出画布");
       ctx.imageSmoothingEnabled = false;
-      ctx.save();
-      ctx.translate(-minX + frame.offset_x, -minY + frame.offset_y);
-      ctx.rotate(frame.rotation);
-      ctx.scale(frame.scale, frame.scale);
-      ctx.globalAlpha = Math.min(1, Math.max(0, frame.opacity));
-      ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
-      ctx.restore();
+      const contributors = visible.map((track)=>frames.find((f)=>f.track_id===track.id&&f.step_id===step.id)).filter((f):f is Frame=>!!f);
+      for(const frame of contributors){const bitmap=bitmapMap.get(frame.id)!;ctx.save();ctx.translate(-minX+frame.offset_x,-minY+frame.offset_y);ctx.rotate(frame.rotation);ctx.scale(frame.scale,frame.scale);ctx.globalAlpha=Math.min(1,Math.max(0,frame.opacity));ctx.globalCompositeOperation="source-over";ctx.drawImage(bitmap,-bitmap.width/2,-bitmap.height/2);ctx.restore();}
 
       const png = await new Promise<Blob>((resolve, reject) =>
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("canvas 导出失败"))), "image/png")
       );
       const filename = `${name}_${String(i).padStart(padLen, "0")}.png`;
       entries.push({ name: filename, data: new Uint8Array(await png.arrayBuffer()) });
-      meta.frames.push({ file: filename, w: cellW, h: cellH, duration: frame.duration });
+      meta.frames.push({ file: filename, w: cellW, h: cellH, duration: step.duration, frameIds: contributors.map((f)=>f.id) });
     }
 
     // JSON 元数据
@@ -153,6 +152,6 @@ export async function exportSpritesheet(frames: Frame[], name: string) {
     const zip = await createZip(entries);
     download(zip, `${name}_spritesheet.zip`);
   } finally {
-    bitmaps.forEach((bitmap) => bitmap?.close());
+    bitmapMap.forEach((bitmap) => bitmap.close());
   }
 }

@@ -4,6 +4,15 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+### Added
+
+- Added the backward-compatible multi-axis, multi-track composited timeline foundation, canonical REST/MCP operations, and idempotent legacy-project migration.
+- Added a canvas fit-to-window control with safer composition margins, automatic playback fitting above the floating controls, Cmd/Ctrl+wheel canvas zoom in edit and playback, and changed the animation-axis picker to the shared pixel-style select.
+- Added free frame-cell drag and drop within and across tracks; dropping on an occupied cell atomically swaps both frames, while locked tracks remain protected.
+- Changed project imports to enter a compact, tile-based unassigned frame pool on the left; frames are assembled by dragging them onto timeline cells, with replaced cells returned to the pool.
+- Changed the left panel from a consuming queue into a persistent reusable frame-asset panel, and added Space+drag canvas panning with grab/grabbing feedback.
+- Added visible in-editor usage guidance for dragging reusable assets onto timeline cells and for Space+drag canvas panning.
+
 ## [0.2.2] - 2026-08-11
 
 ### Added

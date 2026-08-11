@@ -1,5 +1,9 @@
 # FrameBaker User Guide
 
+## Multi-axis timeline
+
+The editor timeline is a matrix: shared steps are columns and compositing tracks are rows. Choose or add an animation axis for each direction/action variant. Tracks composite back-to-front by their order and may be hidden or locked. Selecting an empty cell is valid; material-library imports fill consecutive cells from that point, while importing without a selected step appends shared steps. Playback and ZIP export render all visible cells per step; JSON includes axis FPS/name, step durations, and contributing frame IDs.
+
 Pixel-art frame-by-frame animation editor: material import (GIF/MP4 frame extraction, PNG upload, AI generation) → crop/matting processing → frame editing (onion skin) → timeline ordering → playback preview → sprite sheet export.
 
 This guide is for end users, explaining each feature by page. For API details see [api.md](api.md), for internals see [architecture.md](architecture.md).

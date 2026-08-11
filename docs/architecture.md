@@ -193,6 +193,8 @@ Database tables (`apps/server/src/db.ts`, created on startup with CREATE TABLE I
 
 - `projects(id, name, folder_id, created_at)`
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
+- Canonical animation model: `animation_axes(project_id, idx, fps)` → `animation_tracks(axis_id, idx, visible, locked, is_primary)` plus shared `animation_steps(axis_id, idx, duration)`; `frames.track_id + step_id` is a unique composited cell coordinate. Legacy `frames.idx/duration` remain synchronized mirrors.
+- Startup migration is transactional/idempotent: every historical or empty project gets `Default` (8 fps) / `Main`; historical frames become one deterministic step each ordered by `idx,id`, preserving frame IDs, files, transforms, order, and durations. `frames.is_asset` separates reusable left-panel assets from timeline instances. Dragging an asset creates an instance without consuming the source; timeline-to-timeline drag still moves or swaps cells.
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
 - `folders(id, kind, parent_id, name, sort, created_at)`: multi-level directories for materials/projects (kind=`material`|`project`)

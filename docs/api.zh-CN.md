@@ -50,6 +50,8 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 
 ### GET /api/projects/:id/frames
 
+兼容视图：仅返回默认动画轴的主轨，按规范共享步骤排序。响应包含 `track_id`、`step_id`；步骤的 `idx`/`duration` 为权威值，帧字段暂作镜像。
+
 按 `idx` 升序返回：
 
 ```json
@@ -95,6 +97,16 @@ multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器�
 ### DELETE /api/frames/:id
 
 删除帧与图片文件，同项目后续帧 idx 前移。`{ "ok": true }`，广播 `frames_changed`。
+
+## 规范合成时间轴
+
+- `GET /api/projects/:id/timeline?axisId=`：返回项目全部动画轴，以及选中/默认轴、轨道、共享步骤、全部帧单元格、待编排 `poolFrames` 和左侧可复用 `assetFrames`。
+- `POST /api/projects/:id/axes`（`name`、可选 `fps`）；`PATCH /api/axes/:id`；`DELETE /api/axes/:id`（保护唯一轴）。
+- `POST /api/axes/:id/tracks`；`PATCH|DELETE /api/tracks/:id`；`POST /api/axes/:id/tracks/reorder` 接收完整且不重复的 `trackIds`。主轨/唯一轨道不可删除。
+- `POST /api/axes/:id/steps`；`PATCH|DELETE /api/steps/:id`；`POST /api/axes/:id/steps/reorder` 接收完整且不重复的 `stepIds`。时长范围 1–600，并镜像到步骤内全部单元格。
+- `PATCH /api/frames/:id/placement` 请求 `{ "trackId", "stepId", "swap"?, "copy"? }`；时间轴内部移动沿用原帧，左侧组装使用 `copy: true` 创建实例，源资产始终留在左侧并可重复使用。`swap: true` 时目标已有帧会退回资产面板。
+
+时间轴变更广播 `timeline_changed` 及 `projectId` 和相关 ID。删除单元格仅在步骤变空时裁剪步骤；旧复制会在源步骤后插入共享步骤；旧换序仅接受主轨“一步骤一单元格”的无歧义形态。
 
 ### POST /api/projects/:id/reorder
 
@@ -225,7 +237,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 { "ok": true, "count": 2, "frameIds": ["…", "…"] }
 ```
 
-把素材复制为项目帧追加到末尾：raw 与 processed 槽位分别复制，避免抠图结果覆盖帧原图；若历史素材缺少 raw 才回退 processed。`source` 沿用素材来源，`metadata` 合并 `{fromMaterial: id, ...}`。`count` 1–16，默认 1。广播 `frames_changed`。
+把素材复制为待编排项目帧并放入左侧帧池：raw 与 processed 槽位分别复制，避免抠图结果覆盖帧原图；若历史素材缺少 raw 才回退 processed。只有完成 placement 后才进入时间轴。`source` 与 metadata 均保留。`count` 1–16，默认 1。广播 `frames_changed`。
 
 ### POST /api/materials/batch-delete
 

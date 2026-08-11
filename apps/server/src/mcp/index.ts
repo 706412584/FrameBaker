@@ -15,11 +15,13 @@ import { register as registerMaterialTools } from "./tools/materials";
 import { register as registerFolderTools } from "./tools/folders";
 import { register as registerJobTools } from "./tools/jobs";
 import { register as registerSystemTools } from "./tools/system";
+import { register as registerTimelineTools } from "./tools/timeline";
 
 export const mcpHandler = createMcpHandler(() => {
   const server = new McpServer({ name: "framebaker", version: serverPackage.version });
   registerProjectTools(server);
   registerFrameTools(server);
+  registerTimelineTools(server);
   registerGenerationTools(server);
   registerMaterialTools(server);
   registerFolderTools(server);

@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { db, getFrame, uid, STORAGE_ROOT, serializeFrame } from "../../db";
 import { broadcast } from "../../ws";
 import { ok, err } from "../helpers";
+import { deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration } from "../../timeline";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -19,9 +20,8 @@ export function register(server: McpServer) {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },
     async ({ projectId }) => {
-      const rows = db
-        .query("SELECT * FROM frames WHERE project_id = ? ORDER BY idx")
-        .all(projectId) as any[];
+      const {axis,track}=ensureDefaultTimeline(projectId);
+      const rows = db.query("SELECT f.* FROM frames f JOIN animation_steps s ON s.id=f.step_id WHERE f.project_id=? AND f.track_id=? AND s.axis_id=? ORDER BY s.idx").all(projectId,track.id,axis.id) as any[];
       return ok({ frames: rows.map(serializeFrame) });
     }
   );
@@ -61,9 +61,9 @@ export function register(server: McpServer) {
       ] as const;
       const keys = updateFields.filter((k) => rest[k] !== undefined);
       if (keys.length === 0) return err("没有可更新的字段");
-      const setSql = keys.map((k) => `${k} = ?`).join(", ");
-      const values = keys.map((k) => (k === "tags" ? JSON.stringify(rest[k]) : rest[k]) as string | number);
-      db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, frameId);
+      if(rest.duration!==undefined&&frame.step_id)setStepDuration(frame.step_id,rest.duration);
+      const own=keys.filter(k=>k!=="duration");
+      if(own.length){const setSql=own.map(k=>`${k} = ?`).join(", ");const values=own.map(k=>(k==="tags"?JSON.stringify(rest[k]):rest[k]) as string|number);db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values,frameId);}
       const updated = getFrame(frameId)!;
       broadcast("frame_updated", { id: frameId, projectId: frame.project_id });
       return ok({ frame: serializeFrame(updated) });
@@ -87,11 +87,7 @@ export function register(server: McpServer) {
       for (const p of [frame.raw_path, frame.processed_path]) {
         if (p && existsSync(p)) unlinkSync(p);
       }
-      db.query("DELETE FROM frames WHERE id = ?").run(frame.id);
-      db.query("UPDATE frames SET idx = idx - 1 WHERE project_id = ? AND idx > ?").run(
-        frame.project_id,
-        frame.idx
-      );
+      deleteFrameCell(frame.id);
       broadcast("frames_changed", { projectId: frame.project_id });
       return ok({ ok: true });
     }
@@ -174,17 +170,14 @@ export function register(server: McpServer) {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
     async ({ projectId, frameIds }) => {
-      const rows = db
-        .query("SELECT id FROM frames WHERE project_id = ?")
-        .all(projectId) as Array<{ id: string }>;
+      const {axis,track}=ensureDefaultTimeline(projectId);
+      const rows = db.query("SELECT f.id,f.step_id FROM frames f JOIN animation_steps s ON s.id=f.step_id WHERE f.project_id=? AND f.track_id=? AND s.axis_id=?").all(projectId,track.id,axis.id) as Array<{id:string;step_id:string}>;
       const set = new Set(rows.map((r) => r.id));
-      if (frameIds.length !== set.size || !frameIds.every((id) => set.has(id))) {
-        return err("frameIds 必须恰好包含项目的全部帧");
+      const count=(db.query("SELECT COUNT(*) n FROM animation_steps WHERE axis_id=?").get(axis.id) as any).n;
+      if (rows.length!==count||frameIds.length !== set.size || new Set(frameIds).size!==frameIds.length||!frameIds.every((id) => set.has(id))) {
+        return err("仅支持主轨每步骤恰好一个单元格的旧式时间轴换序");
       }
-      const stmt = db.query("UPDATE frames SET idx = ? WHERE id = ?");
-      db.transaction((ids: string[]) => {
-        ids.forEach((id, i) => stmt.run(i, id));
-      })(frameIds);
+      const byId=new Map(rows.map(r=>[r.id,r.step_id]));reorderSteps(axis.id,frameIds.map(id=>byId.get(id)!));
       broadcast("frames_reordered", { projectId });
       return ok({ ok: true });
     }

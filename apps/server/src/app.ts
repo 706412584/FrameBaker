@@ -13,6 +13,7 @@ import { importApi } from "./api/import";
 import { materialsApi } from "./api/materials";
 import { settingsApi } from "./api/settings";
 import { foldersApi } from "./api/folders";
+import { timelineApi } from "./api/timeline";
 import { mcpHandler } from "./mcp";
 import { cancelJob } from "./queue";
 
@@ -162,6 +163,7 @@ export const app = new Elysia()
   })
   .use(projectsApi)
   .use(framesApi)
+  .use(timelineApi)
   .use(importApi)
   .use(materialsApi)
   .use(foldersApi)

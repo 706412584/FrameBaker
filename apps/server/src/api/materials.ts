@@ -9,6 +9,7 @@ import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extr
 import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
 import { broadcast } from "../ws";
+import { appendFramePool, importFrameCellsToTarget, validateFrameImportTarget, type NewFrameCell } from "../timeline";
 
 function baseName(filename: string): string {
   const n = filename.split("/").pop() ?? filename;
@@ -37,6 +38,12 @@ export function sortMaterialsByFrameNumber(materials: MaterialRow[]): MaterialRo
 
 /** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
+  const cell = prepareMaterialFrame(m, projectId);
+  appendFramePool(projectId, cell);
+  return cell.id;
+}
+
+function prepareMaterialFrame(m: MaterialRow, projectId: string): NewFrameCell {
   const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
   if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
   if (/\.(mp4|mov|webm|avi)$/i.test(rawSrc)) {
@@ -61,10 +68,7 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   } catch {
     /* ignore */
   }
-  db.query(
-    "INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?)"
-  ).run(frameId, projectId, nextFrameIdx(projectId), rawPath, procPath, m.source, JSON.stringify(metadata));
-  return frameId;
+  return { id: frameId, raw_path: rawPath, processed_path: procPath, status: "ready", source: m.source, metadata: JSON.stringify(metadata) };
 }
 
 /** 素材图片/视频流式返回，processed 缺失回退 raw */
@@ -420,20 +424,20 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     ({ body, status }) => {
       const project = db.query("SELECT id FROM projects WHERE id = ?").get(body.projectId);
       if (!project) return status(404, "项目不存在");
-      let count = 0;
       try {
         const materials = sortMaterialsByFrameNumber(
           body.ids.map((id) => getMaterial(id)).filter((m): m is MaterialRow => m !== null)
         );
-        for (const m of materials) {
-          importMaterialToProject(m, body.projectId);
-          count++;
-        }
+        if (body.target) validateFrameImportTarget(body.projectId, materials.length, body.target);
+        const frameIds = body.target
+          ? importFrameCellsToTarget(body.projectId, materials.map((m) => prepareMaterialFrame(m, body.projectId)), body.target)
+          : materials.map((m) => importMaterialToProject(m, body.projectId));
+        broadcast("frames_changed", { projectId: body.projectId });
+        broadcast("timeline_changed", { projectId: body.projectId, axisId: body.target?.axisId });
+        return { ok: true, count: frameIds.length, frameIds };
       } catch (e) {
-        return status(500, (e as Error).message);
+        return status(400, (e as Error).message);
       }
-      broadcast("frames_changed", { projectId: body.projectId });
-      return { ok: true, count };
     },
-    { body: t.Object({ ids: t.Array(t.String()), projectId: t.String() }) }
+    { body: t.Object({ ids: t.Array(t.String()), projectId: t.String(), target: t.Optional(t.Object({ axisId: t.String(), trackId: t.String(), startStepId: t.Optional(t.String()) })) }) }
   );

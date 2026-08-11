@@ -6,6 +6,7 @@ import { createProviderAdapter } from "../providerAdapter";
 import { broadcast } from "../ws";
 import { JobCancelledError, runCmd } from "./run";
 import { createGeneratedArtifactCommitter } from "./generatedArtifacts";
+import { appendFramePool } from "../timeline";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -188,25 +189,18 @@ export async function extractFrames(
   progress(`入库 ${files.length} 项`);
 
   if (p.target.kind === "project") {
-    const rawDir = join(STORAGE_ROOT, "projects", p.target.projectId, "raw");
+    const projectId = p.target.projectId;
+    const rawDir = join(STORAGE_ROOT, "projects", projectId, "raw");
     mkdirSync(rawDir, { recursive: true });
     mkdirSync(join(STORAGE_ROOT, "projects", p.target.projectId, "processed"), { recursive: true });
     const start = nextFrameNumber(rawDir);
-    const baseIdx = nextFrameIdx(p.target.projectId);
     const frameIds: string[] = [];
     const source = p.mediaType === "mp4" || p.mediaType === "gif" ? "extract" : p.mediaType;
     files.forEach((file, i) => {
       const id = uid();
       const rawPath = `${rawDir}/frame_${String(start + i).padStart(4, "0")}.png`;
       renameSync(`${stageDir}/${file}`, rawPath);
-      db.query("INSERT INTO frames (id, project_id, idx, raw_path, status, source) VALUES (?, ?, ?, ?, ?, ?)").run(
-        id,
-        p.target.kind === "project" ? p.target.projectId : "",
-        baseIdx + i,
-        rawPath,
-        p.autoMatting ? "matting" : "ready",
-        source
-      );
+      appendFramePool(projectId,{id,raw_path:rawPath,status:p.autoMatting?"matting":"ready",source});
       frameIds.push(id);
     });
     cleanupStaging(stageDir, p.stagingFile);

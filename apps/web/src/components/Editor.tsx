@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Copy, Crop, Download, Minus, Play, Plus, Scan, Star, Trash2, Upload } from "lucide-react";
 import type * as Pixi from "pixi.js";
-import { api, frameImageUrl, wsClient, type Frame, type FramePatch, type Project } from "../api";
+import { api, frameImageUrl, wsClient, type AnimationTrack, type Frame, type FramePatch, type Project, type TimelineResponse } from "../api";
 import { askConfirm, notify } from "../notice";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
 import FrameList from "./FrameList";
@@ -42,6 +42,12 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const t = useT();
   const [project, setProject] = useState<Project | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
+  const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
+  const [axisId, setAxisId] = useState<string | null>(null);
+  const axisIdRef = useRef<string | null>(null);
+  axisIdRef.current = axisId;
+  const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+  const [activeStepId, setActiveStepId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: Blob; title: string } | null>(null);
@@ -50,6 +56,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [paused, setPaused] = useState(false);
   const [fps, setFps] = useState(8);
   const [cursor, setCursor] = useState(0);
+  const [fitRequest, setFitRequest] = useState(0);
   const playTick = useRef(0);
   const shellRef = useRef<HTMLDivElement>(null);
   // 画布工具栏状态（上提到 Editor：编辑/预览两种模式共用一份，切换不丢）
@@ -91,12 +98,34 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 同一帧的 PATCH 串行提交：UI 先乐观更新，避免快速连续步进丢操作或响应乱序
   const patchChains = useRef(new Map<string, Promise<void>>());
   const patchRevisions = useRef(new Map<string, number>());
+  const steps = timeline?.steps ?? [];
+  const tracks = timeline?.tracks ?? [];
+  const allFrames = timeline?.frames ?? [];
 
-  const loadFrames = useCallback(async () => {
+  const loadFrames = useCallback(async (preferredTrackId?: string) => {
     try {
-      const list = await api.getFrames(projectId);
-      setFrames(list);
-      setActiveId((cur) => (cur && list.some((f) => f.id === cur) ? cur : (list[0]?.id ?? null)));
+      const requestedAxisId = axisId;
+      const data = await api.getTimeline(projectId, requestedAxisId ?? undefined);
+      // 新轴选择期间可能仍有旧 WS 刷新在途；过期响应不得切回旧轴。
+      if (axisIdRef.current !== null && requestedAxisId !== axisIdRef.current) return;
+      setTimeline(data);
+      setAxisId(data.axis.id);
+      setFps(data.axis.fps);
+      const requestedTrackId = preferredTrackId ?? activeTrackId;
+      const trackId = data.tracks.some((x) => x.id === requestedTrackId) ? requestedTrackId : data.tracks[0]?.id ?? null;
+      setActiveTrackId(trackId);
+      const list = data.frames.filter((f) => f.track_id === trackId);
+      const assets = data.assetFrames ?? data.poolFrames ?? [];
+      const pool = data.poolFrames ?? [];
+      setFrames([...assets, ...list.filter((frame) => !assets.some((asset) => asset.id === frame.id))]);
+      setActiveStepId((currentStepId) => {
+        const stepId = currentStepId && data.steps.some((step) => step.id === currentStepId)
+          ? currentStepId
+          : data.steps[0]?.id ?? null;
+        const cell = data.frames.find((frame) => frame.track_id === trackId && frame.step_id === stepId) ?? null;
+        setActiveId((currentId) => pool.some((frame) => frame.id === currentId) ? currentId : cell?.id ?? null);
+        return stepId;
+      });
       // 选区里已不存在的帧自动剔除
       setSelectedIds((prev) => {
         if (prev.size === 0) return prev;
@@ -107,14 +136,15 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     } catch (e) {
       console.error(e);
     }
-  }, [projectId]);
+  }, [projectId, axisId, activeTrackId]);
 
   useEffect(() => {
     api.getProject(projectId).then(setProject).catch(() => setProject(null));
     loadFrames();
     // WS：任务/帧变更时刷新帧列表
     const unsub = wsClient.subscribe((msg) => {
-      if (["frame_updated", "frames_reordered", "frames_changed", "job_done"].includes(msg.type)) {
+      const payload = msg.payload as { projectId?: string };
+      if (["frame_updated", "frames_reordered", "frames_changed", "job_done", "timeline_changed"].includes(msg.type) && (!payload?.projectId || payload.projectId === projectId)) {
         loadFrames();
         setV((x) => x + 1);
       }
@@ -127,6 +157,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       const revision = (patchRevisions.current.get(id) ?? 0) + 1;
       patchRevisions.current.set(id, revision);
       setFrames((fs) => fs.map((frame) => (frame.id === id ? { ...frame, ...patch } : frame)));
+      setTimeline((current) => current ? {
+        ...current,
+        frames: current.frames.map((frame) => (frame.id === id ? { ...frame, ...patch } : frame)),
+      } : current);
 
       const previous = patchChains.current.get(id) ?? Promise.resolve();
       const request = previous
@@ -134,6 +168,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         .then(({ frame }) => {
           if (patchRevisions.current.get(id) === revision) {
             setFrames((fs) => fs.map((current) => (current.id === id ? frame : current)));
+            setTimeline((current) => current ? {
+              ...current,
+              frames: current.frames.map((item) => (item.id === id ? frame : item)),
+            } : current);
           }
         })
         .catch((e) => {
@@ -254,6 +292,8 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       }
       // 单击：设为当前编辑帧，并清空多选
       setActiveId(id);
+      const chosen = allFrames.find((f) => f.id === id);
+      if (chosen) { setActiveTrackId(chosen.track_id); setActiveStepId(chosen.step_id); }
       setSelectedIds(new Set());
     },
     [frames, activeId]
@@ -263,66 +303,75 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const togglePlayback = useCallback(() => {
     if (!showPreview) {
       // 从当前编辑帧开始播
-      const idx = frames.findIndex((f) => f.id === activeId);
+      const idx = steps.findIndex((step) => step.id === activeStepId);
       setCursor(idx >= 0 ? idx : 0);
       playTick.current = 0;
       setPaused(false);
+      // 播放预览始终从自动适应倍率开始，不继承编辑时的手动放大，避免被控制条遮挡。
+      setZoom(1);
+      setFitRequest((request) => request + 1);
     }
     setShowPreview((s) => !s);
-  }, [showPreview, frames, activeId]);
+  }, [showPreview, steps, activeStepId]);
 
   // 深链/测试钩子：?autoplay=1 进入项目后自动开始播放
   const autoPlayed = useRef(false);
   useEffect(() => {
-    if (autoPlayed.current || frames.length === 0) return;
+    if (autoPlayed.current || allFrames.length === 0) return;
     if (new URLSearchParams(location.search).has("autoplay")) {
       autoPlayed.current = true;
       togglePlayback();
     }
-  }, [frames, togglePlayback]);
+  }, [allFrames, togglePlayback]);
 
   // 播放计时器：按 fps tick 推进，每帧停留 duration 个 tick
   useEffect(() => {
-    if (!showPreview || paused || frames.length === 0) return;
+    if (!showPreview || paused || steps.length === 0) return;
     const id = setInterval(() => {
       playTick.current += 1;
-      const dur = Math.max(1, frames[cursor]?.duration ?? 1);
+      const dur = Math.max(1, steps[cursor]?.duration ?? 1);
       if (playTick.current >= dur) {
         playTick.current = 0;
-        setCursor((c) => (c + 1) % frames.length);
+        setCursor((c) => (c + 1) % steps.length);
       }
     }, 1000 / fps);
     return () => clearInterval(id);
-  }, [showPreview, paused, fps, frames, cursor]);
+  }, [showPreview, paused, fps, steps, cursor]);
 
   // 帧数变化时防止游标越界
   useEffect(() => {
-    if (cursor >= frames.length) {
+    if (cursor >= steps.length) {
       setCursor(0);
       playTick.current = 0;
     }
-  }, [frames.length, cursor]);
+  }, [steps.length, cursor]);
 
   // 进入播放时预载全部帧贴图：切换只换 sprite.texture，零闪烁
   useEffect(() => {
     if (!showPreview) return;
-    for (const f of frames) {
+    for (const f of allFrames) {
       Assets.load(frameImageUrl(f.id, v)).catch(() => null);
     }
-  }, [showPreview, frames, v]);
+  }, [showPreview, allFrames, v]);
 
-  // 播放中 Cmd/Ctrl+滚轮缩放（作用于 Pixi viewport，原生监听好 preventDefault）
+  // 画布内 Cmd/Ctrl+滚轮缩放：编辑与播放共用 Pixi viewport，普通滚轮不拦截。
   useEffect(() => {
     const el = shellRef.current;
-    if (!el || !showPreview) return;
+    if (!el) return;
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
-      zoomBy(e.deltaY < 0 ? 1.25 : 1 / 1.25);
+      // 同时适配鼠标滚轮与触控板：按 delta 平滑缩放，并限制单次跳变。
+      const delta = e.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? e.deltaY * 16
+        : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? e.deltaY * 100
+          : e.deltaY;
+      zoomBy(Math.exp(Math.max(-0.35, Math.min(0.35, -delta * 0.002))));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [showPreview, zoomBy]);
+  }, [zoomBy]);
 
   // Esc 清空多选（导入弹窗/右键菜单打开时不抢按键）
   useEffect(() => {
@@ -416,7 +465,14 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const prev = activeIndex > 0 ? frames[activeIndex - 1] : null;
   const next = activeIndex >= 0 && activeIndex < frames.length - 1 ? frames[activeIndex + 1] : null;
   // 播放时画布显示游标帧，停止回到当前编辑帧
-  const displayFrame = showPreview ? (frames[cursor] ?? null) : active;
+  const displayStep = showPreview ? steps[cursor] : steps.find((s) => s.id === activeStepId);
+  const composite = displayStep ? allFrames.filter((f) => f.step_id === displayStep.id && tracks.find((tr) => tr.id === f.track_id)?.visible).sort((a,b)=>(tracks.find(x=>x.id===a.track_id)?.idx??0)-(tracks.find(x=>x.id===b.track_id)?.idx??0)) : [];
+  const activeFrameId = active?.id;
+  const poolActive = !!active && !active.track_id && !active.step_id;
+  const displayFrame = !showPreview && (poolActive || (active?.step_id === displayStep?.id && composite.some((frame) => frame.id === activeFrameId)))
+    ? active
+    : null;
+  const displayComposite = poolActive && active ? [active] : composite;
 
   // ---- 右键菜单项：右键落在多选内 = 批量操作（同 BatchBar），否则单帧操作 ----
   const ctxFrame = ctxMenu ? (frames.find((f) => f.id === ctxMenu.frameId) ?? null) : null;
@@ -480,7 +536,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           <ArrowLeft size={16} />
         </IconBtn>
         <span className="proj-name">{project?.name ?? "…"}</span>
-        <span className="frame-count">{t("msg.n_frames", { n: frames.length })}</span>
+        <span className="frame-count">{t("msg.n_frames", { n: allFrames.length + (timeline?.poolFrames.length ?? 0) })}</span>
         <div className="spacer" />
         <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" onClick={() => setShowImport(true)}>
           <Upload size={14} /> {t("msg.import_materials")}
@@ -497,8 +553,8 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           type="button"
           whileTap={{ scale: 0.95 }}
           className="px-btn accent"
-          disabled={frames.length === 0}
-          onClick={() => exportSpritesheet(frames, project?.name ?? "spritesheet").catch((e) => notify(t("msg.export_failed_msg", { msg: (e as Error).message })))}
+          disabled={allFrames.length === 0}
+          onClick={() => timeline && exportSpritesheet(timeline, project?.name ?? "spritesheet").catch((e) => notify(t("msg.export_failed_msg", { msg: (e as Error).message })))}
         >
           <Download size={14} /> {t("msg.export_spritesheet")}
         </motion.button>
@@ -508,7 +564,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
       <div className="editor-main">
         <FrameList
-          frames={frames}
+          frames={timeline?.assetFrames ?? timeline?.poolFrames ?? []}
           activeId={activeId}
           selectedIds={selectedIds}
           v={v}
@@ -534,18 +590,25 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onToggleGrid={() => setShowGrid((g) => !g)}
               onZoomBy={zoomBy}
               onZoomReset={() => setZoom(1)}
+              onFit={() => {
+                setZoom(1);
+                setFitRequest((request) => request + 1);
+              }}
               onReplace={onReplace}
               onCrop={onCropFrame}
               onPatch={patchFrame}
             />
-            {/* 播放就在 Pixi 画布内：FrameEditor 常驻不卸载，悬浮播放条覆盖在画布框内底部 */}
-            <div className="stage-shell" ref={shellRef}>
+            {/* FrameEditor 常驻不卸载；播放时底部预留控制区，避免播放条覆盖合成内容。 */}
+            <div className={`stage-shell ${showPreview ? "playing" : ""}`} ref={shellRef}>
               <FrameEditor
                 frame={displayFrame}
+                composite={displayComposite}
+                editable={!showPreview && !!active && !tracks.find((tr) => tr.id === active.track_id)?.locked}
                 prev={prev}
                 next={next}
                 v={v}
                 zoom={zoom}
+                fitRequest={fitRequest}
                 onion={onion}
                 showGrid={showGrid}
                 playing={showPreview}
@@ -558,10 +621,17 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
                     fps={fps}
                     paused={paused}
                     cursor={cursor}
-                    total={frames.length}
+                    total={steps.length}
                     zoom={zoom}
                     onTogglePause={() => setPaused((p) => !p)}
-                    onFpsChange={setFps}
+                    onFpsChange={(nextFps) => {
+                      setFps(nextFps);
+                      if (timeline) {
+                        api.patchAxis(timeline.axis.id, { fps: nextFps }).catch((e) =>
+                          notify(t("msg.frame_update_failed_msg", { msg: (e as Error).message }))
+                        );
+                      }
+                    }}
                   />
                 )}
               </AnimatePresence>
@@ -571,16 +641,22 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       </div>
 
       <SplitDivider direction="row" onDelta={onTimelineDelta} onReset={() => setLayout((l) => ({ ...l, timelineH: LAYOUT_DEFAULTS.timelineH }))} />
-      <Timeline
-        frames={frames}
-        activeId={activeId}
-        selectedIds={selectedIds}
-        v={v}
-        height={layout.timelineH}
-        onFrameClick={onFrameClick}
-        onReorder={onReorder}
-        onContextMenu={onFrameContextMenu}
-      />
+      {timeline && <Timeline axes={timeline.axes} axis={timeline.axis} tracks={tracks} steps={steps} frames={allFrames}
+        activeTrackId={activeTrackId} activeStepId={activeStepId} activeId={activeId} v={v} height={layout.timelineH}
+        onAxis={(id)=>{axisIdRef.current=id;setAxisId(id);setActiveId(null);setActiveStepId(null)}}
+        onAddAxis={async()=>{const {axis}=await api.createAxis(projectId,{name:t("timeline.defaultAxisName"),fps});axisIdRef.current=axis.id;setAxisId(axis.id)}}
+        onDeleteAxis={async()=>{if(await askConfirm(t("timeline.confirmDeleteAxis"))){await api.deleteAxis(timeline.axis.id);axisIdRef.current=null;setAxisId(null);void loadFrames()}}}
+        onCell={(trackId,stepId,frameId)=>{setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frameId);setSelectedIds(new Set())}}
+        onMoveCell={async(frameId,trackId,stepId,copy)=>{try{const {frame}=await api.moveFrameCell(frameId,trackId,stepId,true,copy);await loadFrames(trackId);setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frame.id);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
+        onAddTrack={async()=>{await api.createTrack(timeline.axis.id,{name:t("timeline.defaultTrackName",{n:tracks.length+1})});void loadFrames()}}
+        onPatchTrack={async(track,patch)=>{await api.patchTrack(track.id,patch);void loadFrames()}}
+        onDeleteTrack={async(track)=>{if(await askConfirm(t("timeline.confirmDeleteTrack"))){await api.deleteTrack(track.id);void loadFrames()}}}
+        onMoveTrack={async(track,delta)=>{const ordered=[...tracks].sort((a,b)=>a.idx-b.idx);const from=ordered.findIndex(x=>x.id===track.id),to=Math.max(0,Math.min(ordered.length-1,from+delta));if(from===to)return;const [x]=ordered.splice(from,1);ordered.splice(to,0,x);await api.reorderTracks(timeline.axis.id,ordered.map(x=>x.id));void loadFrames()}}
+        onAddStep={async()=>{const {step}=await api.createStep(timeline.axis.id);setActiveStepId(step.id);void loadFrames()}}
+        onDeleteStep={async()=>{if(activeStepId&&await askConfirm(t("timeline.confirmDeleteStep"))){await api.deleteStep(activeStepId);setActiveStepId(null);setActiveId(null);void loadFrames()}}}
+        onStepDuration={async(duration)=>{if(activeStepId){await api.patchStep(activeStepId,{duration});void loadFrames()}}}
+        onReorderSteps={async(from,to)=>{const ordered=[...steps];const [x]=ordered.splice(from,1);ordered.splice(to,0,x);await api.reorderSteps(timeline.axis.id,ordered.map(x=>x.id));void loadFrames()}}
+        onContextMenu={onFrameContextMenu}/>} 
 
       {/* 批量操作条：多选 >=2 时浮出 */}
       <div className="batch-dock">

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { GenProviderType } from "@framebaker/shared";
 import { db, nextFrameIdx, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
+import { appendFramePool } from "../timeline";
 
 type Target = { kind: "project"; projectId: string } | { kind: "materials" };
 type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
@@ -109,15 +110,7 @@ export function createGeneratedArtifactCommitter(options: {
   const commitImage = (allocation: ArtifactAllocation): string => {
     const id = allocation.id ?? uid();
     if (options.target.kind === "project") {
-      db.query("INSERT INTO frames (id, project_id, idx, raw_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-        id,
-        options.target.projectId,
-        projectIdx + allocation.index,
-        allocation.path,
-        options.autoMatting ? "matting" : "ready",
-        options.source,
-        metadata(allocation.index)
-      );
+      appendFramePool(options.target.projectId,{id,raw_path:allocation.path,status:options.autoMatting?"matting":"ready",source:options.source,metadata:metadata(allocation.index)});
     } else {
       // 视频请求误返单图时只会提交一项，不追加 #1。
       const total = allocation.requestedKind === "video" ? 1 : options.count;
