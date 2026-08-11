@@ -17,6 +17,7 @@ import { animationAssetsApi } from "./api/animationAssets";
 import { rasterSequencesApi } from "./api/rasterSequences";
 import { skeletalProjectsApi } from "./api/skeletalProjects";
 import { characterPartSetsApi } from "./api/characterPartSets";
+import { mcpHandler } from "./mcp";
 import { cancelJob } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
@@ -166,6 +167,8 @@ export const app = new Elysia()
   .use(foldersApi)
   .use(animationAssetsApi)
   .use(rasterSequencesApi)
-  .use(settingsApi);
+  .use(settingsApi)
+  // MCP（Model Context Protocol）端点：Streamable HTTP 传输（SDK v2 自动处理 POST/GET/DELETE）
+  .all("/mcp", ({ request }) => mcpHandler.fetch(request));
 
 export type App = typeof app;

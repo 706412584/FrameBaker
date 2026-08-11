@@ -1,66 +1,56 @@
 # FrameBaker API
 
-Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/响应类型定义见 `packages/shared/src/types.ts`。
+Base URL: `http://localhost:3000`; unless noted otherwise, all endpoints use the `/api` prefix. Request/response type definitions in `packages/shared/src/types.ts`.
 
-约定：
+Conventions:
 
-- 所有 id 为 UUID 字符串
-- 帧的 `tags` / `metadata` 在 API 输出中已解析为 JSON（DB 中为字符串）
-- 错误响应：非 2xx + 纯文本中文错误信息
-- 写操作触发 WS 广播（`/ws`，消息格式 `{ "type": string, "payload": any }`，type 见文末）
+- All ids are UUID strings
+- Frame `tags` / `metadata` are parsed as JSON in API output (stored as strings in DB)
+- Error responses: non-2xx + plain text error message
+- Write operations trigger WS broadcast (`/ws`, message format `{ "type": string, "payload": any }`, types listed at the end)
 
-## 项目
+## Projects
 
 ### GET /api/projects
 
-项目列表，按创建时间倒序。
+Project list, sorted by creation time descending.
 
 ```json
 {
   "projects": [
-    { "id": "…", "name": "走路循环", "kind": "frame", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
+    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
   ]
 }
 ```
 
-`kind` 为创建后不可变的 `frame | skeletal`；存量项目和未指定类型的创建请求均为 `frame`。
-
 ### POST /api/projects
 
 ```json
-// 请求
-{ "name": "走路循环", "kind": "frame" }
-// 响应
-{ "id": "…", "name": "走路循环", "kind": "frame" }
+// Request
+{ "name": "走路循环" }
+// Response
+{ "id": "…", "name": "走路循环" }
 ```
 
 ### GET /api/projects/:id
 
 ```json
-{ "project": { "id": "…", "name": "…", "kind": "skeletal", "created_at": 1785912000000, "frame_count": 0 } }
+{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8 } }
 ```
 
 ### PATCH /api/projects/:id
 
-`{ "name": "新名字" }` → `{ "ok": true }`
+`{ "name": "New Name" }` → `{ "ok": true }`
 
 ### DELETE /api/projects/:id
 
-删除项目及其全部帧、任务、骨骼项目文档与磁盘文件 → `{ "ok": true }`，广播 `project_deleted`。
+Deletes the project and all its frames, jobs, and disk files → `{ "ok": true }`, broadcasts `project_deleted`.
 
-### GET /api/projects/:id/skeletal-document
-
-仅用于 `kind="skeletal"` 的项目。首次读取会创建并持久化空文档，返回 `{ "document": { "schemaVersion": 1, "projectId": "…", "character": null, "animations": [], "activeAnimationId": null } }`。逐帧项目返回 409。
-
-### PUT /api/projects/:id/skeletal-document
-
-请求体为完整 `SkeletalProjectDocument`，成功返回 `{ "document": {…} }`。`projectId` 必须与 URL 一致；`character` 保存从资产库复制进项目的 `CharacterBinding` 以及可选 `sourceBindingId`，项目内后续修改不会改动原资产；动作项格式为 `{ "id", "name", "motionClipId", "speed", "repeat", "loop" }`，id 和名称非空且各自唯一，`speed` 范围 `(0, 8]`，`repeat` 为 `1..100` 整数，活动动作必须存在。角色骨架、素材与 MotionClip 必须存在，且全部使用同一 Skeleton；没有角色时不得配置动作。逐帧项目返回 409。
-
-## 帧
+## Frames
 
 ### GET /api/projects/:id/frames
 
-按 `idx` 升序返回：
+Returns frames sorted by `idx` ascending:
 
 ```json
 {
@@ -79,59 +69,59 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 
 ### GET /api/frames/:id/image?type=raw|processed
 
-图片流（`image/png`，`Cache-Control: no-store`）。`type=processed` 且无 processed 文件时回退 raw。404：帧或文件不存在。
+Image stream (`image/png`, `Cache-Control: no-store`). `type=processed` falls back to raw when no processed file exists. 404: frame or file not found.
 
 ### PATCH /api/frames/:id
 
-可更新字段（至少一个，全部可选）：`offset_x` / `offset_y`（-100000–100000）、`scale`（0.1–8）、`rotation`（弧度，-π–π）、`opacity`（0–1）、`duration`（int 1–600）、`is_keyframe`（0/1）、`tags`（string[]）。
+Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), `tags` (string[]).
 
 ```json
-// 请求
+// Request
 { "offset_x": 12.5, "duration": 3, "is_keyframe": 1 }
-// 响应
-{ "frame": { /* 更新后的完整帧 */ } }
+// Response
+{ "frame": { /* updated full frame */ } }
 ```
 
-广播 `frame_updated`。
+Broadcasts `frame_updated`.
 
 ### POST /api/frames/:id/replace
 
-multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器会先通过 CropModal 剪裁/编码，再写入 `processed/<id>_replaced.png`；旧 processed 文件会被清理，`source` 置为 `upload`，状态置 `ready`。响应 `{ "frame": {…} }`，广播 `frame_updated`。
+multipart/form-data: `file` (PNG, server validates file signature). The editor first crops/encodes via CropModal, then writes to `processed/<id>_replaced.png`; old processed file is cleaned up, `source` set to `upload`, status set to `ready`. Response `{ "frame": {…} }`, broadcasts `frame_updated`.
 
 ### POST /api/frames/:id/duplicate?count=N
 
-复制 N 份（1–16，默认 1）插入原帧之后，复制图片文件与全部属性，`source=duplicate`，后续帧 idx 顺延。响应 `{ "ok": true, "count": 2 }`，广播 `frames_changed`。
+Duplicates N copies (1–16, default 1) inserted after the original, copies image files and all properties, `source=duplicate`, subsequent frame indices shifted. Response `{ "ok": true, "count": 2 }`, broadcasts `frames_changed`.
 
 ### DELETE /api/frames/:id
 
-删除帧与图片文件，同项目后续帧 idx 前移。`{ "ok": true }`，广播 `frames_changed`。
+Deletes frame and image files; subsequent frames in the same project have their idx decremented. `{ "ok": true }`, broadcasts `frames_changed`.
 
 ### POST /api/projects/:id/reorder
 
 ```json
-// 请求：必须恰好包含项目全部帧 id
+// Request: must contain exactly all frame ids of the project
 { "frameIds": ["id3", "id1", "id2"] }
-// 响应
+// Response
 { "ok": true }
 ```
 
-按数组顺序重写 idx（事务）。400：集合不匹配。广播 `frames_reordered`。
+Rewrites idx by array order (transaction). 400: set mismatch. Broadcasts `frames_reordered`.
 
-## 导入
+## Import
 
 ### POST /api/import/upload
 
-multipart/form-data：
+multipart/form-data:
 
-| 字段 | 说明 |
+| Field | Description |
 | --- | --- |
-| `file` | 素材文件 |
-| `projectId` | 目标项目 |
-| `type` | `gif`（全部帧）/ `mp4`（按 fps 抽帧）/ `image`（单图一帧） |
-| `fps` | 可选，mp4 抽帧帧率，默认 8（1–60） |
-| `autoMatting` | 可选，`"true"` 时每帧再入队抠图任务 |
+| `file` | Source file |
+| `projectId` | Target project |
+| `type` | `gif` (all frames) / `mp4` (extract at fps) / `image` (single image → one frame) |
+| `fps` | Optional, mp4 extraction fps, default 8 (1–60) |
+| `autoMatting` | Optional, `"true"` to auto-queue matting for each frame |
 
-响应 `{ "jobId": "…" }`，随后轮询 `GET /api/jobs/:id` 或等 WS `job_done`。
+Response `{ "jobId": "…" }`, then poll `GET /api/jobs/:id` or wait for WS `job_done`.
 
 ```bash
 curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000/api/import/upload
@@ -140,37 +130,35 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 ### POST /api/import/generate
 
 ```json
-// 请求
+// Request
 { "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…", "mediaKind": "image", "fps": 8 }
-// 响应
+// Response
 { "jobId": "…" }
 ```
 
-provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个共存，类型：`cli` / `api`（OpenAI 兼容）/ `dashscope`（百炼原生）/ `gemini`（banana）/ `minimax`；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。可选 `size` 在生成时覆盖 provider 的 `apiSize`（格式随 provider 类型：api 如 `1024x1024`、dashscope 如 `1328*1328`、gemini/minimax 如 `16:9`；预设档位见共享常量 `GEN_SIZE_PRESETS`；CLI provider 无尺寸概念忽略）。
+Provider resolution: if `providerId` is passed, looks up by id (not found → 400); default uses the first fully configured provider (settings page can configure multiple coexisting providers, types: `cli` / `api` (OpenAI-compatible) / `dashscope` (DashScope native) / `gemini` (banana) / `minimax`; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider as fallback). Optional `size` overrides the provider's `apiSize` at generation time (format varies by provider type: api e.g., `1024x1024`, dashscope e.g., `1328*1328`, gemini/minimax e.g., `16:9`; preset tiers in shared constant `GEN_SIZE_PRESETS`; CLI providers ignore size).
 
-- **CLI provider**：结构化字段组装 argv（`cliBin` + 参数名映射：`cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，留空=位置参数或不下发），不经 shell；env `FRAMEBAKER_GEN_CLI` 与旧数据走遗留模板占位符路径（`{prompt}` `{output}` `{index}` `{reference}` `{model}`）。
-- **API provider（OpenAI 兼容，含 OpenAI 官方 / 火山方舟豆包 Seedream / 各类网关）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`。单图保持 multipart `image` 字段；双图按官方多图格式重复使用 `image[]`，顺序为外观图、动作图。需端点和模型支持 edits/多图输入（dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
-- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（wan2.7-image / qwen-image 等，不在兼容模式内）；content 顺序为外观引用图、动作参考图、文本（未传的图片省略，图片为 base64 dataURI）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 可为 `2K`/`1K`/`4K` 或星号格式（如 `2048*2048`）原样透传。**Base URL 归一**（`normalizeDashscopeBaseUrl`）：可填 Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`，或文档兼容地址 `…/compatible-mode/v1` / 尾部 `/api/v1`（服务端剥掉后缀再拼原生路径）；按量付费常用 `https://dashscope.aliyuncs.com`。
-- **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；parts 顺序为外观引用图、动作参考图、文本（未传的图片省略）；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）；响应取 `candidates[0].content.parts[*].inlineData.data`（base64）。
-- **MiniMax provider**：`POST {apiBaseUrl}/v1/image_generation`（Bearer）；引用图走 `subject_reference`（主体特征保持，限一张，base64 dataURI）；`apiSize` 映射 `aspect_ratio`（如 `16:9`）；`response_format=base64`，响应取 `data.image_base64[0]`，`base_resp.status_code` 非 0 视为失败。
+- **CLI provider**: structured fields assemble argv (`cliBin` + parameter name mappings: `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`, empty = positional arg or not sent), no shell; env `FRAMEBAKER_GEN_CLI` and legacy data use legacy template placeholder path (`{prompt}` `{output}` `{index}` `{reference}` `{model}`).
+- **API provider (OpenAI-compatible, incl. OpenAI official / VolcEngine Doubao Seedream / various gateways)**: no reference image → `POST {apiBaseUrl}/images/generations` (JSON `{ model, prompt, size?, n: 1 }`); with reference image → `POST {apiBaseUrl}/images/edits` (multipart: image + prompt + model + size?, requires edits-capable model e.g., gpt-image series; dall-e-3 doesn't support edits). Response takes `data[0].b64_json` or `data[0].url` to download.
+- **DashScope provider (native)**: `POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation` (wan2.7-image / qwen-image etc., not in compatible mode); no reference image content is `[{text}]` only; with reference image prepends `{image: dataURI}` (base64); response takes `output.choices[0].message.content[*].image` URL to download (24h valid). `apiSize` can be `2K`/`1K`/`4K` or star format (e.g., `2048*2048`) passed through as-is. **Base URL normalization** (`normalizeDashscopeBaseUrl`): accepts Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`, or docs-style compatible address `…/compatible-mode/v1` / trailing `/api/v1` (server strips suffix then appends native path); pay-as-you-go commonly uses `https://dashscope.aliyuncs.com`.
+- **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); parts `[{text}, {inlineData: base64 reference}?]`; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`); response takes `candidates[0].content.parts[*].inlineData.data` (base64).
+- **MiniMax provider**: `POST {apiBaseUrl}/v1/image_generation` (Bearer); reference image via `subject_reference` (subject feature preservation, one image limit, base64 dataURI); `apiSize` maps to `aspect_ratio` (e.g., `16:9`); `response_format=base64`, response takes `data.image_base64[0]`; `base_resp.status_code` non-0 = failure.
 
-模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
+Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16.
 
-- **视频模式**：`mediaKind: "video"`——只生成并保存一段视频素材（`raw.mp4`，不抽帧；`count`/`fps` 忽略）。仅支持 CLI / 百炼 / MiniMax。完成后用 `POST /api/materials/:id/extract`（fps 或 timestamps）抽帧成多张图片素材。
+- **Video mode**: `mediaKind: "video"` — only generates and saves a single video material (`raw.mp4`, no frame extraction; `count`/`fps` ignored). Only supported by CLI / DashScope / MiniMax. After completion, use `POST /api/materials/:id/extract` (fps or timestamps) to extract frames.
 
-- **CLI provider**：`{output}` 给 `.mp4` 后缀路径，产出经魔数检测为视频（ftyp/EBML/RIFF-AVI）则走 ffmpeg 抽帧。**图片模式下 CLI 产物若实为视频同样自动转拆帧**（此时 `count` 忽略）。
-- **MiniMax provider**：按模型分协议——`MiniMax-Hailuo-*` / `T2V-*` 走 v1：`POST {apiBaseUrl}/v1/video_generation`（`{ model, prompt, duration? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v1/query/video_generation?task_id=`（`status`：Success/Fail 等）取 `file_id`，再 `GET {apiBaseUrl}/v1/files/retrieve?file_id=` 取 `download_url`。`MiniMax-H3` 等走 v2：`POST {apiBaseUrl}/v2/video_generation`（`{ model, content:[{type:"text",text}], duration, ratio? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v2/query/video_generation/{task_id}`（`task.status`：succeeded/failed/cancelled），成功取 `task.content.url` 下载。默认 `duration=6`；文生视频缺省 `ratio=16:9`。
-- **DashScope provider（万相 / HappyHorse）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`）。文生视频 `happyhorse-1.1-t2v`：`input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`；图生视频 `*-i2v`：`input.media[{type:first_frame,url}]`（引用图 base64）；参考生视频 `*-r2v`：`media[{type:reference_image}]`。→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。旧 wanx 仍可把 `apiSize` 当 `size` 透传。
+- **CLI provider**: `{output}` given `.mp4` suffix path; output detected as video by magic bytes (ftyp/EBML/RIFF-AVI) → ffmpeg frame extraction. **In image mode, CLI output that is actually video also auto-converts to frame extraction** (`count` ignored in this case).
+- **MiniMax provider**: protocol by model — `MiniMax-Hailuo-*` / `T2V-*` use v1: `POST {apiBaseUrl}/v1/video_generation` (`{ model, prompt, duration? }`) → `task_id`; poll `GET {apiBaseUrl}/v1/query/video_generation?task_id=` (`status`: Success/Fail etc.) to get `file_id`, then `GET {apiBaseUrl}/v1/files/retrieve?file_id=` to get `download_url`. `MiniMax-H3` etc. use v2: `POST {apiBaseUrl}/v2/video_generation` (`{ model, content:[{type:"text",text}], duration, ratio? }`) → `task_id`; poll `GET {apiBaseUrl}/v2/query/video_generation/{task_id}` (`task.status`: succeeded/failed/cancelled), success takes `task.content.url` to download. Default `duration=6`; text-to-video defaults to `ratio=16:9`.
+- **DashScope provider (Wanxiang / HappyHorse)**: `POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis` (header `X-DashScope-Async: enable`). Text-to-video `happyhorse-1.1-t2v`: `input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`; image-to-video `*-i2v`: `input.media[{type:first_frame,url}]` (reference image base64); reference-to-video `*-r2v`: `media[{type:reference_image}]`. → `output.task_id`; poll `GET {apiBaseUrl}/api/v1/tasks/{task_id}` (`output.task_status`: PENDING/RUNNING/SUCCEEDED/FAILED), success takes `output.video_url` to download. Legacy wanx can pass `apiSize` as `size`.
 
-视频为异步任务（约 1–5 分钟），进度写 `job.progress` 并经 WS 推送；拆出帧按 target 入库（项目帧 / 素材），`autoMatting` 照常生效。视频可按模型使用原有单张 `referenceMaterialId` / `referenceFrameId`；不支持动作参考字段，携带时返回 400。
+Video is async (approximately 1–5 minutes); progress written to `job.progress` and pushed via WS; extracted frames committed by target (project frames / materials); `autoMatting` works as usual. Video mode does not support reference images (frontend hides the option, server ignores).
 
-引用图（可选，仅图片模式）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）。API / 百炼 provider 原生支持引用图；CLI 前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
+Reference image (optional, image mode only): `referenceMaterialId` / `referenceFrameId` — pick one; server resolves file path by id (prefers processed, falls back to raw — prevents client path injection). API / DashScope providers natively support reference images; CLI pre-validates (400 before job creation): both ids provided / id not found / reference image selected but template lacks `{reference}` / template has `{reference}` but no reference image selected.
 
-动作参考图（可选，仅图片模式）：`poseReferenceMaterialId` / `poseReferenceFrameId` 二选一，必须同时提供上述角色/外观引用图。两组图片按“外观图、动作图”顺序传给 OpenAI 兼容 API、DashScope 或 Gemini；两种动作 ID 同传、记录不存在或文件缺失均在创建任务时返回 400。CLI、MiniMax 和所有视频模式暂不支持独立动作参考，携带时明确返回 400，不会静默忽略。
+## Material Library /api/materials
 
-## 素材库 /api/materials
-
-素材先在素材库生成/上传、抠图、对比，确认后再导入项目成为帧。素材的 `source` 语义与帧一致（`cli`/`api`/`dashscope`/`gemini`/`minimax`/`upload`/`gif`/`mp4`/`image`/`duplicate`；AI 生成按实际 provider 类型写入，不再一律 `cli`），`status` 为 `raw`（原图）/ `matted`（已抠图）。素材与项目均可挂 `folder_id`（见 `/api/folders`）。
+Materials are first generated/uploaded to the library, matted, compared, then imported to a project as frames. Material `source` semantics are the same as frames (`cli`/`api`/`dashscope`/`gemini`/`minimax`/`upload`/`gif`/`mp4`/`image`/`duplicate`; AI generation writes actual provider type, no longer always `cli`); `status` is `raw` (original) / `matted` (background removed). Both materials and projects can have a `folder_id` (see `/api/folders`).
 
 ### GET /api/materials
 
@@ -187,14 +175,14 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 }
 ```
 
-### GET /api/materials/:id/image?type=raw|processed&strict=1
+### GET /api/materials/:id/image?type=raw|processed
 
-图片流（`image/png`，no-store）。`type=processed` 且无 processed 时默认回退 raw；`strict=1` 会在指定槽位缺失时直接返回 404，供运行时包导出避免槽位语义漂移。
+Image stream (`image/png`, no-store). `type=processed` falls back to raw when no processed file exists.
 
 ### POST /api/materials/upload
 
-multipart/form-data：`file` + 可选 `autoMatting`(`"true"`)、`fps`（视频抽帧，默认 8）。
-PNG/JPG 等单图 → 直接生成 1 个素材，响应 `{ "materialId": "…" }；GIF/MP4 → 队列拆帧每帧一个素材，响应 `{ "jobId": "…" }`。
+multipart/form-data: `file` + optional `autoMatting` (`"true"`), `fps` (video extraction, default 8).
+PNG/JPG single image → directly creates 1 material, response `{ "materialId": "…" }`; GIF/MP4 → queued frame extraction, one material per frame, response `{ "jobId": "…" }`.
 
 ```bash
 curl -F "file=@slime.png" http://localhost:3000/api/materials/upload
@@ -203,73 +191,55 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…", "poseReferenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。普通引用与动作参考字段、校验和 provider 限制均与 `/api/import/generate` 一致。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。可选 `intent`：`frame-image|frame-sheet|frame-video|skeletal-character|skeletal-parts|skeletal-decompose|skeletal-repair-part|motion-clip`，以及 `characterPartSetId`。
-
-骨骼角色默认走两阶段生成：第一阶段提交 `intent: "skeletal-character"` 与 `followUp: { prompt, name?, autoMatting? }`，先产出比例可信、无遮挡的完整人物；完成后调度层仅在部件集还没有身份基准时设置 `referenceMaterialId`（已有基准永不被试生成静默覆盖），并自动以本次完整人物为引用创建 `skeletal-decompose` 任务。第二阶段产出的标准分件表在 metadata 中保留目标集合与引用素材，打开后默认进入 4×3、12 部件的引导切分。当前 UI 不对第一阶段参考图排队抠图，避免阻塞第二阶段；抠图选项应用于最终分件表。两阶段都必须为图片模式并指定现有部件集；CLI provider 还必须配置引用图参数。`skeletal-parts` 保留旧客户端兼容，但当前 UI 不再从描述直接生成零件表。缺省 intent 保持旧行为。
-
-4×3 分件表不会直接写入部件集。引导切分先在 Web Worker 中检查 12 格是否为空、贴边/跨格、包含多个主体、重复或镜像复制，再显示身份参考与逐格缩略图；自动检查通过后仍须人工确认骨盆、手、上下肢语义和角色身份。任一检查失败、未确认或上传不足 12 项时，部件集不会更新。验收成功后一次替换标准 12 role（保留 `accessory/custom` 等非标准成员），并以分件表 metadata 中的引用素材作为已验收身份基准。
-
-## 角色部件集
-
-`CharacterPartSet` 显式组织骨骼角色素材：`{ id, name, source: "manual"|"generated"|"decomposed", referenceMaterialId, members: [{ materialId, role, name }], created_at, updated_at }`。新建可动角色的标准 role 为 `head|torso|pelvis|weapon|upper-arm-left|forearm-left|upper-arm-right|forearm-right|thigh-left|shin-left|thigh-right|shin-right`；`arm-left|arm-right|leg-left|leg-right` 仅为旧六分件集合兼容读取，另支持 `accessory|custom`。
-
-除 `accessory/custom` 外，同一 role 在一个部件集中最多出现一次；重复标准职责返回 400。
-
-- `GET /api/character-part-sets` → `{ "characterPartSets": [...] }`
-- `GET /api/character-part-sets/:id` → `{ "characterPartSet": {...} }`
-- `POST /api/character-part-sets`：提交 `name/source/referenceMaterialId?/members`；校验全部素材存在且素材不重复。
-- `PUT /api/character-part-sets/:id`：全量替换 `name/referenceMaterialId?/members`；`source` 不可修改。
-- `DELETE /api/character-part-sets/:id`：删除集合及成员关系，不删除素材。
-
-删除素材时会移除成员关系；若素材是集合参考图，则清空引用，保证无悬挂素材引用。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }` (provider resolution same as `/api/import/generate`; when unconfigured, job error with setup instructions). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Reference image rules same as `/api/import/generate` (optional `referenceMaterialId` / `referenceFrameId`, pre-validated 400). Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
 
 ### POST /api/materials/:id/extract
 
-视频/GIF 素材抽帧成多张图片素材 → `{ "jobId": "…" }`。复制源文件到 staging 后入队**一个** `extract_frames` 任务；产出命名为「原名 #i」，默认落在同一文件夹。非视频/GIF 返回 400。
+Extract video/GIF material frames into individual image materials → `{ "jobId": "…" }`. Copies source file to staging then enqueues **one** `extract_frames` job; output named "originalName #i", defaults to same folder. Non-video/GIF returns 400.
 
-- **整段按 fps**（默认，GIF/视频）：`{ "fps"?: 8, "autoMatting"?: false, "folderId"?: null }`
-- **定点抽帧**（仅视频）：`{ "timestamps": [0.12, 0.5, 1.0], "autoMatting"?: false, "folderId"?: null }` —— 秒（浮点），排序去重，最多 64 个；GIF 传 timestamps 返回 400。服务端对每个时间点跑一次 `ffmpeg -ss T -i … -frames:v 1`（可取消）。
+- **Full-range by fps** (default, GIF/video): `{ "fps"?: 8, "autoMatting"?: false, "folderId"?: null }`
+- **Point extraction** (video only): `{ "timestamps": [0.12, 0.5, 1.0], "autoMatting"?: false, "folderId"?: null }` — seconds (float), sorted and deduplicated, max 64; GIF with timestamps returns 400. Server runs one `ffmpeg -ss T -i … -frames:v 1` per timestamp (cancellable).
 
 ### POST /api/materials/:id/matting
 
-入队抠图任务（`matting` job，队列并发 2），响应 `{ "jobId": "…" }`；素材不存在 404，缺 raw 文件 400。**同一素材已有 queued/running 抠图任务时 409**（禁止重复入队）。引擎解析顺序见 `GET /api/config`——自定义 CLI → 内置 rembg → PATH rembg → passthrough 复制（passthrough 警告写入 `job.progress`）。完成后 `status` 置 `matted` 并广播 `material_updated`；rembg 模型首次使用需下载（可达数百 MB），进度经 WS `job_*` 事件推送。
+Queues matting job (`matting` job, queue concurrency 2), response `{ "jobId": "…" }`; material not found → 404, missing raw file → 400. **Same material with existing queued/running matting job → 409** (prevents duplicate queueing). Engine detection order see `GET /api/config` — custom CLI → bundled rembg → PATH rembg → passthrough copy (passthrough warning written to `job.progress`). On completion, `status` set to `matted` and broadcasts `material_updated`; rembg model auto-downloads on first use (can be hundreds of MB), progress pushed via WS `job_*` events.
 
 ### POST /api/materials/batch-matting
 
-`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2, "skipped": 1 }`。仅对 `status=raw` 的素材入队抠图；已抠图或**已有进行中抠图任务**计入 `skipped`（详情页单条仍可重新抠，但进行中会 409）。
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "count": 2, "skipped": 1 }`. Only queues matting for `status=raw` materials; already matted or **with active matting job** counted as `skipped` (detail page can still re-mat individually, but active job returns 409).
 
 ### POST /api/materials/:id/replace-image
 
-multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪裁工具的落盘端点：覆盖对应槽位文件；`slot=processed` 且尚无 processed 时建立之并置 `status=matted`，`slot=raw` 不影响已有 processed。响应 `{ "material": {…} }`，广播 `material_updated`。
+multipart/form-data: `file` (PNG) + `slot` (`"raw"` | `"processed"`). Crop tool's save endpoint: overwrites the corresponding slot file; `slot=processed` when no processed exists creates one and sets `status=matted`; `slot=raw` doesn't affect existing processed. Response `{ "material": {…} }`, broadcasts `material_updated`.
 
 ### POST /api/materials/:id/unmatting
 
-删除 processed、还原为 `raw` 状态。响应 `{ "material": {…} }`。
+Deletes processed, restores to `raw` status. Response `{ "material": {…} }`.
 
 ### POST /api/materials/:id/import
 
 ```json
-// 请求
+// Request
 { "projectId": "…", "count": 2 }
-// 响应
+// Response
 { "ok": true, "count": 2, "frameIds": ["…", "…"] }
 ```
 
-把素材复制为项目帧追加到末尾：raw 与 processed 槽位分别复制，避免抠图结果覆盖帧原图；若历史素材缺少 raw 才回退 processed。`source` 沿用素材来源，`metadata` 合并 `{fromMaterial: id, ...}`。`count` 1–16，默认 1。广播 `frames_changed`。
+Copies material as project frame(s) appended to end: raw and processed slots copied separately to avoid matting result overwriting frame original; falls back to processed only for legacy materials missing raw. `source` inherited from material source, `metadata` merged with `{fromMaterial: id, ...}`. `count` 1–16, default 1. Broadcasts `frames_changed`.
 
 ### POST /api/materials/batch-delete
 
-`{ "ids": ["…", "…"] }` → `{ "ok": true, "deleted": 2 }`（连同磁盘文件），广播 `materials_changed`。
+`{ "ids": ["…", "…"] }` → `{ "ok": true, "deleted": 2 }` (including disk files), broadcasts `materials_changed`.
 
 ### POST /api/materials/batch-import
 
-`{ "ids": ["…", "…"], "projectId": "…" }` → `{ "ok": true, "count": 2 }`。按给定顺序各导入 1 帧。
+`{ "ids": ["…", "…"], "projectId": "…" }` → `{ "ok": true, "count": 2 }`. Imports 1 frame each in the given order.
 
-## 任务
+## Jobs
 
 ### GET /api/jobs
 
-→ `{ "jobs": [ {…}, … ] }`，按创建时间倒序取最近 50 条（前端任务面板初始加载用，之后以 WS 事件为主）。
+→ `{ "jobs": [ {…}, … ] }`, latest 50 by creation time descending (used for frontend job panel initial load; afterwards WS events are primary).
 
 ### GET /api/jobs/:id
 
@@ -282,102 +252,65 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 }
 ```
 
-`status`：`queued` / `running` / `done` / `error` / `cancelled`。任务负载在内存中，服务重启时会把遗留的 `queued` / `running` 任务标记为 `error`（「服务重启，任务中断」）。
+`status`: `queued` / `running` / `done` / `error` / `cancelled`. Job payloads are in memory; on server restart, orphaned `queued` / `running` jobs are marked as `error` ("server restarted, job interrupted").
 
 ### POST /api/jobs/:id/cancel
 
-取消排队中或运行中的任务 → `{ "ok": true }`。`queued` 直接出队标 `cancelled`；`running` 触发 AbortSignal（杀掉 `runCmd` 子进程 / 打断 API 轮询）。已结束状态返回 409。广播 `job_cancelled`。
+Cancels a queued or running job → `{ "ok": true }`. `queued` immediately dequeued and marked `cancelled`; `running` triggers AbortSignal (kills `runCmd` subprocess / interrupts API polling). Already-finished status returns 409. Broadcasts `job_cancelled`.
 
-## 通用动画资产 /api/animation-assets
+## Folders /api/folders
 
-Skeleton、MotionClip 与 CharacterBinding 以正式共享 schema 独立持久化。MotionClip/CharacterBinding 创建或替换时会对其引用的 Skeleton 做完整校验。CharacterBinding v1 仅支持 Region；每个 attachment 的 materialId 与显式 raw/processed 路径必须存在且具有 PNG 签名，不做槽位回退。
+Material library and project list share multi-level folders (`kind`: `material` | `project`). Resources belong via `folder_id`; deleting a folder moves contents up to the parent (resources are not deleted).
 
-服务启动时会事务化安装并校验最早分支提交中的 6 组 Quaternius 人形动作（待机、走路、奔跑、攻击、受击、死亡）及其稳定骨架。它们使用固定 ID 和 `extensions.app.framebaker.builtin` 标记，禁止通过普通 POST/PUT/DELETE 或文件夹移动覆盖；需要修改时必须先调用 copy。升级会保留固定资产 ID，并按 humanoid 语义迁移依赖的自定义动作、绑定和骨骼项目内联绑定；无法无损映射时整次升级回滚并报错。
+### GET /api/folders?kind=material|project
 
-### GET /api/animation-assets?kind=skeleton|motion-clip|character-binding
-
-返回轻量索引 `{ "assets": [{ id, kind, name, skeleton_id, folder_id, created_at, updated_at }] }`；省略 `kind` 返回全部资产。
-
-### POST /api/animation-assets
-
-`{ "asset": { /* Skeleton、MotionClip 或 CharacterBinding */ }, "folderId": null }` → `{ "animationAsset": { "asset": {…}, "folder_id": null, "created_at": 0, "updated_at": 0 } }`。
-
-ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨骼/素材/PNG 槽位不存在返回 400。成功广播 `animation_assets_changed`。
-固定内置 ID 或伪造内置扩展返回 403。
-
-### GET /api/animation-assets/:id
-
-返回完整资产正文与存储元数据；不存在返回 404。
-
-### POST /api/animation-assets/:id/copy
-
-`{ "name"?: "攻击 · 自定义", "folderId"?: null }` 深复制一个 MotionClip，并生成新 ID。复制保留骨架、轨道、时长、循环、事件和来源信息，但移除内置只读标记；返回的新资产可正常改名、编辑、移动和删除。非 MotionClip 返回 409。
-
-### PUT /api/animation-assets/:id
-
-请求同 POST。资产 ID 与种类不可修改；省略 `folderId` 保持原文件夹，传 `null` 移到未分组。替换骨架前会用新骨架重新校验全部依赖动作和角色绑定，任何骨骼引用失效时返回 409，不会部分写入。
-固定内置资产返回 403；普通资产不能携带内置扩展，也不能原地更换 `skeletonId`，重定向须创建新资产。
-
-### DELETE /api/animation-assets/:id
-
-删除动作、角色绑定或未被引用的骨架。仍有 MotionClip/CharacterBinding 引用的骨架返回 409；素材批量删除（含单项调用）若被 CharacterBinding Region 引用也返回 409。
-固定内置资产返回 403；仍被骨骼项目动作序列引用的 MotionClip 返回 409。
-
-## 文件夹 /api/folders
-
-素材库、项目列表与动画资产共用多级文件夹（`kind`: `material` | `project` | `animation`）。资源通过 `folder_id` 归属；删除文件夹时内容上移到父级（不删资源）。
-
-### GET /api/folders?kind=material|project|animation
-
-→ `{ "folders": [ { id, kind, parent_id, name, sort, created_at }, … ] }`（扁平列表，前端组树）。
+→ `{ "folders": [ { id, kind, parent_id, name, sort, created_at }, … ] }` (flat list, frontend builds tree).
 
 ### POST /api/folders
 
-`{ "kind": "material", "name": "角色", "parentId": null }` → `{ "folder": {…} }`，广播 `folders_changed`。
+`{ "kind": "material", "name": "Characters", "parentId": null }` → `{ "folder": {…} }`, broadcasts `folders_changed`.
 
 ### PATCH /api/folders/:id
 
-`{ "name"?, "parentId"? }`（禁止移到自身或子孙下）。
+`{ "name"?, "parentId"? }` (cannot move to self or descendants).
 
 ### DELETE /api/folders/:id
 
-子树内资源上移到父级后删除整棵文件夹子树。
+Moves subtree resources up to parent, then deletes the entire folder subtree.
 
 ### POST /api/folders/move-items
 
-`{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }`（`folderId: null` = 未分组）。
-动画内置资产不可移动；请求中包含任一固定内置 ID 时整体返回 403，不会部分移动。
+`{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }` (`folderId: null` = ungrouped).
 
 ## WebSocket /ws
 
-服务端 → 客户端单向广播，JSON：
+Server → client one-way broadcast, JSON:
 
 ```json
 { "type": "frame_updated", "payload": { "id": "…", "projectId": "…" } }
 ```
 
-| type | 时机 |
+| type | When |
 | --- | --- |
-| `job_queued` / `job_running` / `job_progress` / `job_done` / `job_error` / `job_cancelled` | 任务生命周期 |
-| `frame_updated` | PATCH / 替换 / 帧抠图完成 |
-| `frames_changed` | 导入完成 / 复制 / 删除 / 素材导入项目 |
-| `frames_reordered` | 换序 |
-| `animation_assets_changed` | 动画资产创建 / 替换 / 删除 / 移动 |
-| `project_deleted` | 删除项目 |
-| `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
-| `materials_changed` | 素材上传 / 生成 / 批量删除 / 移动文件夹 |
-| `folders_changed` | 文件夹增删改 / 移动 |
-| `settings_changed` | 设置写入（layout / theme / lang / genProvider / matting） |
+| `job_queued` / `job_running` / `job_progress` / `job_done` / `job_error` / `job_cancelled` | Job lifecycle |
+| `frame_updated` | PATCH / replace / frame matting complete |
+| `frames_changed` | Import complete / duplicate / delete / material import to project |
+| `frames_reordered` | Reorder |
+| `project_deleted` | Delete project |
+| `material_updated` | Material matting complete / restore raw / crop replace image |
+| `materials_changed` | Material upload / generate / batch delete / move folder |
+| `folders_changed` | Folder add/remove/update / move |
+| `settings_changed` | Setting written (layout / theme / lang / genProvider / matting) |
 
-前端建议：收到 `frame_updated` / `frames_reordered` / `frames_changed` / `job_done` 后重拉帧列表，收到 `material_updated` / `materials_changed` 后重拉素材列表；断线 3s 重连。
+Frontend recommendation: on receiving `frame_updated` / `frames_reordered` / `frames_changed` / `job_done`, re-fetch frame list; on `material_updated` / `materials_changed`, re-fetch material list; reconnect 3s after disconnect.
 
-## 界面偏好 /api/settings
+## UI Preferences /api/settings
 
-布局（编辑器面板尺寸）、主题模式、界面语言、生成 provider、抠图配置等持久化在服务端 `settings` 表（SQLite），换浏览器/重启不丢；主题与语言前端以 localStorage 为首屏即时缓存，服务端不可达时静默降级。
+Layout (editor panel sizes), theme mode, interface language, generation providers, matting config, etc. are persisted server-side in `settings` table (SQLite) — survives browser changes and restarts; theme and language use frontend localStorage as first-paint cache only, silently degrades when server is unreachable.
 
 ### GET /api/settings
 
-返回整个 kv 对象（value 已 JSON 解析）：
+Returns entire kv object (values JSON-parsed):
 
 ```json
 {
@@ -390,7 +323,7 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
       "cliTemplate": "", "apiBaseUrl": "https://api.openai.com/v1", "apiKey": "sk-…",
       "apiModels": ["gpt-image-1"], "apiSize": "1024x1024"
     },
-    { "id": "…", "name": "本地 mygen", "type": "cli", "cliTemplate": "mygen --prompt \"{prompt}\" -o {output}", "apiBaseUrl": "", "apiKey": "", "apiModels": [], "apiSize": "" }
+    { "id": "…", "name": "Local mygen", "type": "cli", "cliTemplate": "mygen --prompt \"{prompt}\" -o {output}", "apiBaseUrl": "", "apiKey": "", "apiModels": [], "apiSize": "" }
   ],
   "matting": { "cliTemplate": "", "model": "u2net" }
 }
@@ -399,24 +332,24 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
 ### PUT /api/settings/:key
 
 ```json
-// 请求（key 白名单：layout、theme、lang、genProviders、matting、promptEnhancers；其他 key 返回 400）
+// Request (key allowlist: layout, theme, lang, genProviders, matting, promptEnhancers; other keys return 400)
 { "value": { "sidebarW": 260, "timelineH": 160 } }
-// 响应
+// Response
 { "ok": true }
 ```
 
-`theme` 的合法值：`"system"`（跟随系统）/ `"light"` / `"dark"`。`lang` 的合法值：`"zh"` / `"en"`。写入后广播 `settings_changed` `{ key }`。
+`theme` valid values: `"system"` (follow system) / `"light"` / `"dark"`. `lang` valid values: `"zh"` / `"en"`. Broadcasts `settings_changed` `{ key }` after write.
 
-`genProviders`：生成 provider 列表。连接凭证只存一次（`apiBaseUrl` / `apiKey`），能力按 `imageModels` / `videoModels` / `textModels` 分类，图片与视频默认尺寸分别为 `imageSize` / `videoSize`。服务端仍读取旧 `apiModels` / `apiSize`：旧模型按名称迁移到图片或视频能力，旧尺寸同时作为两类尺寸 fallback；设置页只写新字段。CLI 继续使用 `cliBin`、各参数名与 `cliExtraArgs` 的结构化 argv，不经 shell；列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
+`genProviders`: generation provider list. Connection credentials stored once (`apiBaseUrl` / `apiKey`); capabilities split by `imageModels` / `videoModels` / `textModels`; default sizes for image and video are `imageSize` / `videoSize` respectively. Server still reads legacy `apiModels` / `apiSize`: legacy models are migrated by name to image or video capabilities; legacy sizes serve as fallback for both types; settings page only writes new fields. CLI continues using `cliBin`, parameter names, and `cliExtraArgs` structured argv — no shell; when list is empty, env `FRAMEBAKER_GEN_CLI` is fallback.
 
-`promptEnhancers` 元素为 `{ id, name, providerId, model }`，复用 `api` 或 `dashscope` provider 的连接凭证；旧 `{ apiBaseUrl, apiKey, apiModel }` 仍可读取运行。`POST /api/enhance-prompt` 可传 `mediaKind: "image" | "video"`，视频模式会使用动作时序、镜头与一致性导向的系统提示词；骨骼工作流还会传 `intent`，按完整人物、4×3 分件、单部件修复或动作片段阶段注入对应的生产约束。
+`promptEnhancers` elements are `{ id, name, providerId, model }`, reusing `api` or `dashscope` provider connection credentials; legacy `{ apiBaseUrl, apiKey, apiModel }` still readable at runtime. `POST /api/enhance-prompt` accepts `mediaKind: "image" | "video"` — video mode uses action-temporal, camera-focused, consistency-oriented system prompts.
 
-`matting`：结构化抠图命令 `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg`（均留空走 env `FRAMEBAKER_MATTING_CLI` 模板 → 自动探测）；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
+`matting`: structured matting command `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg` (all empty → falls back to env `FRAMEBAKER_MATTING_CLI` template → auto-detection); `model` empty falls back to `FRAMEBAKER_MATTING_MODEL` / default `u2net`.
 
-## 其他
+## Other
 
 - `GET /api/health` → `{ "ok": true, "name": "FrameBaker" }`
-- `GET /api/config` → 服务端能力探测（每次请求实时解析，设置页改动即时生效）：
+- `GET /api/config` → server capability detection (resolved in real-time per request, settings page changes take effect immediately):
 
 ```json
 {
@@ -434,20 +367,146 @@ ID 冲突返回 409；schema 非法、动画文件夹错误、关联骨架/骨�
 }
 ```
 
-  `engine`：`custom-cli`（设置页 matting.cliTemplate 或 `FRAMEBAKER_MATTING_CLI`）/ `rembg-bundled`（`.venv-matting` 内置）/ `rembg-path`（PATH 中找到）/ `none`（未安装，抠图仅复制原图，`hint` 为安装提示）。`model` 为 rembg 模型名（设置页 matting.model → `FRAMEBAKER_MATTING_MODEL` → 默认 `u2net`），`modelCached` 表示模型文件已在 `storage/models`（未缓存首次抠图自动下载）。`gen.providers` 为全部生成 provider 的摘要（不含 apiKey；`models` 供生成弹窗下拉，`configured` 表示关键字段齐备，`video` 表示支持视频生成——仅 cli/dashscope/minimax，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
-- `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`、百炼实发 `GET /compatible-mode/v1/models` 联通测试；MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
-- `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`；api 实发 `GET {baseUrl}/models` + Bearer、gemini 实发 `GET {baseUrl}/v1beta/models`（x-goog-api-key）、dashscope 实发 `GET {baseUrl}/compatible-mode/v1/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；minimax 无轻量探测端点，仅校验字段并在 `note` 说明。
-- `POST /api/provider/models` → API provider 模型列表（设置页「获取模型」，用表单当前值拉取，不要求已保存）：`{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`；端点与联通测试同源（api `/models`、dashscope `/compatible-mode/v1/models`、gemini `/v1beta/models` 去 `models/` 前缀；minimax 为 best-effort 试 `/v1/models`），失败返回 `{ "ok": false, "error" }`，前端保持手填。
-- `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置、按 `style` 组装）：`{ "enhancerId"?, "prompt", "style"?, "mediaKind"?, "intent"? }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；`style` 取共享常量 `ENHANCE_STYLES` 的 id（pixel/anime/illustration/3d/realistic/general），缺省或未知值按 `pixel` 处理；`intent` 仅接受 `skeletal-character|skeletal-parts|skeletal-decompose|skeletal-repair-part|motion-clip`，分别注入无遮挡 T-pose、严格 4×3 分件边界、单部件输出、骨长/武器连接/动作分段等从失败生成中总结的约束。普通图片/视频调用不传 `intent`，不会混入骨骼规则。未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
-- `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
-- `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）
+  `engine`: `custom-cli` (settings page matting.cliTemplate or `FRAMEBAKER_MATTING_CLI`) / `rembg-bundled` (`.venv-matting` bundled) / `rembg-path` (found in PATH) / `none` (not installed, matting only copies raw, `hint` contains install instructions). `model` is rembg model name (settings page matting.model → `FRAMEBAKER_MATTING_MODEL` → default `u2net`); `modelCached` indicates model file exists in `storage/models` (uncached models auto-download on first matting). `gen.providers` is a summary of all generation providers (no apiKey; `models` for generation dialog dropdown, `configured` indicates key fields are complete, `video` indicates video generation support — CLI/DashScope/MiniMax only, mapping in shared constant `PROVIDER_VIDEO_SUPPORT`).
+- `GET /api/doctor` → health check: checks storage directory writable / ffmpeg / matting engine & model cache / each generation provider (CLI validates command existence; OpenAI-compatible sends `GET /models`, Gemini sends `GET /v1beta/models`, DashScope sends `GET /compatible-mode/v1/models` for connectivity test; MiniMax has no probe endpoint, field validation only) → `{ "checks": [{ "id", "ok", "label", "detail" }] }`.
+- `POST /api/provider/test` → API provider connectivity test (uses current form values, no need to save first): `{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`; api sends `GET {baseUrl}/models` + Bearer, gemini sends `GET {baseUrl}/v1beta/models` (x-goog-api-key), dashscope sends `GET {baseUrl}/compatible-mode/v1/models` + Bearer, returns `{ "ok", "status", "latencyMs", "modelsFound" }` (401/403 = authentication failure); minimax has no lightweight probe endpoint, field validation only with explanation in `note`.
+- `POST /api/provider/models` → API provider model list (settings page "Fetch Models", uses current form values, no need to save first): `{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`; endpoints same source as connectivity test (api `/models`, dashscope `/compatible-mode/v1/models`, gemini `/v1beta/models` strips `models/` prefix; minimax best-effort tries `/v1/models`); failure returns `{ "ok": false, "error" }`, frontend keeps manual input.
+- `POST /api/enhance-prompt` → prompt enhancement (enhancer model configured in settings page, OpenAI-compatible `chat/completions`, enhancement system prompt built-in server-side, assembled by `style`): `{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`; `enhancerId` defaults to first fully configured; `style` takes shared constant `ENHANCE_STYLES` id (pixel/anime/illustration/3d/realistic/general), default or unknown → `pixel`; unconfigured/call failure returns 400 text. Frontend preserves original prompt and shows both versions side by side for selection.
+- `GET /fonts/:name` → font files from `apps/web/public/fonts/` (woff2 / OFL.txt)
+- `GET /imageops/imageOps.worker.js` → frontend crop worker script (server `Bun.build`s `apps/web/src/imageops/imageOps.worker.ts` on demand; development mode rebuilds each time, production caches)
 
-## RenderProfile 动画资产（Phase B 草稿）
+## MCP (Model Context Protocol) Endpoint
 
-通用 `/api/animation-assets` CRUD 显式接受 `kind: "render-profile"`。v1 正文包含 `width`、`height`（1..4096 整数）、`fps`（1..120）、画布像素 `origin`、正数 `scale` 与固定 `background: "transparent"`；该资产没有 `skeleton_id`。`.fbanim` v1 仍只封装 Skeleton/MotionClip，拒绝 RenderProfile。
+FrameBaker includes a built-in MCP server that allows AI assistants (Claude Desktop / Claude Code / Cursor / Windsurf etc.) to operate on projects, frames, materials, jobs, and all other features via the MCP protocol.
 
-## RasterSequence（Phase B）
+### Transport
 
-RasterSequence 是独立、不可变的派生资产，不属于 `animation_assets`，也不进入 `.fbanim` v1。`POST /api/raster-sequences` 接收 multipart：`name`、可选 `parentId`、`manifest`（JSON）及同名 `frames` PNG 文件；服务端验证源资产、规范 JSON 摘要、profile 快照、固定半开采样、PNG IHDR/尺寸与 PNG SHA-256 后创建全新 UUID。另有 `GET /api/raster-sequences`、`GET /api/raster-sequences/:id`、`DELETE /api/raster-sequences/:id`，没有 PUT/PATCH。
+Based on `@modelcontextprotocol/server` SDK v2 Streamable HTTP transport, auto-compatible with 2025-era (`initialize` handshake) and 2026-07-28 (stateless core) protocol versions.
 
-`POST /api/raster-sequences/:id/import-project` body `{ "projectId": "…" }` 将 PNG 独立复制为全新项目帧并追加到末尾，`source=raster`，metadata 固化 sequence/frame/digest；重复导入继续追加，不覆盖已有帧、processed 图片或人工变换。目标必须是 `kind=frame` 的逐帧项目；骨骼项目的主输出是 `.fbanim v2`，RasterSequence 仅保留为兼容路径。
+- `POST /mcp`: receives JSON-RPC requests, returns JSON responses
+- `GET /mcp`: SSE channel (server → client notifications)
+- `DELETE /mcp`: end session
+
+Protocol version negotiation and session management are handled automatically by the SDK; all tools are stateless direct db operations.
+
+### Client Setup
+
+**Claude Desktop** (macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Claude Code** (CLI):
+
+```bash
+claude mcp add framebaker --transport http http://localhost:3000/mcp
+```
+
+**Cursor** (`.cursor/mcp.json` in project root, or global settings):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Windsurf** (`~/.codeium/windsurf/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "serverUrl": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+### Quick Start for AI Agents
+
+Copy and paste the following to your AI agent to get started:
+
+```
+FrameBaker is running at http://localhost:3000 with an MCP server at /mcp (Streamable HTTP).
+Connect to it and use `list_projects` to get started.
+Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, matting_material, list_jobs, get_config, and 25 more.
+All tools manage pixel-art animation projects — frames, materials, generation, matting, folders, jobs, and settings.
+```
+
+### Handshake (2025-era Clients)
+
+```json
+// Request
+{ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
+// Response
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.1.0" } } }
+```
+
+After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.
+
+### Tool List
+
+| Tool | Description |
+| --- | --- |
+| `list_projects` | List all projects |
+| `get_project` | Get single project details |
+| `create_project` | Create a project |
+| `update_project` | Update project name/folder |
+| `delete_project` | Delete project and all its frames/jobs/files |
+| `list_frames` | List all frames in a project |
+| `update_frame` | Update frame properties (offset/scale/rotation/opacity/duration/is_keyframe/tags) |
+| `delete_frame` | Delete a frame |
+| `duplicate_frame` | Duplicate frame 1–16 copies |
+| `reorder_frames` | Reorder frames |
+| `generate_frames` | Generate frames for a project (AI provider) |
+| `generate_materials` | Generate materials (AI provider) |
+| `list_materials` | List all materials |
+| `matting_material` | Single material background removal |
+| `batch_matting` | Batch background removal |
+| `extract_material_frames` | Extract video/GIF material frames |
+| `import_material_to_project` | Import material as project frame |
+| `batch_import_materials` | Batch import materials to project |
+| `batch_delete_materials` | Batch delete materials |
+| `unmatting_material` | Restore raw (remove matting result) |
+| `list_folders` | List folders |
+| `create_folder` | Create folder |
+| `update_folder` | Update folder |
+| `delete_folder` | Delete folder (contents move up) |
+| `move_items_to_folder` | Move materials/projects to folder |
+| `list_jobs` | List recent jobs |
+| `get_job` | Query single job status |
+| `cancel_job` | Cancel job |
+| `get_config` | Get server config (providers/matting engine) |
+| `run_doctor` | Health check |
+| `get_settings` | Get all settings |
+| `update_setting` | Update a single setting |
+| `enhance_prompt` | Enhance prompt |
+
+### Tool Call Examples
+
+```json
+// List projects
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "list_projects", "arguments": {} } }
+
+// Create project
+{ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "create_project", "arguments": { "name": "走路循环" } } }
+
+// Generate frames
+{ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "generate_frames", "arguments": { "projectId": "…", "prompt": "pixel art knight walk cycle", "count": 4 } } }
+
+// Query job status
+{ "jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": { "name": "get_job", "arguments": { "jobId": "…" } } }
+```
+
+Tools return `content: [{ type: "text", text: "…" }]` format (text is a JSON string); on error `isError: true`.

@@ -1,117 +1,117 @@
-# FrameBaker 使用指南
+# FrameBaker User Guide
 
-像素风逐帧动画编辑器：素材导入（GIF/MP4 拆帧、PNG 上传、AI 生成）→ 剪裁/抠图加工 → 帧编辑（洋葱皮）→ 时间轴排序 → 播放预览 → 导出精灵帧。
+Pixel-art frame-by-frame animation editor: material import (GIF/MP4 frame extraction, PNG upload, AI generation) → crop/matting processing → frame editing (onion skin) → timeline ordering → playback preview → sprite sheet export.
 
-本文面向使用者，按页面讲清每个功能怎么用。接口细节见 [api.md](api.md)，内部实现见 [architecture.md](architecture.md)。
+This guide is for end users, explaining each feature by page. For API details see [api.md](api.md), for internals see [architecture.md](architecture.md).
 
-## 快速开始
+## Quick Start
 
 ```bash
 bun install
-bun dev          # → http://localhost:3000（PORT 可覆盖）
-./scripts/setup_matting.sh   # 抠图引擎（首次，Windows 用 scripts\setup_matting.ps1）；ffmpeg 拆 GIF/MP4 需要（macOS: brew install ffmpeg / Windows: winget install ffmpeg）
+bun dev          # → http://localhost:3000 (PORT overridable)
+./scripts/setup_matting.sh   # matting engine (first time; Windows: scripts\setup_matting.ps1); ffmpeg needed for GIF/MP4 (macOS: brew install ffmpeg / Windows: winget install ffmpeg)
 ```
 
-## 两个核心概念
+## Two Core Concepts
 
-- **素材库**（一级暂存区）：所有图片先在这里落地，做剪裁、抠图、对比确认，满意后再「导入项目」变成帧。素材和项目互不影响，一个素材可导入多个项目。
-- **raw / processed**：每个素材（和每帧）都有原图（raw）与加工图（processed，抠图/剪裁产物）两个槽位。导入项目时优先取 processed。
+- **Material Library** (staging area): all images land here first for cropping, matting, comparison, and review — once satisfied, "import to project" turns them into frames. Materials and projects are independent; one material can be imported into multiple projects.
+- **raw / processed**: every material (and every frame) has an original image (raw) and a processed image (processed — matting/crop output) in two slots. When importing to a project, the processed slot is preferred.
 
-## 设置页（顶栏「设置」）
+## Settings Page (top bar "Settings")
 
-### 生成 Provider
+### Generation Providers
 
-CLI 与各厂商 API **可配多个共存**，生成时在下拉框里选其中一个。设置页有一排**预设按钮**（OpenAI / 百炼 / banana / MiniMax / 火山方舟（豆包）/ 自定义 CLI / 自定义 API），一键带出类型、Base URL、模型列表和尺寸格式，通常只需填 API Key：
+CLI and various vendor APIs **can coexist with multiple configs**; select one from the dropdown when generating. The settings page has a row of **preset buttons** (OpenAI / DashScope / banana / MiniMax / VolcEngine (Doubao) / Custom CLI / Custom API) that auto-fill type, Base URL, model list, and size format — usually just fill in the API Key:
 
-- **CLI provider**：本地命令，**结构化字段免模板**——填命令（PATH 名或绝对路径）、prompt 参数名（如 `--prompt`，留空则 prompt 作位置参数）、输出参数名（如 `-o`）；可选模型参数名（生成弹窗选了模型才下发）、引用图参数名（留空表示该 CLI 不支持引用图）、额外固定参数（原样追加）。服务端按此组装 argv 直接执行，不经 shell。
-- **API provider（OpenAI 兼容）**：OpenAI 官方（gpt-image 系列）、火山方舟豆包 Seedream（`https://ark.cn-beijing.volces.com/api/v3`）、各类兼容网关。文生图走 `images/generations`；**选了引用图自动改走 `images/edits`**（需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits 会在任务里报错）。测试连接实发 `GET {baseUrl}/models`。
-- **百炼 provider（DashScope 原生）**：**Token Plan** Base 填 `https://token-plan.cn-beijing.maas.aliyuncs.com`（也可粘贴文档里的 `…/compatible-mode/v1`，服务端会归一到 host 根）；Key 用 `sk-sp-` 专属钥。万相 `wan2.7-image` / HappyHorse 视频走原生 `api/v1/services/…`（不在 OpenAI 兼容聊天通道内）。按量付费用 `https://dashscope.aliyuncs.com` + `sk-` 钥。图片尺寸可用 `2K`/`1K`/`4K` 或 `宽*高`；i2v 需首帧引用图。
-- **banana provider（Gemini 图像）**：nano-banana（`gemini-2.5-flash-image`、`gemini-3-pro-image-preview` 等）。Base URL 填 `https://generativelanguage.googleapis.com`，尺寸填宽高比（如 `16:9`）。引用图原生支持（inlineData base64）。测试连接实发 `GET /v1beta/models`。
-- **MiniMax / 百炼视频**：**生成只落视频素材**；打开素材详情选帧率「抽帧」后再抠图/导入。
+- **CLI provider**: local command, **structured fields — no template needed** — fill in the command (PATH name or absolute path), prompt parameter name (e.g., `--prompt`; leave empty for positional arg), output parameter name (e.g., `-o`); optional model parameter name (only sent when a model is selected in the generation dialog), reference image parameter name (leave empty if the CLI doesn't support reference images), and extra fixed arguments (appended as-is). Server assembles argv and executes directly, no shell.
+- **API provider (OpenAI-compatible)**: OpenAI official (gpt-image series), VolcEngine Doubao Seedream (`https://ark.cn-beijing.volces.com/api/v3`), various compatible gateways. Text-to-image uses `images/generations`; **selecting a reference image auto-switches to `images/edits`** (requires model support, e.g., gpt-image series; dall-e-3 doesn't support edits and will error in the job). Connectivity test sends `GET {baseUrl}/models`.
+- **DashScope provider (native)**: **Token Plan** Base URL: `https://token-plan.cn-beijing.maas.aliyuncs.com` (or paste the docs URL `…/compatible-mode/v1` — server normalizes to host root); Key uses `sk-sp-` dedicated key. Wanxiang `wan2.7-image` / HappyHorse video uses native `api/v1/services/…` (not in OpenAI-compatible chat channel). Pay-as-you-go uses `https://dashscope.aliyuncs.com` + `sk-` key. Image size can be `2K`/`1K`/`4K` or `width*height`; i2v requires a first-frame reference image.
+- **banana provider (Gemini images)**: nano-banana (`gemini-2.5-flash-image`, `gemini-3-pro-image-preview`, etc.). Base URL: `https://generativelanguage.googleapis.com`, size as aspect ratio (e.g., `16:9`). Reference image natively supported (inlineData base64). Connectivity test sends `GET /v1beta/models`.
+- **MiniMax / DashScope video**: **generation only produces video materials**; open material detail, select fps, "extract frames", then mat/import.
 
-测试连接用表单当前值探测，不用先保存；百炼 / MiniMax 没有轻量探测端点，只做字段校验（生成失败会以任务错误形式暴露）。
+Connectivity test uses the current form values — no need to save first; DashScope / MiniMax have no lightweight probe endpoints, only field validation (generation failures surface as job errors).
 
-### 提示词加强模型
+### Prompt Enhancement Model
 
-「优化提示词」按钮用的模型在这里添加（OpenAI 兼容 `chat/completions`：OpenAI / 百炼兼容模式 qwen / DeepSeek 等均可，如 `gpt-4o-mini`、`qwen-plus`）。加强用的提示词模板内置固定（像素画方向），不需要你写任何模板。
+The model used by the "Enhance Prompt" button is configured here (OpenAI-compatible `chat/completions`: OpenAI / DashScope-compatible qwen / DeepSeek etc., e.g., `gpt-4o-mini`, `qwen-plus`). The enhancement system prompt is built-in and fixed (pixel-art oriented) — no template writing needed.
 
-生成弹窗里点 **优化提示词** 后，**原提示词和优化后提示词并排展示**，各自带「用这个」按钮——原文永远不会被自动覆盖，你可以随时切换或关闭对比。配了多个加强模型时按钮旁可下拉选择用哪个。
+In the generation dialog, clicking **Enhance Prompt** shows the **original and enhanced prompts side by side**, each with a "Use this" button — the original is never auto-overwritten; you can switch or close the comparison at any time. When multiple enhancer models are configured, a dropdown next to the button lets you choose which one to use.
 
-列表为空时，环境变量 `FRAMEBAKER_GEN_CLI` 会兜底成一个「环境变量 CLI」provider。**设置页配置优先于所有环境变量**，改动即时生效（不用重启）。
+When the list is empty, the env var `FRAMEBAKER_GEN_CLI` falls back to an "env CLI" provider. **Settings page configuration takes priority over all env vars** — changes take effect immediately (no restart needed).
 
-### 抠图
+### Matting
 
-- **自定义 CLI 模板**：占位符 `{input}` `{output}`（可选 `{model}`）；留空走自动探测（内置 `.venv-matting` → PATH rembg → 原样复制兜底）。
-- **默认模型**：输入框带常用模型建议（u2net / u2netp / isnet-general-use / isnet-anime / birefnet-general 等，也可自由输入）。旁边显示当前生效模型与**缓存状态**——未缓存的模型首次抠图时自动下载（约百 MB，耗时较长，属正常现象）。
+- **Custom CLI template**: placeholders `{input}` `{output}` (optional `{model}`); leave empty for auto-detection (bundled `.venv-matting` → PATH rembg → raw copy fallback).
+- **Default model**: input field with common model suggestions (u2net / u2netp / isnet-general-use / isnet-anime / birefnet-general etc., also accepts free-form input). Shows the current active model and **cache status** next to it — uncached models auto-download on first matting (about 100 MB, takes a while — this is normal).
 
-### 体检（Doctor）
+### Doctor (Health Check)
 
-打开设置页自动跑一遍，也可手动「重新检查」。逐项检查：
+Runs automatically when opening the settings page; can also manually "Re-check". Checks item by item:
 
-- 存储目录可写
-- ffmpeg（GIF/MP4 拆帧依赖）
-- 抠图引擎（自定义 CLI 校验命令是否存在；rembg 显示来源）
-- 抠图模型缓存状态
-- 每个生成 provider 单独一项（CLI 校验命令存在；API 实发联通测试）
+- Storage directory writable
+- ffmpeg (required for GIF/MP4 frame extraction)
+- Matting engine (custom CLI validates command existence; rembg shows source)
+- Matting model cache status
+- Each generation provider individually (CLI validates command existence; API sends actual connectivity test)
 
-## 素材库页
+## Material Library Page
 
-### 上传素材
+### Upload Materials
 
-支持多选混合：PNG/JPG 各成 1 个素材；GIF/MP4 拆帧成多个素材（fps 可调）。
+Supports multi-select mixed upload: PNG/JPG each becomes 1 material; GIF/MP4 extracts frames into multiple materials (fps adjustable).
 
-**剪裁确认**：选了静态图片后会问「N 张图片，导入前需要剪裁吗？」——
+**Crop confirmation**: after selecting static images, you'll be asked "N images — do you want to crop before importing?" —
 
-- **逐张剪裁**：依次打开剪裁工具处理每张（可随时「跳过本张」）
-- **不需要，直接导入**：全部按原图上传
-- 列表里每张图片还有单独的 ✂ 按钮可随时（重新）剪裁；裁过的显示「已剪裁」标记
+- **Crop one by one**: opens the crop tool for each sequentially (can "skip this one" at any time)
+- **No, import directly**: uploads all as originals
+- Each image in the list also has a ✂ button for (re-)cropping at any time; cropped ones show a "Cropped" badge
 
-剪裁在浏览器内完成（Web Worker，不卡 UI），确认后才上传。GIF/MP4 不参与剪裁。
+Cropping is done in-browser (Web Worker, non-blocking UI); only uploads after confirmation. GIF/MP4 are not cropped.
 
-### 生成素材
+### Generate Materials
 
-填提示词、数量（1–16），可选引用图（用某素材或项目帧作为参考），然后选 **Provider / 模型**：
+Enter a prompt and count (1–16), optionally select a reference image (using a material or project frame as reference), then choose **Provider / Model**:
 
-- API 系 provider：模型从其模型列表下拉选（列表为空则手填）
-- CLI provider：模型输入框的值按设置的「模型参数名」下发（未配该参数名则忽略）
-- 引用图支持：CLI 模板需含 `{reference}`；API 走 `images/edits`（需 gpt-image 系列等支持编辑的模型）；百炼 / banana / MiniMax 原生直接支持（MiniMax 为主体特征保持）
+- API providers: model selected from their model list dropdown (empty list = manual input)
+- CLI providers: model input value sent via the configured "model parameter name" (if not configured, ignored)
+- Reference image support: CLI template needs `{reference}`; API uses `images/edits` (requires edits-capable models like gpt-image series); DashScope / banana / MiniMax natively support it (MiniMax uses subject feature preservation)
 
-「抠图去背」开关默认勾选，生成/上传完成后自动入队抠图。
+The "Background Removal" toggle defaults on — matting is auto-queued after generation/upload completion.
 
-### 剪裁工具
+### Crop Tool
 
-为像素图设计：整数像素框选、拖动移动、八向手柄缩放、X/Y/宽/高 数字精调、滚轮缩放（锚定光标）、Alt/中键平移、放大到 800% 后显示像素网格、「自动透明边」一键框选非透明区域（适合裁掉 sprite 周围空白）、「全图」一键重置。确认后输出 PNG。
+Designed for pixel art: integer-pixel selection box, drag to move, 8-directional handles to resize, X/Y/W/H numeric fine-tuning, scroll-wheel zoom (anchored to cursor), Alt/middle-button pan, pixel grid displayed above 800% zoom, "Auto Transparent Edge" one-click selects non-transparent area (great for trimming whitespace around sprites), "Full Image" one-click reset. Outputs PNG.
 
-### 二次加工（选中素材）
+### Secondary Processing (Selected Material)
 
-不是所有图都需要加工，所以加工都是按需触发：
+Not all images need processing, so processing is triggered on demand:
 
-- **详情弹窗**（点卡片）：原图/抠图后**对比滑杆**验收效果；执行抠图 / 还原原图 / **剪裁**（作用于当前显示图，已抠图则裁抠图后）/ **网格切分**（多宫格精灵图按行×列切成独立素材）/ **多动作生成**（图片：引用图 + 有序连续帧 → 拼图表再切分；视频：点选动作注入提示词 → 文生视频按 fps 抽帧，无需拼图）/ 导入项目（可选复制 1–16 份）/ 删除
-- **批量操作**（Cmd/Ctrl+点击多选、Shift+点击范围选）：批量抠图（入队处理）、批量导入项目、批量删除
+- **Detail modal** (click card): raw/matted **comparison slider** to review results; run matting / restore raw / **crop** (operates on currently displayed image — if matted, crops the matted version) / **grid split** (multi-cell sprite sheet split by rows × columns into individual materials) / **multi-action generation** (image: reference image + ordered continuous frames → sheet then split; video: select action to inject into prompt → text-to-video then extract by fps, no sheet needed) / import to project (optional 1–16 copies) / delete
+- **Batch operations** (Cmd/Ctrl+click multi-select, Shift+click range select): batch matting (queued), batch import to project, batch delete
 
-卡片右下状态点：绿=已抠图，灰=原图。
+Card bottom-right status dot: green = matted, gray = raw.
 
-## 项目编辑器
+## Project Editor
 
-- **导入**（三 Tab）：素材库（多选，按点选顺序追加到时间轴末尾）/ 上传文件（同样有剪裁确认）/ 生成（同素材库生成，直接成帧）
-- **帧列表 + 画布**：PixiJS 画布拖拽帧改位置（offset）；洋葱皮（前帧红 / 后帧蓝）；网格；25–400% 缩放；替换图片；帧时长；关键帧星标
-- **时间轴**：拖拽换序；Cmd/Ctrl、Shift 多选后批量删除 / 复制 / 统一时长
-- **右键菜单**：帧列表 / 时间轴的帧上右键——单帧（关键帧、时长 ±1、剪裁、复制、删除）；右键落在多选内则是批量菜单（复制 / 裁透明边 / 删除）
-- **播放预览**：1–24 fps，每帧停留 duration 个 tick
-- **导出精灵帧**：纯前端逐帧烘焙，下载 `*_0001.png` … + `*.frames.json`（含每帧 file/w/h/duration）
-- 布局：帧列表宽度、时间轴高度可拖分隔条调整（双击复位，自动持久化）；主题三态（跟随系统/浅色/深色）
+- **Import** (three tabs): Material Library (multi-select, appended to timeline end in selection order) / Upload Files (same crop confirmation) / Generate (same as material generation, directly becomes frames)
+- **Frame list + canvas**: PixiJS canvas drag frame to change position (offset); onion skin (prev red / next blue); grid; 25–400% zoom; replace image; frame duration; keyframe star
+- **Timeline**: drag-and-drop reorder; Cmd/Ctrl, Shift multi-select then batch delete / duplicate / uniform duration
+- **Context menu**: right-click on frames in frame list / timeline — single frame (keyframe, duration ±1, crop, duplicate, delete); right-click within multi-selection shows batch menu (duplicate / trim transparent edges / delete)
+- **Playback preview**: 1–24 fps, each frame stays for `duration` ticks
+- **Sprite sheet export**: pure frontend per-frame baking, downloads `*_0001.png` … + `*.frames.json` (with per-frame file/w/h/duration)
+- Layout: frame list width, timeline height adjustable via split divider drag (double-click to reset, auto-persisted); theme three-state (follow system / light / dark)
 
-## 常见问题
+## FAQ
 
-- **第一次抠图很慢？** 正常，rembg 在下载模型（约百 MB）到 `storage/models`，之后秒级。设置页可看缓存状态。
-- **抠图没生效？** 看设置页体检：没装引擎时会退化为「原样复制」并给出安装提示（`./scripts/setup_matting.sh`，Windows 用 `scripts\setup_matting.ps1`）。
-- **生成任务失败？** 任务卡片上的错误信息会直接说明（provider 未配置/未选模型/API 返回错误等）；设置页「测试连接」可先排障。
-- **GIF 拆帧**会忽略帧延迟，统一按 1 tick；任务队列在内存中，重启服务会丢未完成任务；应用无鉴权，仅适合本地使用。
+- **First matting is very slow?** Normal — rembg is downloading the model (~100 MB) to `storage/models`; subsequent runs are near-instant. Cache status visible in settings page.
+- **Matting didn't work?** Check settings page health check: without an engine installed, it degrades to "raw copy" with an install hint (`./scripts/setup_matting.sh`, Windows: `scripts\setup_matting.ps1`).
+- **Generation job failed?** The error message on the job card explains directly (provider not configured / no model selected / API returned error etc.); use "Test Connection" in settings to troubleshoot first.
+- **GIF frame extraction** ignores frame delays and uses uniform 1 tick; job queue is in-memory — unfinished jobs are lost on restart; the app has no authentication and is for local use only.
 
-## 提示与约定
+## Tips & Conventions
 
-- 全局通知在底部居中弹出（4 秒自动消失，点击立即关）；删除等危险操作都是像素风确认框。
-- 所有页面变更（任务进度、抠图完成、他人操作）经 WebSocket 实时刷新，不用手动刷新页面。
-# 生成连接与模型能力
+- Global notifications pop up at the bottom center (auto-dismiss after 4s, click to dismiss immediately); dangerous operations like delete all use pixel-art style confirmation dialogs.
+- All page changes (job progress, matting completion, other users' actions) are refreshed in real-time via WebSocket — no manual page refresh needed.
+# Generation Connectivity & Model Capabilities
 
-设置页中每个 Provider 只填写一次 Base URL 和 API Key。请分别维护图片、视频、文本模型：生成弹窗只展示当前媒体类型的模型，文本模型可供提示词增强器复用。图片与视频默认尺寸也分别设置。提示词增强器只需选择 API/百炼连接和文本模型；旧版独立凭证配置仍能运行，但再次保存前应选择连接。
+Each Provider in the settings page only needs Base URL and API Key filled in once. Maintain image, video, and text models separately: the generation dialog only shows models for the current media type, and text models can be reused by prompt enhancers. Default sizes for image and video are also configured separately. Prompt enhancers only need a provider selection and text model; legacy standalone credential configs still work but should be switched to provider selection before saving again.

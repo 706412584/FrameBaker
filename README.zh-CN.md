@@ -16,6 +16,12 @@
 
 ![播放预览演示](docs/media/demo.gif)
 
+> 🚧 **施工中：**骨骼绑定与骨骼动画编辑功能正在开发。
+
+| 角色骨骼绑定 | 骨骼动画编辑 |
+| --- | --- |
+| ![角色骨骼绑定](docs/media/skeletal-rigging.png) | ![骨骼动画编辑](docs/media/skeletal-animation.png) |
+
 | 帧编辑器 | 素材库 |
 | --- | --- |
 | ![帧编辑器](docs/media/editor.png) | ![素材库](docs/media/library.png) |
@@ -41,6 +47,7 @@
 - **Cassette Futurism 双主题** —— 深色 Magnetic Night / 浅色 Beige Terminal；默认跟随系统，三态切换（跟随系统/浅色/深色）
 - **实时同步** —— WebSocket 广播任务进度与帧/素材变更
 - **可调布局** —— 拖拽分隔条调整帧列表宽度与时间轴高度（自动持久化）
+- **MCP 服务端** —— 内置 [Model Context Protocol](https://modelcontextprotocol.io) 端点（`POST /mcp`，Streamable HTTP），暴露 33 个工具，让 AI 助手（Claude Desktop、Cursor、Windsurf）程序化管理项目、帧、素材、生成、抠图、任务与设置
 
 ## 系统要求
 
@@ -148,10 +155,38 @@ Bun workspaces monorepo：
 
 ## 文档
 
-- [docs/guide.md](docs/guide.md) —— 使用指南（设置页、provider 配置、剪裁工具、素材加工、编辑器）
-- [docs/architecture.md](docs/architecture.md) —— 架构图、模块说明、数据流、存储布局
-- [docs/api.md](docs/api.md) —— API 一览（含请求/响应示例）与 WS 事件
-- [docs/roadmap.md](docs/roadmap.md) —— 已完成清单与后续规划
+- [docs/guide.zh-CN.md](docs/guide.zh-CN.md) —— 使用指南（设置页、provider 配置、剪裁工具、素材加工、编辑器）
+- [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) —— 架构图、模块说明、数据流、存储布局
+- [docs/api.zh-CN.md](docs/api.zh-CN.md) —— API 一览（含请求/响应示例）、WS 事件、MCP 端点
+- [docs/roadmap.zh-CN.md](docs/roadmap.zh-CN.md) —— 已完成清单与后续规划
+
+## MCP（AI 助手集成）
+
+FrameBaker 内置 MCP 服务端，让 AI 助手通过 [Model Context Protocol](https://modelcontextprotocol.io) 控制全部功能。
+
+**端点：** `POST /mcp`（Streamable HTTP，JSON-RPC 2.0，协议版本 `2024-11-05`）
+
+启动服务（`bun dev` 或 `bun start`），然后在 AI 客户端中配置：
+
+**Claude Desktop**（macOS `~/Library/Application Support/Claude/claude_desktop_config.json`，Windows `%APPDATA%\Claude\claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "framebaker": {
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Claude Code**（CLI）：`claude mcp add framebaker --transport http http://localhost:3000/mcp`
+
+**Cursor**（`.cursor/mcp.json`）：`{ "mcpServers": { "framebaker": { "url": "http://localhost:3000/mcp" } } }`
+
+**Windsurf**（`~/.codeium/windsurf/mcp_config.json`）：`{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
+
+服务端暴露 **33 个工具**，覆盖项目、帧、素材、生成、抠图、文件夹、任务与系统配置。完整工具列表与调用示例见 [docs/api.zh-CN.md](docs/api.zh-CN.md)。
 
 ## 许可
 
@@ -167,4 +202,4 @@ Bun workspaces monorepo：
 
 ## 已知限制
 
-任务队列在内存中（重启丢未完成任务）；GIF 拆帧忽略帧延迟；单图导入按字节落盘（建议 PNG）；精灵表不做 trim；无鉴权仅限本地。改进计划见 [roadmap](docs/roadmap.md)。
+任务队列在内存中（重启丢未完成任务）；GIF 拆帧忽略帧延迟；单图导入按字节落盘（建议 PNG）；精灵表不做 trim；无鉴权仅限本地。改进计划见 [roadmap](docs/roadmap.zh-CN.md)。
