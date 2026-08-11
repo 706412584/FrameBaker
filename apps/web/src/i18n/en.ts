@@ -137,6 +137,8 @@ export const en = {
   "animation.closeLoopSeam": "Fix loop seam", "animation.rootMotion": "Root motion policy", "animation.unspecified": "Unspecified",
   "animation.root.preserve": "Preserve", "animation.root.inPlace": "In-place", "animation.root.extracted": "Extracted",
   "animation.eventType": "Event type", "animation.eventName": "Event name", "animation.addEvent": "Add event at current time",
+  "animation.eventPayload": "Event payload (optional JSON object, e.g. {\"damage\": 10})",
+  "animation.eventPayloadInvalid": "Event payload must be a valid JSON object",
   "msg.action_reference_optional": "Action reference (optional)",
   "msg.action_reference_description": "Choose a pose sheet, skeleton sheet, or action screenshot from Materials. It is used only for pose and layout; the current material remains the character appearance reference.",
   "action.attack": "Attack",

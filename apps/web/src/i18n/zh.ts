@@ -82,6 +82,8 @@ export const zh = {
   "animation.closeLoopSeam": "修复循环接缝", "animation.rootMotion": "根运动策略", "animation.unspecified": "未指定",
   "animation.root.preserve": "保留", "animation.root.inPlace": "原地", "animation.root.extracted": "已提取",
   "animation.eventType": "事件类型", "animation.eventName": "事件名称", "animation.addEvent": "在当前时间添加事件",
+  "animation.eventPayload": "事件数据（可选 JSON 对象，如 {\"damage\": 10}）",
+  "animation.eventPayloadInvalid": "事件数据必须是有效的 JSON 对象",
   "animation.binding.kind": "角色绑定", "animation.binding.create": "新建角色绑定",
   "animation.binding.confirmCreate": "创建空绑定", "animation.binding.newName": "新角色绑定",
   "animation.binding.createFailed": "创建角色绑定失败：{msg}", "animation.binding.saved": "角色绑定已保存",

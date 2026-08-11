@@ -4214,8 +4214,11 @@ body.resizing-row * {
 .animation-clip-tools > label, .animation-clip-tools > .animation-event-form, .animation-clip-tools > .animation-event-list { margin-right: 10px; margin-left: 10px; }
 .animation-event-form, .animation-event-list > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .animation-event-form input { min-width: 0; flex: 1; }
+.animation-event-form textarea { flex: 1 0 100%; min-width: 0; resize: vertical; }
+.animation-event-error { flex: 1; color: var(--danger); }
 .animation-event-list { display: grid; gap: 4px; }
-.animation-event-list > div > button:first-child { flex: 1; padding: 4px; color: var(--text); background: transparent; border: 0; text-align: left; cursor: pointer; }
+.animation-event-list > div > button:first-child { display: grid; flex: 1; gap: 2px; padding: 4px; color: var(--text); background: transparent; border: 0; text-align: left; cursor: pointer; }
+.animation-event-list code { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 .animation-timeline { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .animation-timeline > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .animation-timeline > header > div { display: grid; gap: 4px; }

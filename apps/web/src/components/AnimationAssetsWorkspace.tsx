@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
+import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type JsonValue, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
 import { Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, ZoomIn } from "lucide-react";
 import { api, materialImageUrl, type Folder } from "../api";
 import { useT } from "../i18n";
@@ -462,7 +462,8 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
   const [selectedBone, setSelectedBone] = useState(""), [busy, setBusy] = useState(false);
   const [materials, setMaterials] = useState<Material[]>([]), [creatingBinding, setCreatingBinding] = useState(false), [bindingSkeletonId, setBindingSkeletonId] = useState("");
   const [draft, setDraft] = useState({ tx: 0, ty: 0, rz: 0, sx: 1, sy: 1 });
-  const [eventDraft, setEventDraft] = useState({ type: "", name: "" });
+  const [eventDraft, setEventDraft] = useState({ type: "", name: "", payload: "" });
+  const [eventPayloadError, setEventPayloadError] = useState("");
   const [undo, setUndo] = useState<MotionClip[]>([]), [redo, setRedo] = useState<MotionClip[]>([]);
   const load = useCallback(async () => { const [a, f, m, p] = await Promise.all([api.listAnimationAssets(), api.listFolders("animation"), api.listMaterials(), api.listProjects()]); setAssets(a); setFolders(f); setMaterials(m.filter((item) => item.kind === "image")); setSkeletalProjectCount(p.filter((item) => item.kind === "skeletal").length); }, []);
   useEffect(() => { void load().catch((e) => notify(t("animation.loadFailed", { msg: e.message }))); }, [load, t]);
@@ -560,7 +561,22 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
   const toggleLoop = async (loop: boolean) => { if (clip && !busy) await commitClipEdit({ ...clip, loop }); };
   const addEvent = async () => {
     if (!clip || busy || !eventDraft.type.trim() || !eventDraft.name.trim() || time < 0 || time > clip.duration || (clip.loop && time >= clip.duration)) return;
-    if (await commitClipEdit(addMotionEvent(clip, { time, type: eventDraft.type, name: eventDraft.name }))) setEventDraft({ type: "", name: "" });
+    let payload: Record<string, JsonValue> | undefined;
+    if (eventDraft.payload.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(eventDraft.payload);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        payload = parsed as Record<string, JsonValue>;
+      } catch {
+        setEventPayloadError(t("animation.eventPayloadInvalid"));
+        return;
+      }
+    }
+    const event = { time, type: eventDraft.type, name: eventDraft.name, ...(payload ? { payload } : {}) };
+    if (await commitClipEdit(addMotionEvent(clip, event))) {
+      setEventDraft({ type: "", name: "", payload: "" });
+      setEventPayloadError("");
+    }
   };
   const setInterpolation = async (targetId: string, property: string, interpolation: MotionInterpolation) => {
     if (!clip || busy) return;
@@ -670,8 +686,8 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
         <details className="animation-clip-tools">
           <summary>{t("animation.advancedSettings")}</summary>
           <label>{t("animation.rootMotion")}<PxSelect value={clip.rootMotion ?? ""} disabled={busy || builtin} options={[{ value: "", label: t("animation.unspecified") }, { value: "preserve", label: t("animation.root.preserve") }, { value: "in-place", label: t("animation.root.inPlace") }, { value: "extracted", label: t("animation.root.extracted") }]} onChange={(value) => void setRootMotion(value)} /></label>
-          <div className="animation-event-form"><input className="px-input" value={eventDraft.type} disabled={busy || builtin} placeholder={t("animation.eventType")} onChange={(e) => setEventDraft((old) => ({ ...old, type: e.target.value }))} /><input className="px-input" value={eventDraft.name} disabled={busy || builtin} placeholder={t("animation.eventName")} onChange={(e) => setEventDraft((old) => ({ ...old, name: e.target.value }))} /><button className="px-btn" disabled={busy || builtin || !eventDraft.type.trim() || !eventDraft.name.trim() || (clip.loop && time >= clip.duration)} onClick={() => void addEvent()}>{t("animation.addEvent")}</button></div>
-          <div className="animation-event-list">{clip.events.map((event, index) => <div key={`${event.time}-${index}`}><button onClick={() => { setPlaying(false); setTime(event.time); }}>{event.time.toFixed(3)}s · {event.type} · {event.name}</button><button className="px-btn icon danger" disabled={busy || builtin} title={t("common.delete")} onClick={() => void commitClipEdit(deleteMotionEvent(clip, index))}><Trash2 size={12} /></button></div>)}</div>
+          <div className="animation-event-form"><input className="px-input" value={eventDraft.type} disabled={busy || builtin} placeholder={t("animation.eventType")} onChange={(e) => setEventDraft((old) => ({ ...old, type: e.target.value }))} /><input className="px-input" value={eventDraft.name} disabled={busy || builtin} placeholder={t("animation.eventName")} onChange={(e) => setEventDraft((old) => ({ ...old, name: e.target.value }))} /><textarea className="px-input" rows={2} value={eventDraft.payload} disabled={busy || builtin} aria-invalid={!!eventPayloadError} placeholder={t("animation.eventPayload")} onChange={(e) => { setEventDraft((old) => ({ ...old, payload: e.target.value })); setEventPayloadError(""); }} />{eventPayloadError && <span className="animation-event-error">{eventPayloadError}</span>}<button className="px-btn" disabled={busy || builtin || !eventDraft.type.trim() || !eventDraft.name.trim() || (clip.loop && time >= clip.duration)} onClick={() => void addEvent()}>{t("animation.addEvent")}</button></div>
+          <div className="animation-event-list">{clip.events.map((event, index) => <div key={`${event.time}-${index}`}><button onClick={() => { setPlaying(false); setTime(event.time); }}><span>{event.time.toFixed(3)}s · {event.type} · {event.name}</span>{event.payload && <code>{JSON.stringify(event.payload)}</code>}</button><button className="px-btn icon danger" disabled={busy || builtin} title={t("common.delete")} onClick={() => void commitClipEdit(deleteMotionEvent(clip, index))}><Trash2 size={12} /></button></div>)}</div>
         </details>
 
         <section className="animation-timeline">
