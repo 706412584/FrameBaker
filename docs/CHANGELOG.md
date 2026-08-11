@@ -4,9 +4,15 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-11
+
 ### Changed
 
 - Automated the marker-delimited README “Latest Changes” sections from the two newest bilingual changelog releases during version bumps, and made version checks detect stale generated summaries.
+
+### Fixed
+
+- Hardened the dedicated Gemini image provider adapter to scan all candidates, diagnose prompt/output safety blocks and text-only refusals, include response IDs, tolerate proxy response casing, and retry one transient no-image result instead of reporting every HTTP 200 without `inlineData` as the same schema error.
 
 ## [0.2.5] - 2026-08-11
 

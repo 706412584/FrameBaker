@@ -156,16 +156,112 @@ async function generateViaDashscope(
   await downloadFile(imageUrl, outPath, signal);
 }
 
+interface GeminiPart {
+  text?: string;
+  inlineData?: { mimeType?: string; data?: string };
+  /** 部分 Gemini 兼容代理未转换 REST snake_case，兼容读取但官方请求仍使用 inlineData。 */
+  inline_data?: { mime_type?: string; data?: string };
+}
+
+interface GeminiCandidate {
+  content?: { parts?: GeminiPart[] };
+  finishReason?: string;
+  finishMessage?: string;
+  safetyRatings?: Array<{ category?: string; blocked?: boolean }>;
+}
+
 interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
-  error?: { message?: string };
+  candidates?: GeminiCandidate[];
+  promptFeedback?: {
+    blockReason?: string;
+    blockReasonMessage?: string;
+    safetyRatings?: Array<{ category?: string; blocked?: boolean }>;
+  };
+  error?: { message?: string; status?: string; code?: number };
+  responseId?: string;
+}
+
+const GEMINI_RETRYABLE_FINISH_REASONS = new Set(["NO_IMAGE", "IMAGE_OTHER"]);
+
+function geminiImageData(json: GeminiResponse): string | null {
+  for (const candidate of json.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      const data = part.inlineData?.data ?? part.inline_data?.data;
+      if (data?.trim()) return data.replace(/^data:image\/[^;]+;base64,/, "");
+    }
+  }
+  return null;
+}
+
+function geminiFailure(json: GeminiResponse, retried: boolean): { message: string; retryable: boolean } {
+  if (json.error?.message) {
+    return {
+      message: `Gemini 错误${json.error.status ? ` ${json.error.status}` : ""}: ${json.error.message}`,
+      retryable: false,
+    };
+  }
+  const blockReason = json.promptFeedback?.blockReason;
+  if (blockReason) {
+    const detail = json.promptFeedback?.blockReasonMessage?.trim();
+    return {
+      message: `Gemini 提示词被拦截（blockReason=${blockReason}）${detail ? `: ${detail}` : "，请调整提示词或引用图"}`,
+      retryable: false,
+    };
+  }
+
+  const candidates = json.candidates ?? [];
+  const reasons = [...new Set(candidates.map((candidate) => candidate.finishReason).filter((value): value is string => Boolean(value)))];
+  const finishMessages = candidates.map((candidate) => candidate.finishMessage?.trim()).filter((value): value is string => Boolean(value));
+  const modelText = candidates
+    .flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .slice(0, 300);
+  const blockedCategories = [...new Set(
+    candidates
+      .flatMap((candidate) => candidate.safetyRatings ?? [])
+      .filter((rating) => rating.blocked)
+      .map((rating) => rating.category)
+      .filter((value): value is string => Boolean(value))
+  )];
+  const retryable = reasons.length === 0 || reasons.every((reason) => GEMINI_RETRYABLE_FINISH_REASONS.has(reason));
+  const details = [
+    reasons.length ? `finishReason=${reasons.join(",")}` : candidates.length ? "候选未说明结束原因" : "未返回 candidates",
+    finishMessages.length ? finishMessages.join("；") : "",
+    blockedCategories.length ? `安全类别=${blockedCategories.join(",")}` : "",
+    modelText ? `模型返回文本：${modelText}` : "",
+    json.responseId ? `responseId=${json.responseId}` : "",
+  ].filter(Boolean);
+  return {
+    message: `Gemini 未生成图片${retried ? "（已自动重试 1 次）" : ""}: ${details.join("；")}`,
+    retryable,
+  };
+}
+
+async function waitGeminiRetry(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new JobCancelledError();
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new JobCancelledError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, 600);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
  * Gemini 图像生成（banana / nano-banana，gemini-2.5-flash-image 等）：
  * POST {base}/v1beta/models/{model}:generateContent（x-goog-api-key 头）
  * parts = [{text}, {inlineData: base64 引用图}?]；generationConfig.responseModalities=["TEXT","IMAGE"]
- * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应取 candidates[0].content.parts 首个 inlineData.data
+ * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应遍历全部 candidates/parts 取 inlineData.data。
+ * Gemini 的 HTTP 200 仍可能是 promptFeedback 拦截、图片安全过滤、NO_IMAGE 或文本拒绝；分类显示原因，
+ * 仅对 NO_IMAGE / IMAGE_OTHER / 无候选的暂时性空响应自动重试一次。
  */
 async function generateViaGemini(
   cfg: RuntimeProvider,
@@ -188,24 +284,31 @@ async function generateViaGemini(
   const generationConfig: Record<string, unknown> = { responseModalities: ["TEXT", "IMAGE"] };
   if (cfg.apiSize.trim()) generationConfig.imageConfig = { aspectRatio: cfg.apiSize.trim() };
 
-  let res: Response;
-  try {
-    res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
-      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
-      signal: fetchSignal(signal, 180_000),
-    });
-  } catch (e) {
-    throw new Error(`Gemini 请求失败: ${(e as Error).message}`);
-  }
-  if (!res.ok) throw await readError(res, "generateContent");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
+        body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
+        signal: fetchSignal(signal, 180_000),
+      });
+    } catch (e) {
+      if (signal?.aborted) throw new JobCancelledError();
+      throw new Error(`Gemini 请求失败: ${(e as Error).message}`);
+    }
+    if (!res.ok) throw await readError(res, "generateContent");
 
-  const json = (await res.json()) as GeminiResponse;
-  if (json.error?.message) throw new Error(`Gemini 错误: ${json.error.message}`);
-  const b64 = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
-  if (!b64) throw new Error("Gemini 响应缺少 candidates[0].content.parts[*].inlineData.data");
-  writeFileSync(outPath, Buffer.from(b64, "base64"));
+    const json = (await res.json()) as GeminiResponse;
+    const b64 = geminiImageData(json);
+    if (b64) {
+      writeFileSync(outPath, Buffer.from(b64, "base64"));
+      return;
+    }
+    const failure = geminiFailure(json, attempt > 0);
+    if (!failure.retryable || attempt > 0) throw new Error(failure.message);
+    await waitGeminiRetry(signal);
+  }
 }
 
 interface MinimaxResponse {

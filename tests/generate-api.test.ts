@@ -75,6 +75,61 @@ describe("图像 API 生成编排", () => {
     expect(readFileSync(output).toString()).toBe("gemini-image");
   });
 
+  test("Gemini 遍历全部候选并兼容代理的 snake_case 图片 part", async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      candidates: [
+        { content: { parts: [{ text: "先说明" }] }, finishReason: "STOP" },
+        { content: { parts: [{ inline_data: { mime_type: "image/png", data: Buffer.from("second-image").toString("base64") } }] }, finishReason: "STOP" },
+      ],
+    }), { status: 200 })) as typeof fetch;
+    const output = join(tempDir, "gemini-second.png");
+
+    await generateViaApi(provider("gemini"), "dragon", "gemini-image", 0, output);
+
+    expect(readFileSync(output).toString()).toBe("second-image");
+  });
+
+  test("Gemini NO_IMAGE 自动重试一次后可恢复", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) return new Response(JSON.stringify({ candidates: [{ finishReason: "NO_IMAGE" }], responseId: "first" }), { status: 200 });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { data: Buffer.from("retried-image").toString("base64") } }] } }] }), { status: 200 });
+    }) as typeof fetch;
+    const output = join(tempDir, "gemini-retry.png");
+
+    await generateViaApi(provider("gemini"), "dragon", "gemini-image", 0, output);
+
+    expect(calls).toBe(2);
+    expect(readFileSync(output).toString()).toBe("retried-image");
+  });
+
+  test("Gemini 安全拦截和文本拒绝返回明确原因且不重试", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "I cannot create that image." }] }, finishReason: "IMAGE_SAFETY" }],
+        responseId: "blocked-response",
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    await expect(generateViaApi(provider("gemini"), "dragon", "gemini-image", 0, join(tempDir, "gemini-blocked.png"))).rejects.toThrow(
+      "finishReason=IMAGE_SAFETY；模型返回文本：I cannot create that image.；responseId=blocked-response"
+    );
+    expect(calls).toBe(1);
+  });
+
+  test("Gemini 提示词拦截优先显示 promptFeedback", async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      promptFeedback: { blockReason: "PROHIBITED_CONTENT", blockReasonMessage: "request rejected" },
+    }), { status: 200 })) as typeof fetch;
+
+    await expect(generateViaApi(provider("gemini"), "dragon", "gemini-image", 0, join(tempDir, "gemini-prompt-blocked.png"))).rejects.toThrow(
+      "Gemini 提示词被拦截（blockReason=PROHIBITED_CONTENT）: request rejected"
+    );
+  });
+
   test("MiniMax 限制 prompt 长度、覆盖尺寸并写入 base64", async () => {
     let body: Record<string, unknown> | undefined;
     globalThis.fetch = (async (_input, init) => {
