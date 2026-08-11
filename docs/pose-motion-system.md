@@ -158,17 +158,33 @@ interface MotionClip extends AssetIdentity {
   provenance?: AssetProvenance;
 }
 
-interface MotionTrack {
+interface MotionTrackV1 {
   targetId: string;
   property: "translation" | "rotation" | "scale";
-  interpolation: "step" | "linear"; // cubic 留待后续 schema 版本定义
+  interpolation: "step" | "linear";
   keyframes: Array<{ time: number; value: number[] }>;
+}
+
+interface MotionTrackV2 {
+  targetId: string;
+  property: "translation" | "rotation" | "scale";
+  keyframes: Array<{
+    time: number;
+    value: number[];
+    // 当前 key 到下一 key 的时间插值；最后一个 key 固定为 null
+    outInterpolation: { type: "step" | "linear" }
+      | { type: "cubic-bezier"; x1: number; y1: number; x2: number; y2: number }
+      | null;
+  }>;
 }
 ```
 
 要求：
 
 - `time` 范围为 `0..duration` 秒且有序；
+- v1 保持轨道级 `step | linear` 原语义；v2 的插值由片段起始 key 持有，cubic-bezier 四个控制量均为 `[0, 1]`；
+- v1 → v2 只通过显式操作迁移：step/linear 无损映射到每个片段，读取旧资产不会自动写回升级；
+- cubic-bezier 只改变归一化时间量；位移/缩放仍用 lerp，旋转仍用最短路径 slerp，不对四元数分量做 Hermite；
 - 旋转插值使用最短路径 slerp，导入欧拉角时先完成解卷绕；
 - 根运动可保留、提取为独立轨道或转换为原地动作；
 - 事件、脚底接触、命中点不能依赖光栅帧序号；
@@ -413,7 +429,8 @@ type AnimationCapability =
 - [x] 正式资产 UI 的基础浏览、文件夹管理、JSON 导入、改名/删除与连续时间只读预览；
 - [x] 动作时间轴改为连续时间轨道；当前完成通用骨骼选择、基础 2D TRS 关键帧写入/删除、即时持久化与覆盖全部 clip 编辑的会话内 Undo/Redo；
 - [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name/payload 新增与查看/删除、根运动策略选择与基础循环接缝修复；
-- [ ] 高级曲线与循环工具（不含于当前闭环：cubic、根运动提取算法/可视化及接触感知接缝）；
+- [x] MotionClip v2 逐片段 cubic-bezier 时间曲线、显式 v1 无损迁移、确定性采样与烘焙/`.fbanim` 往返兼容；
+- [ ] 其余高级循环工具（根运动提取算法/可视化及接触感知接缝）；
 - [x] CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；
 - [x] RenderProfile 与确定性 PNG 序列烘焙；
 - [x] 不可变 RasterSequence 版本、源摘要固化、追加导入与人工修帧保护策略。
@@ -471,7 +488,6 @@ type AnimationCapability =
 - JSON schema 库与运行时校验实现；
 - 关键帧 JSON 与二进制块的性能分界；
 - 数据库是按资产整块存 JSON 还是拆分高频轨道；
-- cubic curve 的具体控制点编码；
 - Mesh/权重的首个正式 schema；
 - glTF 扩展与 2D Draw Order 的映射策略；
 - 多角色、场景级动作编排是否进入同一包格式；

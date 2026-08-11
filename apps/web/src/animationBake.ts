@@ -1,4 +1,4 @@
-import { MAX_BAKED_RASTER_FRAMES, MAX_BAKED_RASTER_PIXELS, multiplyMatrices, sampleMotionClip, transformToMatrix, type BakedRasterDraftManifest, type CharacterBinding, type Mat4, type MotionClip, type RegionAttachment, type RenderProfile, type Skeleton } from "@framebaker/shared";
+import { MAX_BAKED_RASTER_FRAMES, MAX_BAKED_RASTER_PIXELS, multiplyMatrices, sampleMotionClip, transformToMatrix, type BakedRasterDraftManifest, type CharacterBinding, type Mat4, type MotionClip, type MotionKeyV2, type Quaternion, type RegionAttachment, type RenderProfile, type Skeleton, type Vec3 } from "@framebaker/shared";
 import { createZip } from "./zip";
 
 export type BakedRasterFrame = BakedRasterDraftManifest["frames"][number] & { png: Uint8Array };
@@ -30,18 +30,23 @@ export function configuredMotionClipForRaster(clip: MotionClip, speed: number, r
     ...clip,
     duration: cycleDuration * safeRepeat,
     loop: false,
-    tracks: clip.tracks.map((track) => ({
-      ...track,
-      keyframes: Array.from({ length: safeRepeat }, (_, cycle) => track.keyframes.map((keyframe) => ({
+    tracks: clip.tracks.map((track) => {
+      const keyframes = Array.from({ length: safeRepeat }, (_, cycle) => track.keyframes.map((keyframe, keyIndex) => ({
         ...keyframe,
         time: cycle * cycleDuration + keyframe.time / safeSpeed,
-      }))).flat(),
-    })) as MotionClip["tracks"],
+        ...(clip.schemaVersion === 2 ? {
+          outInterpolation: cycle === safeRepeat - 1 && keyIndex === track.keyframes.length - 1
+            ? null
+            : (keyframe as MotionKeyV2<Vec3 | Quaternion>).outInterpolation ?? (track.keyframes.at(-2) as MotionKeyV2<Vec3 | Quaternion> | undefined)?.outInterpolation ?? { type: "linear" as const },
+        } : {}),
+      }))).flat().filter((keyframe, index, keys) => clip.schemaVersion === 1 || index === keys.length - 1 || Math.abs(keyframe.time - keys[index + 1]!.time) > 1e-9);
+      return { ...track, keyframes };
+    }) as MotionClip["tracks"],
     events: Array.from({ length: safeRepeat }, (_, cycle) => clip.events.map((event) => ({
       ...event,
       time: cycle * cycleDuration + event.time / safeSpeed,
     }))).flat(),
-  };
+  } as MotionClip;
 }
 
 /** Canvas Y-down × 骨架 Y-up × 图片本地 Y 翻转，保证源图片保持正向。 */

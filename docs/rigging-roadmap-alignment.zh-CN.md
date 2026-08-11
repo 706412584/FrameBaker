@@ -18,7 +18,7 @@ FrameBaker 当前的绑定质量上限受 CharacterBinding v1 的 Region Attachm
 
 | 阶段 | 目标 | 主要交付与门禁 |
 | --- | --- | --- |
-| Phase B 收尾 | 完成现有编辑闭环 | cubic 曲线、事件 payload UI、根运动提取/可视化、接触感知循环工具；保持 `.fbanim` 与确定性烘焙兼容 |
+| Phase B 收尾 | 完成现有编辑闭环 | cubic 曲线与事件 payload UI 已完成；下一步为根运动提取/可视化、接触感知循环工具；持续保持 `.fbanim` 与确定性烘焙兼容 |
 | Phase C | 通用交换与重定向 | BVH、glTF、语义映射、Rest Pose/比例/局部轴/根运动转换、CompatibilityReport、基础双骨 IK；至少两个外部来源可映射到同一 Skeleton |
 | Phase D | 可替换动作 Provider | capability/request/artifact/provenance、持久化任务、候选确认与质量报告；移除 provider 后资产仍可编辑和烘焙 |
 | Phase E1 | Mesh/LBS 高级形变 | CharacterBinding 新版本、Mesh Attachment、手工权重编辑、CPU LBS 权威实现、Pixi 预览与确定性烘焙一致；由真实 Region 失败样例驱动 |

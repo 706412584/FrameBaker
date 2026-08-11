@@ -4235,9 +4235,12 @@ body.resizing-row * {
 .animation-track-lane { position: relative; height: 20px; border: 1px solid var(--border); background: var(--bg); cursor: crosshair; }
 .animation-track.selected > span { color: var(--accent); }
 .animation-track.selected .animation-track-lane { border-color: var(--accent); }
-.animation-track-interpolation { display: flex; }
+.animation-track-interpolation { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 .animation-track-interpolation button { padding: 1px 4px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); font: inherit; cursor: pointer; }
 .animation-track-interpolation button.on { color: var(--text); border-color: var(--accent); }
+.animation-cubic-controls { flex-basis: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; margin-top: 3px; }
+.animation-cubic-controls label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px; color: var(--text-muted); font-size: 9px; }
+.animation-cubic-controls .px-input { width: 42px; min-width: 0; padding: 1px 2px; font-size: 9px; }
 .animation-key-dot { position: absolute; z-index: 2; bottom: 2px; width: 13px; height: 13px; padding: 0; border: 2px solid var(--surface); background: var(--accent); transform: translateX(-50%); cursor: pointer; }
 .animation-tracks .events .animation-key-dot { border-radius: 50%; background: var(--text); }
 .animation-playhead { position: absolute; z-index: 1; top: 0; bottom: 0; width: 1px; background: var(--danger); pointer-events: none; }

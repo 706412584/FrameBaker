@@ -86,11 +86,11 @@ export function ensureBuiltinAnimationAssets(database: Database): void {
         if (isBuiltinAnimationAssetId(row.id)) continue;
         const asset = JSON.parse(row.data) as AnimationAsset;
         if (asset.kind === "motion-clip") {
-          const next: MotionClip = {
+          const next = {
             ...asset,
             tracks: asset.tracks.map((track) => ({ ...track, targetId: remap(track.targetId, asset.name) })),
             ...(asset.contacts ? { contacts: asset.contacts.map((contact) => ({ ...contact, targetId: remap(contact.targetId, asset.name) })) } : {}),
-          };
+          } as MotionClip;
           const result = validateMotionClip(next, canonicalSkeleton);
           if (!result.ok) throw new Error(`内置骨架升级后动作「${asset.name}」无效：${firstIssue(result)}`);
           database.query("UPDATE animation_assets SET data = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(next), Date.now(), row.id);

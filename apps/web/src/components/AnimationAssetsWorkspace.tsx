@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type CharacterBinding, type JsonValue, type Mat4, type Material, type MotionClip, type MotionInterpolation, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
+import { addMotionEvent, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, DEFAULT_CUBIC_MOTION_INTERPOLATION, deleteMotionEvent, deleteMotionKeyframe, findMotionSegmentIndex, getBoneEndpoint, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, setMotionSegmentInterpolation, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type AnyMotionTrack, type CharacterBinding, type CubicBezierMotionInterpolation, type JsonValue, type Mat4, type Material, type MotionClip, type MotionSegmentInterpolation, type MotionTrack, type MotionTrackV2, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
 import { Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, ZoomIn } from "lucide-react";
 import { api, materialImageUrl, type Folder } from "../api";
 import { useT } from "../i18n";
@@ -578,13 +578,26 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
       setEventPayloadError("");
     }
   };
-  const setInterpolation = async (targetId: string, property: string, interpolation: MotionInterpolation) => {
+  const segmentInterpolationAt = (track: AnyMotionTrack): MotionSegmentInterpolation | null => {
+    const index = findMotionSegmentIndex(track.keyframes, time);
+    if (index < 0) return null;
+    if (clip?.schemaVersion === 1) return { type: (track as MotionTrack).interpolation };
+    return (track as MotionTrackV2).keyframes[index]!.outInterpolation;
+  };
+  const setInterpolation = async (targetId: string, property: AnyMotionTrack["property"], interpolation: MotionSegmentInterpolation) => {
     if (!clip || busy) return;
-    await commitClipEdit({ ...clip, tracks: clip.tracks.map((track) => track.targetId === targetId && track.property === property ? { ...track, interpolation } : track) });
+    const upgrades = clip.schemaVersion === 1 && interpolation.type === "cubic-bezier";
+    if (await commitClipEdit(setMotionSegmentInterpolation(clip, targetId, property, time, interpolation)) && upgrades) notify(t("animation.interpolation.upgraded"), "info");
   };
   const smoothAllTracks = async () => {
-    if (!clip || busy || !clip.tracks.some((track) => track.interpolation === "step")) return;
-    await commitClipEdit({ ...clip, tracks: clip.tracks.map((track) => ({ ...track, interpolation: "linear" })) });
+    if (!clip || busy) return;
+    if (clip.schemaVersion === 1) {
+      if (!clip.tracks.some((track) => track.interpolation === "step")) return;
+      await commitClipEdit({ ...clip, tracks: clip.tracks.map((track) => ({ ...track, interpolation: "linear" })) });
+      return;
+    }
+    if (!clip.tracks.some((track) => track.keyframes.some((key) => key.outInterpolation?.type === "step"))) return;
+    await commitClipEdit({ ...clip, tracks: clip.tracks.map((track) => ({ ...track, keyframes: track.keyframes.map((key) => key.outInterpolation?.type === "step" ? { ...key, outInterpolation: { type: "linear" as const } } : key) })) } as MotionClip);
   };
   const setRootMotion = async (value: string) => {
     if (!clip || busy) return;
@@ -691,7 +704,7 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
         </details>
 
         <section className="animation-timeline">
-          <header><div><h3>{t("animation.timeline")}</h3><p>{t("animation.timelineHint")}</p></div><button className="px-btn" disabled={busy || builtin || !clip.tracks.some((track) => track.interpolation === "step")} onClick={() => void smoothAllTracks()}>{t("animation.interpolation.smoothAll")}</button></header>
+          <header><div><h3>{t("animation.timeline")}</h3><p>{t("animation.timelineHint")}</p></div><button className="px-btn" disabled={busy || builtin || !clip.tracks.some((track) => clip.schemaVersion === 1 ? (track as MotionTrack).interpolation === "step" : (track as MotionTrackV2).keyframes.some((key) => key.outInterpolation?.type === "step"))} onClick={() => void smoothAllTracks()}>{t("animation.interpolation.smoothAll")}</button></header>
           <div className="animation-timeline-ruler"><span /><div><i style={{ left: "0%" }}>0s</i><i style={{ left: "50%" }}>{(clip.duration / 2).toFixed(2)}s</i><i style={{ left: "100%" }}>{clip.duration.toFixed(2)}s</i></div><span /></div>
           <div className="animation-tracks">{clip.tracks.map((track) => <div className={`animation-track${track.targetId === selectedBone ? " selected" : ""}`} key={`${track.targetId}-${track.property}`}>
             <span>{skeleton.bones.find((bone) => bone.id === track.targetId)?.name ?? t("animation.unknownBone")} · {t(`animation.channel.${track.property}`)}</span>
@@ -699,7 +712,7 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
               {track.keyframes.map((key, k) => <button className="animation-key-dot" aria-label={`${key.time}s`} key={k} onClick={(event) => { event.stopPropagation(); setTime(key.time); selectBone(track.targetId); }} style={{ left: `${clip.duration ? key.time / clip.duration * 100 : 0}%` }} />)}
               <b className="animation-playhead" style={{ left: `${clip.duration ? time / clip.duration * 100 : 0}%` }} />
             </div>
-            <div className="animation-track-interpolation"><button className={track.interpolation === "step" ? "on" : ""} disabled={busy || builtin} title={t("animation.interpolation.holdHint")} onClick={() => void setInterpolation(track.targetId, track.property, "step")}>{t("animation.interpolation.hold")}</button><button className={track.interpolation === "linear" ? "on" : ""} disabled={busy || builtin} title={t("animation.interpolation.smoothHint")} onClick={() => void setInterpolation(track.targetId, track.property, "linear")}>{t("animation.interpolation.smooth")}</button></div>
+            {(() => { const interpolation = segmentInterpolationAt(track); const cubic = interpolation?.type === "cubic-bezier" ? interpolation : null; return <div className="animation-track-interpolation"><button className={interpolation?.type === "step" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.holdHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "step" })}>{t("animation.interpolation.hold")}</button><button className={interpolation?.type === "linear" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.smoothHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "linear" })}>{t("animation.interpolation.smooth")}</button><button className={cubic ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.cubicHint")} onClick={() => void setInterpolation(track.targetId, track.property, cubic ?? DEFAULT_CUBIC_MOTION_INTERPOLATION)}>{t("animation.interpolation.cubic")}</button>{cubic && <span className="animation-cubic-controls">{(["x1", "y1", "x2", "y2"] as const).map((key) => <label key={key}>{key}<input className="px-input" type="number" min="0" max="1" step="0.01" value={cubic[key]} disabled={busy || builtin} onChange={(event) => { const value = Math.max(0, Math.min(1, Number(event.target.value))); if (Number.isFinite(value)) void setInterpolation(track.targetId, track.property, { ...cubic, [key]: value } as CubicBezierMotionInterpolation); }} /></label>)}</span>}</div>; })()}
           </div>)}</div>
         </section>
       </>}

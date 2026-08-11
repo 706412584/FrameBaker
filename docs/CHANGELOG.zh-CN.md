@@ -7,6 +7,7 @@
 ### 新增
 
 - 动作事件支持输入、校验并查看可选 JSON payload，数据随 MotionClip 持久化。
+- 新增 MotionClip schema v2：逐片段 cubic-bezier 时间曲线、显式无损 v1 迁移、四元数缓动 slerp、曲线编辑及 `.fbanim`/光栅烘焙兼容。
 
 ## [0.2.2] - 2026-08-11
 

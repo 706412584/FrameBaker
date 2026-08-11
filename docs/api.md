@@ -358,6 +358,13 @@ Queues semantic scene-layer decomposition. It reconstructs editable RGBA layers 
 
 Ranges: `layers` 1–4 (the current Gitee Qwen-Image-Layered endpoint rejects values above 4), `numInferenceSteps` 1–100 (UI/MCP default `50`, matching the upstream quality configuration), `trueCfgScale` 0–20 (default `4`), integer `seed >= 0`. Returns `{ "jobId": "…" }`; result layers become raw materials in the source folder. For deeper decomposition, split one returned layer again recursively.
 
+## Animation Assets /api/animation-assets
+
+- `GET /api/animation-assets?kind=...` lists stored Skeleton, MotionClip, CharacterBinding, and RenderProfile assets.
+- `POST /api/animation-assets` creates `{ asset, folderId? }`; `GET`, `PUT`, and `DELETE /api/animation-assets/:id` read, replace, and delete one asset.
+- MotionClip `schemaVersion: 1` keeps track-level `step | linear`. MotionClip `schemaVersion: 2` removes track-level interpolation and requires every key to carry `outInterpolation`: non-terminal keys use `{ type: "step" | "linear" }` or `{ type: "cubic-bezier", x1, y1, x2, y2 }`, while the terminal key uses `null`. Bézier controls must be finite values in `[0, 1]`.
+- Reading or saving v1 does not upgrade it. The editor upgrades to v2 only when the user explicitly selects a cubic curve. `.fbanim` package versions remain independent from embedded MotionClip schema versions.
+
 ## Other
 
 - `GET /api/health` → `{ "ok": true, "name": "FrameBaker" }`

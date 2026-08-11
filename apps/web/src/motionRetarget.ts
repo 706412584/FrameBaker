@@ -2,8 +2,8 @@ import {
   quaternionFromZRotation,
   zRotationFromQuaternion,
   type AnimationBone,
+  type AnyMotionTrack,
   type MotionClip,
-  type MotionTrack,
   type Skeleton,
   type Vec3,
 } from "@framebaker/shared";
@@ -60,7 +60,7 @@ function retargetScale(source: Skeleton, target: Skeleton): number {
   return ratios.length % 2 ? ratios[middle]! : (ratios[middle - 1]! + ratios[middle]!) / 2;
 }
 
-function continuousAngles(track: Extract<MotionTrack, { property: "rotation" }>): number[] {
+function continuousAngles(track: Extract<AnyMotionTrack, { property: "rotation" }>): number[] {
   const source = track.keyframes.map((key) => zRotationFromQuaternion(key.value));
   const result = [source[0]!];
   for (let index = 1; index < source.length; index += 1) {
@@ -82,7 +82,7 @@ export function retargetMotionClip(sourceClip: MotionClip, sourceSkeleton: Skele
   const sourceSemantics = new Map([...semanticBones(sourceSkeleton)].map(([semantic, bone]) => [bone.id, semantic]));
   const targetBySemantic = semanticBones(targetSkeleton);
   const spatialScale = retargetScale(sourceSkeleton, targetSkeleton);
-  const tracks = sourceClip.tracks.flatMap((track): MotionTrack[] => {
+  const tracks = sourceClip.tracks.flatMap((track): AnyMotionTrack[] => {
     const sourceBone = sourceById.get(track.targetId), semantic = sourceSemantics.get(track.targetId);
     const targetBone = semantic ? targetBySemantic.get(semantic) : undefined;
     if (!sourceBone || !semantic || !targetBone) return [];
@@ -91,14 +91,14 @@ export function retargetMotionClip(sourceClip: MotionClip, sourceSkeleton: Skele
       const baseline = angles.length > 1 ? angles[0]! : zRotationFromQuaternion(sourceBone.rest.rotation);
       const targetRest = zRotationFromQuaternion(targetBone.rest.rotation);
       const scale = sourceSkeleton.semanticProfile?.id === "humanoid-v1" ? HUMANOID_ROTATION_SCALE[semantic] ?? 1 : 1;
-      return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key, index) => ({ ...key, value: quaternionFromZRotation(targetRest + (angles[index]! - baseline) * scale) })) }];
+      return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key, index) => ({ ...key, value: quaternionFromZRotation(targetRest + (angles[index]! - baseline) * scale) })) } as AnyMotionTrack];
     }
     if (track.property === "translation") {
       const sourceRest = sourceBone.rest.translation, targetRest = targetBone.rest.translation;
-      return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key) => ({ ...key, value: key.value.map((value, axis) => targetRest[axis]! + (value - sourceRest[axis]!) * spatialScale) as Vec3 })) }];
+      return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key) => ({ ...key, value: key.value.map((value, axis) => targetRest[axis]! + (value - sourceRest[axis]!) * spatialScale) as Vec3 })) } as AnyMotionTrack];
     }
     const baseline = track.keyframes.length > 1 ? track.keyframes[0]!.value : sourceBone.rest.scale;
-    return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key) => ({ ...key, value: key.value.map((value, axis) => targetBone.rest.scale[axis]! * value / (baseline[axis] || 1)) as Vec3 })) }];
+    return [{ ...track, targetId: targetBone.id, keyframes: track.keyframes.map((key) => ({ ...key, value: key.value.map((value, axis) => targetBone.rest.scale[axis]! * value / (baseline[axis] || 1)) as Vec3 })) } as AnyMotionTrack];
   });
   if (!tracks.length) throw new Error("源动作没有可映射到目标骨架的轨道");
 
@@ -107,7 +107,7 @@ export function retargetMotionClip(sourceClip: MotionClip, sourceSkeleton: Skele
     return targetBone ? [{ ...contact, targetId: targetBone.id, intervals: contact.intervals.map((interval) => ({ ...interval })) }] : [];
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: sourceClip.schemaVersion,
     kind: "motion-clip",
     id: `motion-retarget-${crypto.randomUUID()}`,
     name,
@@ -129,5 +129,5 @@ export function retargetMotionClip(sourceClip: MotionClip, sourceSkeleton: Skele
         spatialScale,
       },
     },
-  };
+  } as MotionClip;
 }

@@ -21,7 +21,7 @@
         "properties": {
           "kind": { "enum": ["skeleton", "motion-clip"] },
           "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
-          "schemaVersion": { "const": 1 },
+          "schemaVersion": { "enum": [1, 2] },
           "path": { "type": "string", "pattern": "^(skeletons|motions)/[a-f0-9]{64}\\.json$", "maxLength": 160 },
           "byteLength": { "type": "integer", "minimum": 0, "maximum": 33554432 },
           "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -41,7 +41,7 @@
         "allOf": [
           {
             "if": { "properties": { "kind": { "const": "skeleton" } } },
-            "then": { "properties": { "dependencies": { "type": "array", "maxItems": 0 }, "path": { "type": "string", "pattern": "^skeletons/" } } }
+            "then": { "properties": { "schemaVersion": { "const": 1 }, "dependencies": { "type": "array", "maxItems": 0 }, "path": { "type": "string", "pattern": "^skeletons/" } } }
           },
           {
             "if": { "properties": { "kind": { "const": "motion-clip" } } },

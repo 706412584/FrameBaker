@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, transformToMatrix, upsertMotionKeyframe, validateMotionClip, zRotationFromQuaternion, type MotionClip, type Skeleton, type Transform } from "../packages/shared/src";
+import Ajv2020 from "ajv/dist/2020";
+import commonSchema from "../packages/shared/schemas/animation/v1/common.schema.json";
+import motionClipV1Schema from "../packages/shared/schemas/animation/v1/motion-clip.schema.json";
+import motionClipV2Schema from "../packages/shared/schemas/animation/v2/motion-clip.schema.json";
+import { addMotionEvent, closeMotionLoopSeam, deleteMotionEvent, deleteMotionKeyframe, findMotionSegmentIndex, migrateMotionClipV1ToV2, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, setMotionSegmentInterpolation, transformToMatrix, upsertMotionKeyframe, validateMotionClip, zRotationFromQuaternion, type MotionClip, type MotionClipV1, type MotionClipV2, type Skeleton, type Transform } from "../packages/shared/src";
 
 const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: "s", name: "S", coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "normalized" }, bones: [{ id: "b", name: "Bone", parentId: null, rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }] };
 const clip = (): MotionClip => ({ schemaVersion: 1, kind: "motion-clip", id: "c", name: "C", skeletonId: "s", duration: 2, loop: false, tracks: [], events: [] });
@@ -59,5 +63,82 @@ describe("连续时间轨道编辑", () => {
     expect(track.keyframes[0]!.value).toEqual(track.keyframes.at(-1)!.value);
     expect(validateMotionClip(value, skeleton).ok).toBe(true);
     expect(closeMotionLoopSeam({ ...value, loop: false }, skeleton).tracks).toBe(value.tracks);
+  });
+});
+
+describe("MotionClip v2 cubic 时间曲线", () => {
+  const linearClip = (): MotionClipV1 => ({
+    ...clip() as MotionClipV1,
+    tracks: [{ targetId: "b", property: "translation", interpolation: "linear", keyframes: [{ time: 0, value: [0, 0, 0] }, { time: 2, value: [10, 0, 0] }] }],
+  });
+
+  test("v1 保持原语义并拒绝 v2 字段", () => {
+    const invalid = structuredClone(linearClip()) as unknown as Record<string, unknown>;
+    const track = (invalid.tracks as Array<Record<string, unknown>>)[0]!;
+    track.interpolation = "cubic-bezier";
+    (track.keyframes as Array<Record<string, unknown>>)[0]!.outInterpolation = { type: "linear" };
+    expect(validateMotionClip(invalid, skeleton).ok).toBeFalse();
+  });
+
+  test("v1/v2 JSON schema 分别接受自己的格式并交叉拒绝", () => {
+    const migrated = migrateMotionClipV1ToV2(linearClip());
+    const ajv = new Ajv2020({ strict: true });
+    ajv.addSchema(commonSchema);
+    const validateV1 = ajv.compile(motionClipV1Schema), validateV2 = ajv.compile(motionClipV2Schema);
+    expect(validateV1(linearClip())).toBeTrue();
+    expect(validateV1(migrated)).toBeFalse();
+    expect(validateV2(migrated)).toBeTrue();
+    expect(validateV2(linearClip())).toBeFalse();
+  });
+
+  test("显式迁移无损，读取和采样不会改写 v1", () => {
+    const source = linearClip(), before = structuredClone(source);
+    const migrated = migrateMotionClipV1ToV2(source);
+    expect(source).toEqual(before);
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.tracks[0]!.keyframes.map((key) => key.outInterpolation)).toEqual([{ type: "linear" }, null]);
+    for (const time of [0, .25, 1, 1.75, 2]) {
+      expect(sampleMotionClip(migrated, skeleton, time).local.b!.translation).toEqual(sampleMotionClip(source, skeleton, time).local.b!.translation);
+    }
+  });
+
+  test("cubic-bezier 对 Vec3 lerp 与四元数 slerp 使用同一有界时间量", () => {
+    const curve = { type: "cubic-bezier" as const, x1: 0, y1: 0, x2: 1, y2: 0 };
+    let value = setMotionSegmentInterpolation(linearClip(), "b", "translation", 0, curve) as MotionClipV2;
+    expect(validateMotionClip(value, skeleton).ok).toBeTrue();
+    expect(sampleMotionClip(value, skeleton, 1).local.b!.translation[0]).toBeCloseTo(1.25, 8);
+    expect(sampleMotionClip(value, skeleton, 0).local.b!.translation[0]).toBe(0);
+    expect(sampleMotionClip(value, skeleton, 2).local.b!.translation[0]).toBe(10);
+
+    value = { ...value, tracks: [{ targetId: "b", property: "rotation", keyframes: [{ time: 0, value: quaternionFromZRotation(0), outInterpolation: curve }, { time: 2, value: quaternionFromZRotation(Math.PI / 2), outInterpolation: null }] }] };
+    expect(zRotationFromQuaternion(sampleMotionClip(value, skeleton, 1).local.b!.rotation)).toBeCloseTo(Math.PI / 16, 8);
+  });
+
+  test("校验控制点与末尾 null，并在插入删除时维持片段归属", () => {
+    const curve = { type: "cubic-bezier" as const, x1: .2, y1: .3, x2: .7, y2: .8 };
+    let value = setMotionSegmentInterpolation(linearClip(), "b", "translation", 0, curve) as MotionClipV2;
+    value = upsertMotionKeyframe(value, "b", "translation", 1, [5, 0, 0]) as MotionClipV2;
+    expect(value.tracks[0]!.keyframes.map((key) => key.outInterpolation)).toEqual([curve, curve, null]);
+    value = deleteMotionKeyframe(value, "b", "translation", 2) as MotionClipV2;
+    expect(value.tracks[0]!.keyframes.at(-1)!.outInterpolation).toBeNull();
+    expect(validateMotionClip(value, skeleton).ok).toBeTrue();
+
+    const invalid = structuredClone(value);
+    invalid.tracks[0]!.keyframes[0]!.outInterpolation = { ...curve, x1: 2 };
+    expect(validateMotionClip(invalid, skeleton).ok).toBeFalse();
+    invalid.tracks[0]!.keyframes[0]!.outInterpolation = null;
+    expect(validateMotionClip(invalid, skeleton).ok).toBeFalse();
+  });
+
+  test("片段定位在末尾禁用，并且采样严格服从 clip 版本", () => {
+    expect(findMotionSegmentIndex([{ time: 0 }, { time: 1 }], 0)).toBe(0);
+    expect(findMotionSegmentIndex([{ time: 0 }, { time: 1 }], 1)).toBe(-1);
+    expect(findMotionSegmentIndex([{ time: 0 }], 0)).toBe(-1);
+    const malformed = {
+      ...migrateMotionClipV1ToV2(linearClip()),
+      tracks: [{ targetId: "b", property: "translation", interpolation: "linear", keyframes: [{ time: 0, value: [0, 0, 0] }, { time: 2, value: [1, 0, 0], outInterpolation: null }] }],
+    } as unknown as MotionClip;
+    expect(validateMotionClip(malformed, skeleton).ok).toBeFalse();
+    expect(() => sampleMotionClip(malformed, skeleton, 1)).toThrow("缺少片段插值");
   });
 });

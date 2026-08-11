@@ -7,6 +7,7 @@ This document records features, changes, and bug fixes by release. Main releases
 ### Added
 
 - Motion events can now accept, validate, display, and persist an optional JSON payload.
+- Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.
 
 ## [0.2.2] - 2026-08-11
 

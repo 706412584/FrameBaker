@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020";
 import manifestSchema from "../packages/shared/schemas/fbanim/v2/manifest.schema.json";
-import { buildFbanimV2Entries, canonicalizeJson, sha256Digest, verifyFbanimV2Entries, type CharacterBinding, type MotionClip, type Skeleton } from "../packages/shared/src";
+import { buildFbanimEntries, buildFbanimV2Entries, canonicalizeJson, migrateMotionClipV1ToV2, setMotionSegmentInterpolation, sha256Digest, verifyFbanimEntries, verifyFbanimV2Entries, type CharacterBinding, type MotionClip, type MotionClipV1, type Skeleton } from "../packages/shared/src";
 
 const skeleton: Skeleton = {
   schemaVersion: 1,
@@ -50,6 +50,24 @@ describe("fbanim v2 运行时包", () => {
     const a = await buildFbanimV2Entries(source());
     const b = await buildFbanimV2Entries(source());
     expect(a.map((entry) => [entry.path, [...entry.bytes]])).toEqual(b.map((entry) => [entry.path, [...entry.bytes]]));
+  });
+
+  test("包版本 2 独立承载 MotionClip schema v2 并保持曲线", async () => {
+    const v1 = { ...clip, tracks: [{ targetId: "root", property: "translation" as const, interpolation: "linear" as const, keyframes: [{ time: 0, value: [0, 0, 0] as [number, number, number] }, { time: 1, value: [1, 0, 0] as [number, number, number] }] }] } as MotionClipV1;
+    const cubic = setMotionSegmentInterpolation(migrateMotionClipV1ToV2(v1), "root", "translation", 0, { type: "cubic-bezier", x1: .2, y1: .1, x2: .8, y2: .9 });
+    const entries = await buildFbanimV2Entries({ ...source(), actions: [{ ...source().actions[0]!, motionClip: cubic }] });
+    const verified = await verifyFbanimV2Entries(entries);
+    expect(verified.ok).toBeTrue();
+    if (verified.ok) expect(verified.value.actions[0]!.motionClip).toEqual(cubic);
+  });
+
+  test("历史包版本 1 同样按资产 schemaVersion 承载 v2 动作", async () => {
+    const v1 = { ...clip, tracks: [{ targetId: "root", property: "translation" as const, interpolation: "linear" as const, keyframes: [{ time: 0, value: [0, 0, 0] as [number, number, number] }, { time: 1, value: [1, 0, 0] as [number, number, number] }] }] } as MotionClipV1;
+    const cubic = setMotionSegmentInterpolation(v1, "root", "translation", 0, { type: "cubic-bezier", x1: .2, y1: .1, x2: .8, y2: .9 });
+    const entries = await buildFbanimEntries({ createdBy: { name: "FrameBaker", version: "test" }, skeletons: [skeleton], motionClips: [cubic] });
+    const verified = await verifyFbanimEntries(entries);
+    expect(verified.ok).toBeTrue();
+    if (verified.ok) expect(verified.value.motionClips[0]).toEqual(cubic);
   });
 
   test("拒绝篡改摘要、路径穿越和缺失纹理", async () => {

@@ -1,5 +1,6 @@
 import {
   MOTION_CLIP_SCHEMA_VERSION,
+  MOTION_CLIP_SCHEMA_VERSION_V2,
   SKELETON_SCHEMA_VERSION,
   validateMotionClip,
   validateSkeleton,
@@ -109,8 +110,10 @@ export function validateFbanimManifest(value: unknown): ValidationResult<FbanimM
       if (descriptor.kind !== "skeleton" && descriptor.kind !== "motion-clip") issues.push({ path: `${path}.kind`, message: "资产种类无效" });
       if (typeof descriptor.id !== "string" || !ID_PATTERN.test(descriptor.id)) issues.push({ path: `${path}.id`, message: "资产 ID 无效" });
       else if (ids.has(descriptor.id)) issues.push({ path: `${path}.id`, message: "包内资产 ID 重复" }); else ids.add(descriptor.id);
-      const expectedVersion = descriptor.kind === "skeleton" ? SKELETON_SCHEMA_VERSION : MOTION_CLIP_SCHEMA_VERSION;
-      if (descriptor.schemaVersion !== expectedVersion) issues.push({ path: `${path}.schemaVersion`, message: "资产格式版本不受支持" });
+      const supportedVersion = descriptor.kind === "skeleton"
+        ? descriptor.schemaVersion === SKELETON_SCHEMA_VERSION
+        : descriptor.schemaVersion === MOTION_CLIP_SCHEMA_VERSION || descriptor.schemaVersion === MOTION_CLIP_SCHEMA_VERSION_V2;
+      if (!supportedVersion) issues.push({ path: `${path}.schemaVersion`, message: "资产格式版本不受支持" });
       if (typeof descriptor.byteLength !== "number" || !Number.isInteger(descriptor.byteLength) || descriptor.byteLength < 0 || descriptor.byteLength > FBANIM_V1_LIMITS.maxAssetBytes) issues.push({ path: `${path}.byteLength`, message: "资产字节数无效或超限" });
       if (typeof descriptor.digest !== "string" || !DIGEST_PATTERN.test(descriptor.digest)) issues.push({ path: `${path}.digest`, message: "必须是小写 SHA-256 摘要" });
       if (typeof descriptor.path !== "string") issues.push({ path: `${path}.path`, message: "必须是路径字符串" });

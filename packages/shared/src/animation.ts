@@ -1,7 +1,10 @@
 import { validateBoundedJsonValue, type JsonNodeBudget, type JsonValue } from "./json";
 
 export const SKELETON_SCHEMA_VERSION = 1;
+/** MotionClip v1 保持 step/linear 轨道语义；新建资产仍默认使用 v1，只有显式使用高级曲线时升级。 */
 export const MOTION_CLIP_SCHEMA_VERSION = 1;
+export const MOTION_CLIP_SCHEMA_VERSION_V2 = 2;
+export const MOTION_CLIP_LATEST_SCHEMA_VERSION = MOTION_CLIP_SCHEMA_VERSION_V2;
 export const CHARACTER_BINDING_SCHEMA_VERSION = 1;
 export const RENDER_PROFILE_SCHEMA_VERSION = 1;
 export const MAX_BAKED_RASTER_FRAMES = 10_000;
@@ -79,34 +82,59 @@ export interface Skeleton extends AnimationAssetBase<"skeleton"> {
   semanticProfile?: SkeletonSemanticProfile;
 }
 
+/** MotionClip v1 的轨道级插值。 */
 export type MotionInterpolation = "step" | "linear";
+
+export interface CubicBezierMotionInterpolation {
+  type: "cubic-bezier";
+  /** 归一化时间曲线控制点；x/y 均限制在 [0, 1]，避免非单调时间与外插。 */
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/** MotionClip v2 中由起始关键帧拥有的“到下一关键帧”插值。 */
+export type MotionSegmentInterpolation = { type: MotionInterpolation } | CubicBezierMotionInterpolation;
 
 export interface MotionKey<T> {
   time: number;
   value: T;
 }
 
-interface MotionTrackBase {
+export interface MotionKeyV2<T> extends MotionKey<T> {
+  /** 最后一个关键帧必须为 null；其余关键帧定义到下一关键帧的插值。 */
+  outInterpolation: MotionSegmentInterpolation | null;
+}
+
+interface MotionTrackV1Base {
   targetId: string;
   interpolation: MotionInterpolation;
 }
 
-export interface TranslationTrack extends MotionTrackBase {
+export interface TranslationTrack extends MotionTrackV1Base {
   property: "translation";
   keyframes: Array<MotionKey<Vec3>>;
 }
 
-export interface RotationTrack extends MotionTrackBase {
+export interface RotationTrack extends MotionTrackV1Base {
   property: "rotation";
   keyframes: Array<MotionKey<Quaternion>>;
 }
 
-export interface ScaleTrack extends MotionTrackBase {
+export interface ScaleTrack extends MotionTrackV1Base {
   property: "scale";
   keyframes: Array<MotionKey<Vec3>>;
 }
 
 export type MotionTrack = TranslationTrack | RotationTrack | ScaleTrack;
+
+interface MotionTrackV2Base { targetId: string }
+export interface TranslationTrackV2 extends MotionTrackV2Base { property: "translation"; keyframes: Array<MotionKeyV2<Vec3>> }
+export interface RotationTrackV2 extends MotionTrackV2Base { property: "rotation"; keyframes: Array<MotionKeyV2<Quaternion>> }
+export interface ScaleTrackV2 extends MotionTrackV2Base { property: "scale"; keyframes: Array<MotionKeyV2<Vec3>> }
+export type MotionTrackV2 = TranslationTrackV2 | RotationTrackV2 | ScaleTrackV2;
+export type AnyMotionTrack = MotionTrack | MotionTrackV2;
 
 export interface MotionEvent {
   time: number;
@@ -132,18 +160,28 @@ export interface AssetProvenance {
   parameters?: Record<string, JsonValue>;
 }
 
-export interface MotionClip extends AnimationAssetBase<"motion-clip"> {
-  schemaVersion: typeof MOTION_CLIP_SCHEMA_VERSION;
+interface MotionClipBase extends AnimationAssetBase<"motion-clip"> {
   skeletonId: string;
   /** 连续时间长度，单位为秒。 */
   duration: number;
   loop: boolean;
-  tracks: MotionTrack[];
   events: MotionEvent[];
   contacts?: ContactTrack[];
   rootMotion?: RootMotionPolicy;
   provenance?: AssetProvenance;
 }
+
+export interface MotionClipV1 extends MotionClipBase {
+  schemaVersion: typeof MOTION_CLIP_SCHEMA_VERSION;
+  tracks: MotionTrack[];
+}
+
+export interface MotionClipV2 extends MotionClipBase {
+  schemaVersion: typeof MOTION_CLIP_SCHEMA_VERSION_V2;
+  tracks: MotionTrackV2[];
+}
+
+export type MotionClip = MotionClipV1 | MotionClipV2;
 
 export interface CharacterSlot {
   id: string;
@@ -284,9 +322,10 @@ function validateJsonValue(value: unknown, path: string, issues: ValidationIssue
   issues.push(...validateBoundedJsonValue(value, { maxNodes: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes }, budget).map((issue) => ({ ...issue, path: issue.path === "$" ? path : `${path}${issue.path.slice(1)}` })));
 }
 
-function validateIdentity(value: Record<string, unknown>, kind: AnimationAssetKind, version: number, issues: ValidationIssue[], jsonBudget: JsonNodeBudget) {
-  if (value.schemaVersion !== version) {
-    issues.push({ path: "schemaVersion", message: `仅支持 ${kind} 格式版本 ${version}` });
+function validateIdentity(value: Record<string, unknown>, kind: AnimationAssetKind, version: number | readonly number[], issues: ValidationIssue[], jsonBudget: JsonNodeBudget) {
+  const versions = Array.isArray(version) ? version : [version];
+  if (!versions.includes(value.schemaVersion as number)) {
+    issues.push({ path: "schemaVersion", message: `仅支持 ${kind} 格式版本 ${versions.join("、")}` });
   }
   if (value.kind !== kind) {
     issues.push({ path: "kind", message: `必须是 ${kind}` });
@@ -398,17 +437,36 @@ export function validateSkeleton(value: unknown): ValidationResult<Skeleton> {
   return issues.length === 0 ? { ok: true, value: value as unknown as Skeleton, issues: [] } : { ok: false, issues };
 }
 
-function validateTrack(track: unknown, index: number, duration: number, skeletonIds: Set<string> | undefined, issues: ValidationIssue[]) {
+function validateSegmentInterpolation(value: unknown, path: string, issues: ValidationIssue[]) {
+  if (!isRecord(value)) {
+    issues.push({ path, message: "必须是片段插值对象" });
+    return;
+  }
+  if (value.type === "step" || value.type === "linear") {
+    rejectUnknown(value, ["type"], path, issues);
+    return;
+  }
+  if (value.type !== "cubic-bezier") {
+    issues.push({ path: `${path}.type`, message: "插值方式无效" });
+    return;
+  }
+  rejectUnknown(value, ["type", "x1", "y1", "x2", "y2"], path, issues);
+  for (const key of ["x1", "y1", "x2", "y2"] as const) {
+    if (!isFiniteNumber(value[key]) || value[key] < 0 || value[key] > 1) issues.push({ path: `${path}.${key}`, message: "控制点必须是 [0, 1] 内的有限数值" });
+  }
+}
+
+function validateTrack(track: unknown, index: number, duration: number, skeletonIds: Set<string> | undefined, version: 1 | 2, issues: ValidationIssue[]) {
   const path = `tracks[${index}]`;
   if (!isRecord(track)) {
     issues.push({ path, message: "必须是轨道对象" });
     return;
   }
-  rejectUnknown(track, ["targetId", "property", "interpolation", "keyframes"], path, issues);
+  rejectUnknown(track, version === 1 ? ["targetId", "property", "interpolation", "keyframes"] : ["targetId", "property", "keyframes"], path, issues);
   if (typeof track.targetId !== "string" || !ID_PATTERN.test(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标 ID 无效" });
   else if (skeletonIds && !skeletonIds.has(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标骨骼不存在" });
   if (track.property !== "translation" && track.property !== "rotation" && track.property !== "scale") issues.push({ path: `${path}.property`, message: "轨道属性无效" });
-  if (track.interpolation !== "step" && track.interpolation !== "linear") issues.push({ path: `${path}.interpolation`, message: "插值方式无效" });
+  if (version === 1 && track.interpolation !== "step" && track.interpolation !== "linear") issues.push({ path: `${path}.interpolation`, message: "插值方式无效" });
   if (!Array.isArray(track.keyframes) || track.keyframes.length === 0 || track.keyframes.length > ANIMATION_V1_LIMITS.maxKeyframesPerTrack) {
     issues.push({ path: `${path}.keyframes`, message: "轨道至少需要一个关键帧" });
     return;
@@ -420,13 +478,21 @@ function validateTrack(track: unknown, index: number, duration: number, skeleton
       issues.push({ path: keyPath, message: "必须是关键帧对象" });
       continue;
     }
-    rejectUnknown(key, ["time", "value"], keyPath, issues);
+    rejectUnknown(key, version === 1 ? ["time", "value"] : ["time", "value", "outInterpolation"], keyPath, issues);
     if (!isFiniteNumber(key.time) || key.time < 0 || key.time > duration) issues.push({ path: `${keyPath}.time`, message: "时间必须位于动作时长内" });
     else if (key.time <= previous) issues.push({ path: `${keyPath}.time`, message: "关键帧时间必须严格递增" });
     else previous = key.time;
     const expected = track.property === "rotation" ? 4 : 3;
     if (!isTuple(key.value, expected)) issues.push({ path: `${keyPath}.value`, message: `必须包含 ${expected} 个有限数值` });
     else if (track.property === "rotation" && Math.abs(Math.hypot(...key.value) - 1) > QUATERNION_NORM_EPSILON) issues.push({ path: `${keyPath}.value`, message: "四元数必须归一化" });
+    if (version === 2) {
+      const terminal = keyIndex === track.keyframes.length - 1;
+      if (terminal) {
+        if (key.outInterpolation !== null) issues.push({ path: `${keyPath}.outInterpolation`, message: "最后一个关键帧的片段插值必须是 null" });
+      } else if (key.outInterpolation === null || key.outInterpolation === undefined) {
+        issues.push({ path: `${keyPath}.outInterpolation`, message: "非末尾关键帧必须定义到下一关键帧的插值" });
+      } else validateSegmentInterpolation(key.outInterpolation, `${keyPath}.outInterpolation`, issues);
+    }
   }
 }
 
@@ -453,7 +519,8 @@ export function validateMotionClip(value: unknown, skeleton?: Skeleton): Validat
   const jsonBudget: JsonNodeBudget = { remaining: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes };
   if (!isRecord(value)) return { ok: false, issues: [{ path: "$", message: "动作必须是对象" }] };
   rejectUnknown(value, ["schemaVersion", "kind", "id", "name", "extensions", "skeletonId", "duration", "loop", "tracks", "events", "contacts", "rootMotion", "provenance"], "$", issues);
-  validateIdentity(value, "motion-clip", MOTION_CLIP_SCHEMA_VERSION, issues, jsonBudget);
+  validateIdentity(value, "motion-clip", [MOTION_CLIP_SCHEMA_VERSION, MOTION_CLIP_SCHEMA_VERSION_V2], issues, jsonBudget);
+  const version = value.schemaVersion === MOTION_CLIP_SCHEMA_VERSION_V2 ? 2 : 1;
   if (typeof value.skeletonId !== "string" || !ID_PATTERN.test(value.skeletonId)) issues.push({ path: "skeletonId", message: "骨架 ID 无效" });
   else if (skeleton && value.skeletonId !== skeleton.id) issues.push({ path: "skeletonId", message: "动作与骨架不匹配" });
   const duration = isFiniteNumber(value.duration) && value.duration >= 0 ? value.duration : 0;
@@ -466,7 +533,7 @@ export function validateMotionClip(value: unknown, skeleton?: Skeleton): Validat
     let totalKeyframes = 0;
     value.tracks.forEach((track, index) => {
       if (isRecord(track) && Array.isArray(track.keyframes)) totalKeyframes += track.keyframes.length;
-      validateTrack(track, index, duration, skeletonIds, issues);
+      validateTrack(track, index, duration, skeletonIds, version, issues);
       if (isRecord(track) && typeof track.targetId === "string" && typeof track.property === "string") {
         const key = `${track.targetId}:${track.property}`;
         if (trackKeys.has(key)) issues.push({ path: `tracks[${index}]`, message: "同一目标属性不能有重复轨道" });
@@ -608,6 +675,34 @@ export function zRotationFromQuaternion(value: Quaternion): number {
 }
 
 export const MOTION_KEY_TIME_EPSILON = 1e-4;
+export const DEFAULT_CUBIC_MOTION_INTERPOLATION: CubicBezierMotionInterpolation = { type: "cubic-bezier", x1: .42, y1: 0, x2: .58, y2: 1 };
+
+/** 返回给定时间所属的出向片段；末尾/之后与单 key 轨道没有片段。 */
+export function findMotionSegmentIndex(keyframes: readonly { time: number }[], time: number): number {
+  if (keyframes.length < 2 || time >= keyframes[keyframes.length - 1]!.time) return -1;
+  if (time <= keyframes[0]!.time) return 0;
+  return keyframes.findIndex((key, index) => index < keyframes.length - 1 && time >= key.time && time < keyframes[index + 1]!.time);
+}
+
+/** 显式、无损地把 v1 轨道级插值迁移为 v2 的逐片段插值；读取资产时不会自动调用。 */
+export function migrateMotionClipV1ToV2(clip: MotionClipV1): MotionClipV2 {
+  return {
+    ...clip,
+    schemaVersion: MOTION_CLIP_SCHEMA_VERSION_V2,
+    tracks: clip.tracks.map((track) => {
+      const interpolation: MotionSegmentInterpolation = { type: track.interpolation };
+      const { interpolation: _, ...base } = track;
+      return {
+        ...base,
+        keyframes: track.keyframes.map((key, index) => ({
+          time: key.time,
+          value: [...key.value] as Vec3 | Quaternion,
+          outInterpolation: index === track.keyframes.length - 1 ? null : { ...interpolation },
+        })),
+      } as MotionTrackV2;
+    }),
+  };
+}
 
 /** 不可变地添加并按时间排序事件；同一时刻事件保持原有先后顺序。 */
 export function addMotionEvent(clip: MotionClip, event: MotionEvent): MotionClip {
@@ -637,15 +732,37 @@ export function upsertMotionKeyframe(
   const index = clip.tracks.findIndex((track) => track.targetId === targetId && track.property === property);
   const normalizedValue = property === "rotation" ? normalizeQuaternion(value as Quaternion) : [...value] as Vec3;
   const old = index >= 0 ? clip.tracks[index]! : undefined;
-  const keyframes = [...(old?.keyframes ?? [])]
-    .filter((key) => Math.abs(key.time - time) > epsilon)
-    .concat({ time, value: normalizedValue } as never)
-    .sort((a, b) => a.time - b.time);
-  const track = { targetId, property, interpolation: old?.interpolation ?? "linear", keyframes } as MotionTrack;
-  const tracks = [...clip.tracks];
+  let track: AnyMotionTrack;
+  if (clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION) {
+    const v1Old = old as MotionTrack | undefined;
+    const keyframes = [...(v1Old?.keyframes ?? [])]
+      .filter((key) => Math.abs(key.time - time) > epsilon)
+      .concat({ time, value: normalizedValue } as never)
+      .sort((a, b) => a.time - b.time);
+    track = { targetId, property, interpolation: v1Old?.interpolation ?? "linear", keyframes } as MotionTrack;
+  } else {
+    const v2Old = old as MotionTrackV2 | undefined;
+    const existing = v2Old?.keyframes.find((key) => Math.abs(key.time - time) <= epsilon);
+    const previous = v2Old?.keyframes.filter((key) => key.time < time - epsilon).at(-1);
+    const following = v2Old?.keyframes.find((key) => key.time > time + epsilon);
+    const inherited = existing?.outInterpolation
+      ?? previous?.outInterpolation
+      ?? following?.outInterpolation
+      ?? { type: "linear" as const };
+    const keyframes = [...(v2Old?.keyframes ?? [])]
+      .filter((key) => Math.abs(key.time - time) > epsilon)
+      .concat({ time, value: normalizedValue, outInterpolation: existing?.outInterpolation ?? inherited } as never)
+      .sort((a, b) => a.time - b.time)
+      .map((key, keyIndex, keys) => ({
+        ...key,
+        outInterpolation: keyIndex === keys.length - 1 ? null : key.outInterpolation ?? { ...inherited },
+      }));
+    track = { targetId, property, keyframes } as MotionTrackV2;
+  }
+  const tracks = [...clip.tracks] as AnyMotionTrack[];
   if (index >= 0) tracks[index] = track;
   else tracks.push(track);
-  return { ...clip, tracks };
+  return { ...clip, tracks } as MotionClip;
 }
 
 /** 不可变地删除目标骨骼指定通道在该时刻的 key；空轨道同时移除。 */
@@ -659,10 +776,37 @@ export function deleteMotionKeyframe(
   const wanted = new Set(Array.isArray(properties) ? properties : [properties]);
   const tracks = clip.tracks.flatMap((track) => {
     if (track.targetId !== targetId || !wanted.has(track.property)) return [track];
-    const keyframes = track.keyframes.filter((key) => Math.abs(key.time - time) > epsilon);
-    return keyframes.length ? [{ ...track, keyframes } as MotionTrack] : [];
+    const remaining = track.keyframes.filter((key) => Math.abs(key.time - time) > epsilon);
+    if (!remaining.length) return [];
+    const keyframes = clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION_V2
+      ? remaining.map((key, keyIndex) => ({ ...key, outInterpolation: keyIndex === remaining.length - 1 ? null : (key as MotionKeyV2<Vec3 | Quaternion>).outInterpolation }))
+      : remaining;
+    return [{ ...track, keyframes } as AnyMotionTrack];
   });
-  return tracks.length === clip.tracks.length && tracks.every((track, index) => track === clip.tracks[index]) ? clip : { ...clip, tracks };
+  return tracks.length === clip.tracks.length && tracks.every((track, index) => track === clip.tracks[index]) ? clip : { ...clip, tracks } as MotionClip;
+}
+
+/** 设置时间所在片段的插值；首次为 v1 设置 cubic 时显式返回 v2，step/linear 不触发升级。 */
+export function setMotionSegmentInterpolation(
+  clip: MotionClip,
+  targetId: string,
+  property: AnyMotionTrack["property"],
+  time: number,
+  interpolation: MotionSegmentInterpolation,
+): MotionClip {
+  if (clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION && interpolation.type !== "cubic-bezier") {
+    return { ...clip, tracks: clip.tracks.map((track) => track.targetId === targetId && track.property === property ? { ...track, interpolation: interpolation.type } : track) };
+  }
+  const upgraded = clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION ? migrateMotionClipV1ToV2(clip) : clip;
+  let changed = false;
+  const tracks = upgraded.tracks.map((track) => {
+    if (track.targetId !== targetId || track.property !== property) return track;
+    const index = findMotionSegmentIndex(track.keyframes, time);
+    if (index < 0) return track;
+    changed = true;
+    return { ...track, keyframes: track.keyframes.map((key, keyIndex) => keyIndex === index ? { ...key, outInterpolation: { ...interpolation } } : key) } as MotionTrackV2;
+  });
+  return changed ? { ...upgraded, tracks } : clip;
 }
 
 /** 把每条现有轨道在 t=0 的通道值复制到 duration，形成基础循环接缝。 */
@@ -720,7 +864,25 @@ function lerpVec3(a: Vec3, b: Vec3, amount: number): Vec3 {
   return [a[0] + (b[0] - a[0]) * amount, a[1] + (b[1] - a[1]) * amount, a[2] + (b[2] - a[2]) * amount];
 }
 
-function sampleTrack(track: MotionTrack, time: number): Vec3 | Quaternion {
+function cubicBezierCoordinate(t: number, a: number, b: number): number {
+  const inverse = 1 - t;
+  return 3 * inverse * inverse * t * a + 3 * inverse * t * t * b + t * t * t;
+}
+
+/** 用固定次数二分反解归一化时间，确保不同运行时得到稳定且有界的 easing。 */
+export function sampleCubicBezierMotionAmount(curve: CubicBezierMotionInterpolation, progress: number): number {
+  if (progress <= 0) return 0;
+  if (progress >= 1) return 1;
+  let low = 0, high = 1;
+  for (let iteration = 0; iteration < 32; iteration += 1) {
+    const middle = (low + high) / 2;
+    if (cubicBezierCoordinate(middle, curve.x1, curve.x2) < progress) low = middle;
+    else high = middle;
+  }
+  return cubicBezierCoordinate((low + high) / 2, curve.y1, curve.y2);
+}
+
+function sampleTrack(track: AnyMotionTrack, time: number, version: 1 | 2): Vec3 | Quaternion {
   const keys = track.keyframes;
   if (keys.length === 1 || time <= keys[0]!.time) return [...keys[0]!.value] as Vec3 | Quaternion;
   const last = keys[keys.length - 1]!;
@@ -728,8 +890,19 @@ function sampleTrack(track: MotionTrack, time: number): Vec3 | Quaternion {
   let endIndex = 1;
   while (keys[endIndex]!.time <= time) endIndex += 1;
   const start = keys[endIndex - 1]!, end = keys[endIndex]!;
-  if (track.interpolation === "step") return [...start.value] as Vec3 | Quaternion;
-  const amount = (time - start.time) / (end.time - start.time);
+  const interpolation = version === 1
+    ? { type: (track as MotionTrack).interpolation }
+    : (start as MotionKeyV2<Vec3 | Quaternion>).outInterpolation;
+  if (!interpolation) throw new Error("MotionClip v2 非末尾关键帧缺少片段插值");
+  if (interpolation.type === "step") return [...start.value] as Vec3 | Quaternion;
+  const progress = (time - start.time) / (end.time - start.time);
+  let amount: number;
+  if (interpolation.type === "linear") amount = progress;
+  else if (interpolation.type === "cubic-bezier") {
+    const curve = interpolation as CubicBezierMotionInterpolation;
+    if ([curve.x1, curve.y1, curve.x2, curve.y2].some((value) => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error("MotionClip v2 cubic-bezier 控制点无效");
+    amount = sampleCubicBezierMotionAmount(curve, progress);
+  } else throw new Error("动作轨道插值方式无效");
   return track.property === "rotation"
     ? slerpQuaternions(start.value as Quaternion, end.value as Quaternion, amount)
     : lerpVec3(start.value as Vec3, end.value as Vec3, amount);
@@ -806,7 +979,7 @@ export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requested
   for (const track of clip.tracks) {
     const transform = local[track.targetId];
     if (!transform) continue;
-    const value = sampleTrack(track, time);
+    const value = sampleTrack(track, time, clip.schemaVersion);
     if (track.property === "rotation") transform.rotation = normalizeQuaternion(value as Quaternion);
     else if (track.property === "translation") transform.translation = value as Vec3;
     else transform.scale = value as Vec3;
