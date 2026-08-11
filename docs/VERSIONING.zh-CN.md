@@ -34,6 +34,6 @@ main 分支发布采用兼容 SemVer 数字格式的 `MAJOR.WEEK.BUG`：
    bun run version:bump -- major  # 0.2.0 → 1.1.0
    ```
 
-脚本会同步根包、全部 workspace、`bun.lock`、MCP 对外版本、API 文档示例及中英文 changelog。脚本不执行 git commit、tag 或 push。
+脚本会同步根包、全部 workspace、`bun.lock`、MCP 对外版本、API 文档示例及中英文 changelog，并从最近两个已发布版本自动生成中英文 README 底部带标记的「最近更新」区域；请勿手改该生成区域。脚本不执行 git commit、tag 或 push。
 
 `patch` 和 `minor` 分别作为 `bug` 和 `week` 的兼容别名；仅在纠正版本数据时才应传完整版本号。

@@ -9,9 +9,12 @@ const PACKAGE_FILES = [
   "packages/shared/package.json",
 ] as const;
 const CHANGELOG_FILES = ["docs/CHANGELOG.md", "docs/CHANGELOG.zh-CN.md"] as const;
+const README_FILES = ["README.md", "README.zh-CN.md"] as const;
 const API_DOC_FILES = ["docs/api.md", "docs/api.zh-CN.md"] as const;
 const WORKSPACE_NAMES = ["@framebaker/server", "@framebaker/web", "@framebaker/shared"] as const;
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const LATEST_CHANGELOG_START = "<!-- latest-changelog:start -->";
+const LATEST_CHANGELOG_END = "<!-- latest-changelog:end -->";
 
 function fail(message: string): never {
   console.error(`错误：${message}`);
@@ -46,6 +49,26 @@ function nextVersion(current: string, target: string): string {
   fail("目标必须是 bug、week、major 或完整版本号（patch/minor 为兼容别名）");
 }
 
+function latestChangelogBlock(changelog: string, lang: "en" | "zh"): string {
+  const releases = [...changelog.matchAll(/^## \[((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\] - ([^\n]+)\n([\s\S]*?)(?=^## \[|(?![\s\S]))/gm)].slice(0, 2);
+  if (releases.length < 2) fail(`${lang === "en" ? CHANGELOG_FILES[0] : CHANGELOG_FILES[1]} 至少需要两个已发布版本`);
+  const changelogPath = lang === "en" ? "docs/CHANGELOG.md" : "docs/CHANGELOG.zh-CN.md";
+  const title = lang === "en" ? "Latest Changes" : "最近更新";
+  const linkText = lang === "en" ? "View the complete changelog →" : "查看完整变更日志 →";
+  const sections = releases.map((match) => {
+    const [, version, date, body] = match;
+    const anchor = `${version.replaceAll(".", "")}---${date}`;
+    return `### [${version}](${changelogPath}#${anchor}) · ${date}\n\n${body.trim().replace(/^### /gm, "#### ")}`;
+  });
+  return `${LATEST_CHANGELOG_START}\n## ${title}\n\n${sections.join("\n\n")}\n\n[${linkText}](${changelogPath})\n${LATEST_CHANGELOG_END}`;
+}
+
+function replaceLatestChangelog(readme: string, changelog: string, lang: "en" | "zh", path: string): string {
+  const pattern = new RegExp(`${LATEST_CHANGELOG_START}[\\s\\S]*?${LATEST_CHANGELOG_END}`);
+  if (!pattern.test(readme)) fail(`${path} 缺少唯一的最近变更标记区域`);
+  return readme.replace(pattern, latestChangelogBlock(changelog, lang));
+}
+
 const packageTexts = await Promise.all(PACKAGE_FILES.map(read));
 const versions = packageTexts.map((text, i) => {
   const value = (JSON.parse(text) as { version?: unknown }).version;
@@ -63,6 +86,11 @@ for (let i = 0; i < changelogs.length; i++) {
   if (!changelogs[i].includes(`## [${current}]`)) fail(`${CHANGELOG_FILES[i]} 缺少当前版本 ${current}`);
   if (!changelogs[i].includes("## [Unreleased]")) fail(`${CHANGELOG_FILES[i]} 缺少 Unreleased 区域`);
 }
+const readmes = await Promise.all(README_FILES.map(read));
+for (let i = 0; i < readmes.length; i++) {
+  const expected = replaceLatestChangelog(readmes[i], changelogs[i], i === 0 ? "en" : "zh", README_FILES[i]);
+  if (expected !== readmes[i]) fail(`${README_FILES[i]} 的最近两个版本与 ${CHANGELOG_FILES[i]} 不一致，请运行 version:bump 或同步该区域`);
+}
 
 const lockText = await read("bun.lock");
 for (const name of WORKSPACE_NAMES) {
@@ -73,7 +101,7 @@ for (const name of WORKSPACE_NAMES) {
 
 const command = Bun.argv[2] ?? "check";
 if (command === "check") {
-  console.log(`✓ FrameBaker ${current}：根包、workspace、bun.lock 与 changelog 版本一致`);
+  console.log(`✓ FrameBaker ${current}：根包、workspace、bun.lock、changelog 与 README 最近版本一致`);
   process.exit(0);
 }
 if (command !== "bump" && command !== "plan") {
@@ -115,6 +143,10 @@ outputs.set("bun.lock", nextLock);
 
 for (let i = 0; i < CHANGELOG_FILES.length; i++) {
   outputs.set(CHANGELOG_FILES[i], releasedChangelogs[i]);
+  outputs.set(
+    README_FILES[i],
+    replaceLatestChangelog(readmes[i], releasedChangelogs[i], i === 0 ? "en" : "zh", README_FILES[i])
+  );
 }
 for (const path of API_DOC_FILES) {
   const text = await read(path);
@@ -138,4 +170,4 @@ try {
 }
 
 console.log(`✓ FrameBaker ${current} → ${next}`);
-console.log("已同步 package.json、workspace、bun.lock、API 文档与中英文 changelog；未执行任何 git 操作。");
+console.log("已同步 package.json、workspace、bun.lock、API 文档、中英文 changelog 与 README 最近两个版本；未执行任何 git 操作。");

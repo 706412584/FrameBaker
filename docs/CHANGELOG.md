@@ -4,6 +4,10 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+### Changed
+
+- Automated the marker-delimited README “Latest Changes” sections from the two newest bilingual changelog releases during version bumps, and made version checks detect stale generated summaries.
+
 ## [0.2.5] - 2026-08-11
 
 ### Fixed

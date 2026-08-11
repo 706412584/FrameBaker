@@ -32,7 +32,7 @@ bun run version:bump -- bug # 发布 Unreleased 条目并统一提升所有 work
 ## 约定
 
 - **不要执行任何 git 操作**（不 init / commit / push），除非用户明确要求。
-- main 发布版本统一采用 `MAJOR.WEEK.BUG`：`major` 开启新大版本并从第 1 周开始，`week` 提升连续开发周且 Bug 号归零，`bug` 提升本周修复号。先在中英文 changelog 的 `Unreleased` 下记录变更，再运行 `bun run version:bump -- bug|week|major`；必要时仍可传完整版本号纠偏，脚本不会执行 git 操作。
+- main 发布版本统一采用 `MAJOR.WEEK.BUG`：`major` 开启新大版本并从第 1 周开始，`week` 提升连续开发周且 Bug 号归零，`bug` 提升本周修复号。先在中英文 changelog 的 `Unreleased` 下记录变更，再运行 `bun run version:bump -- bug|week|major`；脚本还会按最近两个已发布版本自动刷新中英文 README 底部的标记区域，禁止手改标记内部的生成内容；必要时仍可传完整版本号纠偏，脚本不会执行 git 操作。
 - 共享类型、枚举、WS 事件名一律放 `packages/shared`（FRAME_STATUSES / FRAME_SOURCES / JOB_TYPES / WS_EVENTS / SOURCE_COLORS / Frame / FramePatch 等），前后端都从这里导入，不要在 web 里重新定义。
 - 后端文件路径必须用 `db.ts` 导出的 `STORAGE_ROOT`（基于 import.meta.dir），禁止依赖 cwd 的相对路径。
 - 依赖最小化：不引入新依赖除非确有必要；拖拽用原生 HTML5 DnD，不装 dnd 库；不用 Vite / react-router / drizzle。

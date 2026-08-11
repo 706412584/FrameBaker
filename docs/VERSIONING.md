@@ -34,6 +34,6 @@ Main-branch releases use the SemVer-compatible numeric shape `MAJOR.WEEK.BUG`:
    bun run version:bump -- major  # 0.2.0 → 1.1.0
    ```
 
-The script synchronizes the root package, every workspace, `bun.lock`, MCP-reported version, API documentation examples, and both changelogs. It does not commit, tag, or push with git.
+The script synchronizes the root package, every workspace, `bun.lock`, MCP-reported version, API documentation examples, and both changelogs. It also regenerates the marker-delimited **Latest Changes** section at the bottom of both READMEs from the two newest released changelog entries; do not edit that generated section manually. It does not commit, tag, or push with git.
 
 `patch` and `minor` remain compatibility aliases for `bug` and `week`; exact versions are reserved for correcting version data.
