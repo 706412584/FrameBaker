@@ -126,7 +126,7 @@ export function deleteFrameCell(frameId: string) {
   return frame;
 }
 
-/** 清空时间轴单元格：资产退回左侧资产池，实例只删记录；两者都不删除共享图片文件。 */
+/** 清空时间轴单元格：资产退回左侧资产池，实例只删记录；保留步骤且不删除共享图片文件。 */
 export function clearFramePlacement(frameId: string) {
   const frame = getFrame(frameId);
   if (!frame || !frame.track_id || !frame.step_id) return null;
@@ -137,7 +137,6 @@ export function clearFramePlacement(frameId: string) {
     } else {
       db.query("DELETE FROM frames WHERE id=?").run(frameId);
     }
-    db.query("DELETE FROM animation_steps WHERE id=? AND NOT EXISTS (SELECT 1 FROM frames WHERE step_id=?)").run(frame.step_id, frame.step_id);
   })();
   if (track) syncAxis(track.axis_id);
   return frame;

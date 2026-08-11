@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { db, getFrame, getMaterial, nextFrameIdx, serializeFrame, serializeMaterial } from "../apps/server/src/db";
 import { JobCancelledError, runCmd } from "../apps/server/src/jobs/run";
+import { clearFramePlacement } from "../apps/server/src/timeline";
 
 describe("外部命令执行器", () => {
   test("成功命令正常结束", async () => {
@@ -51,6 +52,40 @@ describe("SQLite 实体转换", () => {
     } finally {
       db.query("DELETE FROM frames WHERE id = ?").run(frameId);
       db.query("DELETE FROM materials WHERE id = ?").run(materialId);
+    }
+  });
+});
+
+describe("时间轴单元格", () => {
+  test("清空实例帧后保留原步骤", () => {
+    const projectId = `test-project-${crypto.randomUUID()}`;
+    const axisId = crypto.randomUUID();
+    const trackId = crypto.randomUUID();
+    const stepId = crypto.randomUUID();
+    const frameId = crypto.randomUUID();
+    try {
+      db.query("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)").run(projectId, "清空单元格测试", Date.now());
+      db.query("INSERT INTO animation_axes (id, project_id, name, idx, fps, created_at) VALUES (?, ?, ?, 0, 8, ?)").run(axisId, projectId, "测试轴", Date.now());
+      db.query("INSERT INTO animation_tracks (id, axis_id, name, idx, is_primary) VALUES (?, ?, ?, 0, 1)").run(trackId, axisId, "测试轨道");
+      db.query("INSERT INTO animation_steps (id, axis_id, idx, duration) VALUES (?, ?, 0, 1)").run(stepId, axisId);
+      db.query("INSERT INTO frames (id, project_id, track_id, step_id, is_asset, idx, raw_path, status) VALUES (?, ?, ?, ?, 0, 0, ?, ?)").run(
+        frameId,
+        projectId,
+        trackId,
+        stepId,
+        "/tmp/frame.png",
+        "ready"
+      );
+
+      expect(clearFramePlacement(frameId)?.id).toBe(frameId);
+      expect(getFrame(frameId)).toBeNull();
+      expect(db.query("SELECT id FROM animation_steps WHERE id = ?").get(stepId)).toEqual({ id: stepId });
+    } finally {
+      db.query("DELETE FROM frames WHERE project_id = ?").run(projectId);
+      db.query("DELETE FROM animation_steps WHERE axis_id = ?").run(axisId);
+      db.query("DELETE FROM animation_tracks WHERE axis_id = ?").run(axisId);
+      db.query("DELETE FROM animation_axes WHERE project_id = ?").run(projectId);
+      db.query("DELETE FROM projects WHERE id = ?").run(projectId);
     }
   });
 });
