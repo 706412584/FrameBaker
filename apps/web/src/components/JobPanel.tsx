@@ -9,6 +9,7 @@ const TYPE_LABEL: Record<Job["type"], string> = {
   extract_frames: "job.extract",
   generate_frames: "msg.generate",
   matting: "msg.matting",
+  image_layers: "layers.action",
 };
 
 const DONE_TTL = 6000; // 完成/取消任务停留 6s 后自动移除

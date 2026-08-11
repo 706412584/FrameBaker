@@ -4,7 +4,7 @@ import type { ServerConfig } from "@framebaker/shared";
 import { ENHANCE_PROMPT_INTENTS, PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
-import { enhancerConfigured, getGenProviders, getPromptEnhancers, providerConfigured } from "./provider";
+import { enhancerConfigured, getGenProviders, getImageLayerSettings, getPromptEnhancers, imageLayerConfigured, providerConfigured } from "./provider";
 import { isModelCached, listApiProviderModels, runDoctor, testApiProvider } from "./doctor";
 import { enhancePrompt } from "./enhance";
 import { projectsApi } from "./api/projects";
@@ -40,12 +40,17 @@ export const app = new Elysia()
   // 服务端能力探测（抠图引擎、生成 provider 列表；每次实时解析，设置页改动即时生效）
   .get("/api/config", (): ServerConfig => {
     const matting = getMattingInfo();
+    const imageLayers = getImageLayerSettings();
     return {
       matting: {
         engine: matting.engine,
         model: matting.model,
         hint: matting.hint,
         modelCached: isModelCached(matting.model),
+      },
+      imageLayers: {
+        configured: imageLayerConfigured(imageLayers),
+        model: imageLayers.model,
       },
       gen: {
         providers: getGenProviders().map((p) => ({
@@ -55,6 +60,8 @@ export const app = new Elysia()
           imageModels: p.imageModels,
           videoModels: p.videoModels,
           textModels: p.textModels,
+          // 兼容热更新前仍在运行的旧前端；分层配置已独立，此字段始终为空且不会写回 Provider。
+          layerModels: [],
           configured: providerConfigured(p),
           video: PROVIDER_VIDEO_SUPPORT[p.type] && (p.type === "cli" || p.videoModels.length > 0),
           imageSize: p.imageSize,

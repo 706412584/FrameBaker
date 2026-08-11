@@ -188,6 +188,10 @@ db.query(
 db.query(
   "UPDATE frames SET source = 'extract' WHERE source IN ('mp4', 'gif') AND (raw_path LIKE '%.png' OR raw_path LIKE '%.PNG')"
 ).run();
+// 早期图片分层产物误标为 api；按元数据迁移为独立来源，避免素材卡片显示成普通 API 生成。
+db.query(
+  "UPDATE materials SET source = 'layers' WHERE source = 'api' AND json_valid(metadata) AND json_extract(metadata, '$.provider') = 'imageLayers'"
+).run();
 
 export const uid = () => crypto.randomUUID();
 

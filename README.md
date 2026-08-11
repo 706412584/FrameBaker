@@ -34,11 +34,29 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 | --- | --- |
 | ![Video material detail](docs/media/video-material.png) | ![Frame extract editor](docs/media/video-cut-lab.png) |
 
+## Scene Layering Demo
+
+Scene layering reconstructs a flat image as independently editable, hideable, and movable RGBA layers. The demo material below was generated inside FrameBaker with `wan2.7-image`, then actually decomposed by the standalone `Qwen-Image-Layered` configuration using **4 layers / 50 steps / CFG 4**.
+
+| Generated flat scene | Scene-layer result |
+| --- | --- |
+| ![Generated moonlit alchemist scene](docs/media/scene-layering-source.png) | ![Background, props, ground, and whole-character layers](docs/media/scene-layering-layers.png) |
+
+- **L1 background:** sky and castle; **L2 props:** crystals, potion, and chest; **L3 ground:** grass platform; **L4 subject:** the complete alchemist character and moon.
+- This is semantic layer reconstruction, not strict pixel-label segmentation: the model may group the moon with the character or spread similar objects across layers, but every output remains independently compositable and editable.
+- **Scene layering does not promise head, torso, arm, or leg parts.** Character rig decomposition requires a separate mask/segmentation workflow and must not be represented by these outputs.
+- Full scenes skip pre-matting by default to preserve background and depth context. Enable background removal only when recursively refining an already isolated foreground.
+
+**The original scene and all four layer outputs as they appear in the materials library:**
+
+![Scene-layer outputs in the FrameBaker materials library](docs/media/scene-layering-library.png)
+
 ## Features
 
 - **Multi-source import** — GIF / MP4 frame extraction via ffmpeg (adjustable fps), multi-select PNG upload, external generator CLI (`FRAMEBAKER_GEN_CLI`)
 - **Video materials & frame extract editor** — generated/uploaded videos get a custom pixel-style player (checkerboard backdrop, click-to-play, themed scrubber); the "VIDEO CUT LAB" editor scrubs to an exact frame and marks it, or fills a time range at a target fps, then extracts up to 64 frames as image materials in one batch (optionally matted on the way out)
 - **Built-in matting** — rembg works out of the box (u2net by default, custom models supported); custom CLI template optional; before/after compare slider to review cutouts
+- **Scene layering** — standalone Qwen-Image-Layered configuration decomposes flat art into RGBA background, whole-subject, prop, and foreground layers; recursive refinement is supported without pretending to produce character body parts
 - **Materials library** — a first-class staging area: generate or upload, matte, compare, then import into any project — single or batch
 - **Frame editor** — PixiJS v8 canvas with onion skin, grid, viewport zoom, draggable offsets, scale / rotation / opacity controls, crop-and-replace, per-frame duration, and keyframes
 - **Timeline & batch ops** — drag to reorder, Cmd/Ctrl+Click and Shift+Click multi-select, batch delete / duplicate / set duration
@@ -149,8 +167,8 @@ Bun workspaces monorepo:
 - `apps/server` (`@framebaker/server`) — Elysia API + in-memory job queue + bun:sqlite; also serves the frontend via Bun's HTML import
 - `apps/web` (`@framebaker/web`) — React 19 + pixi.js v8 + motion + lucide-react
 - `packages/shared` (`@framebaker/shared`) — types & constants shared by both ends
-- `scripts/` — setup scripts (matting engine)
-- `docs/` — documentation
+- `scripts/` — setup scripts plus synchronized SemVer release management
+- `docs/` — documentation, including the dedicated [changelog](docs/CHANGELOG.md)
 - `storage/` — runtime data (SQLite, frames, materials, rembg models; gitignored)
 
 ## Docs
@@ -159,6 +177,8 @@ Bun workspaces monorepo:
 - [docs/architecture.md](docs/architecture.md) — architecture diagram, modules, data flows, storage layout
 - [docs/api.md](docs/api.md) — API reference with request/response examples, WebSocket events, MCP endpoint
 - [docs/roadmap.md](docs/roadmap.md) — shipped features and planned work
+- [docs/CHANGELOG.md](docs/CHANGELOG.md) — versioned feature and bug-fix history
+- [docs/VERSIONING.md](docs/VERSIONING.md) — `MAJOR.WEEK.BUG` policy used by main releases
 
 ## MCP (AI Assistant Integration)
 

@@ -34,11 +34,29 @@
 | --- | --- |
 | ![视频素材详情](docs/media/video-material.png) | ![抽帧编辑器](docs/media/video-cut-lab.png) |
 
+## 场景分层演示
+
+场景分层将一张扁平图片重建成多个可独立编辑、隐藏和移动的 RGBA 图层。下面的演示素材在 FrameBaker 素材库中使用 `wan2.7-image` 生成，再由独立配置的 `Qwen-Image-Layered` 以 **4 层 / 50 步 / CFG 4** 实际分解。
+
+| 生成的扁平场景 | 场景分层结果 |
+| --- | --- |
+| ![月夜炼金师场景原图](docs/media/scene-layering-source.png) | ![背景、道具、地面与完整角色图层](docs/media/scene-layering-layers.png) |
+
+- **L1 背景**：夜空与城堡；**L2 道具**：水晶、药水和宝箱；**L3 地面**：草地平台；**L4 主体**：保持完整的炼金师角色与月亮。
+- 这是语义图层重建，不是严格的像素标签分割：模型可能把月亮与角色放在同层，也可能让同类元素跨层，但各层可以独立合成和编辑。
+- **场景分层不承诺把人物拆成头、躯干和四肢。**角色骨骼拆件属于另一套蒙版/分割工作流，不应拿场景分层结果冒充。
+- 完整场景默认不先抠图，以保留背景和景深信息；仅在需要继续细分已独立前景时手动勾选「抠图去背」。
+
+**原场景与四个分层产物在素材库中的实际展示：**
+
+![场景分层产物在素材库中的展示](docs/media/scene-layering-library.png)
+
 ## 特性
 
 - **多来源导入** —— ffmpeg 拆 GIF/MP4 帧（fps 可调）、PNG 多选上传、外部生成 CLI（`FRAMEBAKER_GEN_CLI`）
 - **视频素材与抽帧编辑器** —— 生成/上传的视频素材自带自定义像素风播放器（棋盘背景、点击播放暂停、主题进度条）；「VIDEO CUT LAB」抽帧编辑器可拖动进度条精确取帧，也可设置区间+fps 批量打点，一次最多抽取 64 帧图片素材（可在抽帧同时顺带抠图）
 - **内置抠图** —— rembg 开箱即用（默认 u2net，可换模型）；也支持自定义 CLI 模板；前后对比滑杆验收去背效果
+- **场景分层** —— 独立 Qwen-Image-Layered 配置，把扁平图拆成背景、完整主体、道具和前景等 RGBA 层；支持递归细分，但不冒充人物肢体拆件
 - **素材库** —— 一级暂存区：生成/上传 → 抠图 → 对比 → 导入任意项目，支持单个与批量
 - **帧编辑器** —— PixiJS v8 画布：洋葱皮、网格、视图缩放、拖拽偏移、图片缩放/旋转/透明度、剪裁替换、帧时长与关键帧
 - **时间轴与批量操作** —— 拖拽换序，Cmd/Ctrl+点击与 Shift+点击多选，批量删除/复制/统一时长
@@ -149,8 +167,8 @@ Bun workspaces monorepo：
 - `apps/server`（@framebaker/server）—— Elysia API + 内存任务队列 + bun:sqlite；经 Bun HTML import 托管前端
 - `apps/web`（@framebaker/web）—— React 19 + pixi.js v8 + motion + lucide-react
 - `packages/shared`（@framebaker/shared）—— 前后端共享类型与常量
-- `scripts/` —— 安装脚本（抠图引擎）
-- `docs/` —— 文档
+- `scripts/` —— 安装脚本与统一 SemVer 版本管理脚本
+- `docs/` —— 文档，包括独立的[变更日志](docs/CHANGELOG.zh-CN.md)
 - `storage/` —— 运行时数据（SQLite、帧、素材、rembg 模型；已 gitignore）
 
 ## 文档
@@ -159,6 +177,8 @@ Bun workspaces monorepo：
 - [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) —— 架构图、模块说明、数据流、存储布局
 - [docs/api.zh-CN.md](docs/api.zh-CN.md) —— API 一览（含请求/响应示例）、WS 事件、MCP 端点
 - [docs/roadmap.zh-CN.md](docs/roadmap.zh-CN.md) —— 已完成清单与后续规划
+- [docs/CHANGELOG.zh-CN.md](docs/CHANGELOG.zh-CN.md) —— 按版本记录功能与 Bug 修复
+- [docs/VERSIONING.zh-CN.md](docs/VERSIONING.zh-CN.md) —— main 发布使用的 `MAJOR.WEEK.BUG` 规则
 
 ## MCP（AI 助手集成）
 

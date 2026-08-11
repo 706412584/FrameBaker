@@ -4,11 +4,13 @@ import { broadcast } from "./ws";
 import { buildGeneratedFollowUp, extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
 import { matte } from "./jobs/matting";
 import { JobCancelledError } from "./jobs/run";
+import { splitImageLayers, type ImageLayersPayload } from "./jobs/imageLayers";
 
 export interface JobPayload {
   extract?: ExtractPayload;
   generate?: GeneratePayload;
   matting?: { target: "frame" | "material"; id: string };
+  imageLayers?: ImageLayersPayload;
 }
 
 // 任务负载只存内存（状态落 SQLite），重启后 queued/running 任务不会恢复
@@ -162,6 +164,8 @@ async function runJob(id: string) {
       if (signal.aborted) throw new JobCancelledError();
       const warn = await matte(payload.matting.target, payload.matting.id, signal);
       if (warn) report(warn); // 引擎缺失等警告写进 job.progress
+    } else if (job.type === "image_layers" && payload.imageLayers) {
+      await splitImageLayers(payload.imageLayers, report, signal);
     } else {
       throw new Error(`未知任务类型: ${job.type}`);
     }

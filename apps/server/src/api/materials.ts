@@ -2,10 +2,12 @@ import { Elysia, t } from "elysia";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { CharacterBinding, MaterialRow } from "@framebaker/shared";
+import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
 import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePath } from "../providerAdapter";
+import { getImageLayerSettings, imageLayerConfigured } from "../provider";
 import { broadcast } from "../ws";
 
 function baseName(filename: string): string {
@@ -147,17 +149,32 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       mkdirSync(dir, { recursive: true });
       const rawPath = join(dir, "raw.png");
       await Bun.write(rawPath, Buffer.from(await body.file.arrayBuffer()));
+      const processedPath = body.processedFile ? join(dir, "processed.png") : null;
+      if (body.processedFile && processedPath) {
+        await Bun.write(processedPath, Buffer.from(await body.processedFile.arrayBuffer()));
+      }
       const folderId = body.folderId || null;
+      let metadata: Record<string, unknown> = {};
+      if (body.metadata) {
+        try {
+          const parsed = JSON.parse(body.metadata) as unknown;
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
+        } catch {
+          // 非法 metadata 不阻断文件上传，仅按空对象保存。
+        }
+      }
       db.query(
-        "INSERT INTO materials (id, name, raw_path, status, source, folder_id, created_at) VALUES (?, ?, ?, 'raw', 'image', ?, ?)"
-      ).run(id, baseName(origName) || "素材", rawPath, folderId, Date.now());
-      if (autoMatting) createMattingJob("", "material", id);
+        "INSERT INTO materials (id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, 'image', ?, ?, ?)"
+      ).run(id, baseName(origName) || "素材", rawPath, processedPath, processedPath ? "matted" : "raw", folderId, JSON.stringify(metadata), Date.now());
+      if (autoMatting && !processedPath) createMattingJob("", "material", id);
       broadcast("materials_changed", {});
       return { materialId: id };
     },
     {
       body: t.Object({
         file: t.File(),
+        processedFile: t.Optional(t.File()),
+        metadata: t.Optional(t.String()),
         autoMatting: t.Optional(t.String()),
         fps: t.Optional(t.String()),
         folderId: t.Optional(t.String()),
@@ -230,6 +247,34 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         }
       },
     }
+  )
+  // 图片场景分层：使用独立配置，前置校验后创建异步任务
+  .post(
+    "/materials/:id/layers",
+    ({ params, body, status }) => {
+      const m = getMaterial(params.id);
+      if (!m) return status(404, "素材不存在");
+      const input = m.processed_path && existsSync(m.processed_path) ? m.processed_path : m.raw_path;
+      if (!input || !existsSync(input) || /\.(mp4|mov|webm|avi|gif)$/i.test(input)) return status(400, "只支持图片素材分层");
+      const settings = getImageLayerSettings(body.providerId);
+      if (!imageLayerConfigured(settings)) return status(400, "图片分层服务未配置完整");
+      const jobId = createJob("", "image_layers", { imageLayers: {
+        materialId: m.id, model: settings.model, layers: body.layers,
+        numInferenceSteps: body.numInferenceSteps, trueCfgScale: body.trueCfgScale,
+        negativePrompt: body.negativePrompt?.trim() || undefined, seed: body.seed,
+        autoMatting: body.autoMatting,
+      } });
+      return { jobId };
+    },
+    { body: t.Object({
+      // providerId/model 仅兼容旧客户端；新请求使用独立 imageLayers 设置。
+      providerId: t.Optional(t.String()), model: t.Optional(t.String()),
+      layers: t.Integer({ minimum: IMAGE_LAYER_COUNT_MIN, maximum: IMAGE_LAYER_COUNT_MAX }),
+      numInferenceSteps: t.Integer({ minimum: 1, maximum: 100 }),
+      trueCfgScale: t.Number({ minimum: 0, maximum: 20 }),
+      negativePrompt: t.Optional(t.String()), seed: t.Integer({ minimum: 0 }),
+      autoMatting: t.Optional(t.Boolean()),
+    }) }
   )
   // 执行抠图：入队异步执行（模型首次下载可能耗时数分钟，同步会挂死请求；与批量抠图同路径）
   .post("/materials/:id/matting", ({ params, status }) => {

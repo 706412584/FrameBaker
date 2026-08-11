@@ -10,7 +10,8 @@ apps/
   web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react；index.html 是打包入口
 packages/
   shared/        @framebaker/shared — 前后端共享类型/常量（无构建，exports 直指 src/index.ts）
-docs/            架构 / API / roadmap 文档
+docs/            架构 / API / roadmap / changelog 文档
+scripts/         环境安装 + 统一 SemVer 版本管理
 storage/         运行时生成（已 gitignore），固定解析到仓库根，与启动 cwd 无关
 ```
 
@@ -21,6 +22,9 @@ bun install          # 安装全部 workspace 依赖（bun 用 isolated 布局�
 bun dev              # 开发（--hot），http://localhost:3000，PORT 可覆盖
 bun start            # 生产
 bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须通过
+bun run version:check # 校验所有 workspace 版本与变更日志基线一致
+bun run version:plan -- bug|week|major # 只预览下一版本，不写文件
+bun run version:bump -- bug # 发布 Unreleased 条目并统一提升所有 workspace 版本
 ```
 
 无测试框架；验证方式 = typecheck + curl 冒烟（见 docs/api.md 的示例）。
@@ -28,6 +32,7 @@ bun run typecheck    # tsc -p apps/server && tsc -p apps/web，改动后必须�
 ## 约定
 
 - **不要执行任何 git 操作**（不 init / commit / push），除非用户明确要求。
+- main 发布版本统一采用 `MAJOR.WEEK.BUG`：`major` 开启新大版本并从第 1 周开始，`week` 提升连续开发周且 Bug 号归零，`bug` 提升本周修复号。先在中英文 changelog 的 `Unreleased` 下记录变更，再运行 `bun run version:bump -- bug|week|major`；必要时仍可传完整版本号纠偏，脚本不会执行 git 操作。
 - 共享类型、枚举、WS 事件名一律放 `packages/shared`（FRAME_STATUSES / FRAME_SOURCES / JOB_TYPES / WS_EVENTS / SOURCE_COLORS / Frame / FramePatch 等），前后端都从这里导入，不要在 web 里重新定义。
 - 后端文件路径必须用 `db.ts` 导出的 `STORAGE_ROOT`（基于 import.meta.dir），禁止依赖 cwd 的相对路径。
 - 依赖最小化：不引入新依赖除非确有必要；拖拽用原生 HTML5 DnD，不装 dnd 库；不用 Vite / react-router / drizzle。

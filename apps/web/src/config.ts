@@ -10,7 +10,20 @@ const listeners = new Set<(c: ServerConfig) => void>();
 
 async function fetchConfig(): Promise<ServerConfig | null> {
   try {
-    const cfg = await api.getConfig();
+    const raw = await api.getConfig();
+    // 配置接口跨版本兼容：旧数据或热更新期间缺少模型数组时统一归一为空数组，避免 UI 直接读 .length 崩溃。
+    const cfg: ServerConfig = {
+      ...raw,
+      gen: {
+        providers: (raw.gen?.providers ?? []).map((provider) => ({
+          ...provider,
+          imageModels: Array.isArray(provider.imageModels) ? provider.imageModels : [],
+          videoModels: Array.isArray(provider.videoModels) ? provider.videoModels : [],
+          textModels: Array.isArray(provider.textModels) ? provider.textModels : [],
+        })),
+      },
+      promptEnhancers: Array.isArray(raw.promptEnhancers) ? raw.promptEnhancers : [],
+    };
     cache = cfg;
     listeners.forEach((l) => l(cfg));
     return cfg;

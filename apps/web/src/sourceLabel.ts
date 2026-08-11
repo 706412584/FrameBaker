@@ -7,6 +7,7 @@ export const SOURCE_LABEL_KEYS: Record<FrameSource, string> = {
   dashscope: "msg.bailian",
   gemini: "banana",
   minimax: "MiniMax",
+  layers: "layers.source",
   upload: "common.upload",
   gif: "GIF",
   mp4: "MP4",

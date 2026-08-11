@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -9,9 +9,11 @@ import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { SOURCE_LABEL_KEYS } from "../sourceLabel";
 import { themedSourceColor, useTheme } from "../theme";
+import { useServerConfig } from "../config";
 import FolderTree, { type FolderSelection } from "./FolderTree";
 import FileZoom, { useFileZoom } from "./FileZoom";
 import MaterialImportModal from "./MaterialImportModal";
+import LayerSplitModal from "./LayerSplitModal";
 import MaterialModal from "./MaterialModal";
 import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
@@ -30,6 +32,7 @@ export default function MaterialsPage() {
   const [importTab, setImportTab] = useState<"upload" | "cli" | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [extractId, setExtractId] = useState<string | null>(null);
+  const [layerId, setLayerId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   /** 右键导入：null=批量选中；string=单素材 id */
   const [pickerScope, setPickerScope] = useState<"batch" | string>("batch");
@@ -38,6 +41,7 @@ export default function MaterialsPage() {
   const [v, setV] = useState(0);
   const [zoom, setZoom] = useFileZoom();
   const theme = useTheme();
+  const cfg = useServerConfig();
 
   const loadFolders = useCallback(async () => {
     try {
@@ -306,6 +310,10 @@ export default function MaterialsPage() {
 
   const detail = detailId ? (materials.find((m) => m.id === detailId) ?? null) : null;
   const extractMat = extractId ? (materials.find((m) => m.id === extractId) ?? null) : null;
+  const layerMat = layerId ? (materials.find((m) => m.id === layerId) ?? null) : null;
+  const selectedLayerMat = selectedIds.size === 1
+    ? (materials.find((m) => selectedIds.has(m.id) && m.kind !== "video") ?? null)
+    : null;
 
   const ctxMat = ctxMenu ? (materials.find((m) => m.id === ctxMenu.materialId) ?? null) : null;
   const ctxBatch = ctxMenu != null && selectedIds.size >= 2 && selectedIds.has(ctxMenu.materialId);
@@ -370,6 +378,12 @@ export default function MaterialsPage() {
                     label: ctxMat.status === "matted" ? t("msg.re_matte") : t("msg.matting"),
                     icon: <Wand2 size={13} />,
                     onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
+                  },
+                  {
+                    label: t("layers.action"),
+                    icon: <Layers3 size={13} />,
+                    disabled: !cfg?.imageLayers.configured,
+                    onClick: () => setLayerId(ctxMat.id),
                   },
                   {
                     label: t("msg.auto_trim"),
@@ -580,6 +594,15 @@ export default function MaterialsPage() {
                 >
                   <Scan size={14} />
                 </IconBtn>
+                {selectedLayerMat && (
+                  <IconBtn
+                    title={cfg?.imageLayers.configured ? t("layers.action") : t("layers.notConfigured")}
+                    disabled={busy || !cfg?.imageLayers.configured}
+                    onClick={() => setLayerId(selectedLayerMat.id)}
+                  >
+                    <Layers3 size={14} />
+                  </IconBtn>
+                )}
                 <IconBtn title={t("msg.batch_export_original")} disabled={busy} onClick={() => void requestBatchExport("raw")}>
                   <Download size={14} />
                 </IconBtn>
@@ -638,6 +661,21 @@ export default function MaterialsPage() {
                 toast(msg);
                 void load();
                 setV((x) => x + 1);
+              }}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {layerMat && cfg?.imageLayers.configured && (
+            <LayerSplitModal
+              materialId={layerMat.id}
+              hasProcessed={Boolean(layerMat.processed_path)}
+              model={cfg.imageLayers.model}
+              onClose={() => setLayerId(null)}
+              onQueued={() => {
+                toast(t("layers.queued"));
+                setLayerId(null);
               }}
             />
           )}

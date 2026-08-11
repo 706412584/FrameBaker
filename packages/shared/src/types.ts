@@ -9,6 +9,7 @@ export const FRAME_SOURCES = [
   "dashscope",
   "gemini",
   "minimax",
+  "layers",
   "upload",
   "gif",
   "mp4",
@@ -19,8 +20,12 @@ export const FRAME_SOURCES = [
 ] as const;
 export type FrameSource = (typeof FRAME_SOURCES)[number];
 
-export const JOB_TYPES = ["extract_frames", "generate_frames", "matting"] as const;
+export const JOB_TYPES = ["extract_frames", "generate_frames", "matting", "image_layers"] as const;
 export type JobType = (typeof JOB_TYPES)[number];
+
+/** Qwen-Image-Layered /images/layers 当前服务端允许的单次图层数 */
+export const IMAGE_LAYER_COUNT_MIN = 1;
+export const IMAGE_LAYER_COUNT_MAX = 4;
 
 export const JOB_STATUSES = ["queued", "running", "done", "error", "cancelled"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
@@ -322,6 +327,14 @@ export function pickPreferredVideoModel(models: string[], opts?: { preferI2v?: b
   return preferred ?? nonImage[0] ?? models[0] ?? "";
 }
 
+/** 设置页「图片分层」独立配置（存 settings 表 key=imageLayers） */
+export interface ImageLayerSettings {
+  /** OpenAI 兼容风格的服务根地址，执行时调用其 /images/layers */
+  apiBaseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 /** 设置页「抠图」配置（存 settings 表 key=matting，逐字段优先于环境变量）；CLI 为结构化字段（免模板） */
 export interface MattingSettings {
   /** 抠图命令（PATH 名或绝对路径；留空走自动探测 rembg） */
@@ -345,6 +358,10 @@ export interface ServerConfig {
     hint: string | null;
     /** 当前模型是否已缓存到 storage/models（未缓存则首次抠图会自动下载） */
     modelCached: boolean;
+  };
+  imageLayers: {
+    configured: boolean;
+    model: string;
   };
   gen: {
     /** 全部已配置 provider（不含 apiKey）；生成时按 id 选择 */
@@ -557,7 +574,7 @@ export const WS_EVENTS = [
 export type WSEventType = (typeof WS_EVENTS)[number];
 
 /** 服务端 settings 表白名单 key（PUT /api/settings/:key 校验用） */
-export const SETTING_KEYS = ["layout", "theme", "lang", "genProviders", "matting", "promptEnhancers"] as const;
+export const SETTING_KEYS = ["layout", "theme", "lang", "genProviders", "matting", "imageLayers", "promptEnhancers"] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 export interface WSMessage<T = unknown> {
@@ -572,6 +589,7 @@ export const SOURCE_COLORS: Record<FrameSource, string> = {
   dashscope: "#ffb86c",
   gemini: "#f1fa8c",
   minimax: "#ff79c6",
+  layers: "#00d4aa",
   upload: "#6272a4",
   gif: "#bd93f9",
   mp4: "#ff5555",

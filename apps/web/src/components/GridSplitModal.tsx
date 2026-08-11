@@ -51,7 +51,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
   const [rows, setRows] = useState(guidedSkeletalSplit ? 3 : 2);
   const [cols, setCols] = useState(guidedSkeletalSplit ? 4 : 2);
-  const [autoMatting, setAutoMatting] = useState(true);
+  const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -260,6 +260,12 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
+      let rawBlob = blob;
+      if (m.processed_path) {
+        const rawResponse = await fetch(materialImageUrl(m.id, v, "raw"));
+        if (!rawResponse.ok) throw new Error(t("msg.failed_to_read_material_image"));
+        rawBlob = await rawResponse.blob();
+      }
       const cw = Math.floor(region.w / cols);
       const ch = Math.floor(region.h / rows);
       const preparedCells = splitLine === "skeletal" ? skeletalReview!.cells : null;
@@ -271,23 +277,39 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
             const h = r === rows - 1 ? region.h - ch * r : ch;
-            let cell = preparedCells?.[i - 1] ?? await cropImage(blob, {
+            const cellRect = {
               x: region.x + cw * c,
               y: region.y + ch * r,
               w,
               h,
-            });
+            };
+            let cell = preparedCells?.[i - 1] ?? await cropImage(blob, cellRect);
+            let rawCell = m.processed_path ? await cropImage(rawBlob, cellRect) : cell;
             if (autoTrim) {
               const bounds = await findOpaqueBounds(cell);
               if (bounds && (bounds.w < w || bounds.h < h || bounds.x > 0 || bounds.y > 0)) {
                 cell = await cropImage(cell, bounds);
+                if (m.processed_path) rawCell = await cropImage(rawCell, bounds);
                 trimmed++;
               }
             }
             const draft = splitLine === "skeletal" ? partDrafts[i - 1] : undefined;
             const fd = new FormData();
-            fd.append("file", cell, draft ? `${base}_${draft.role}.png` : `${base}_r${r + 1}c${c + 1}.png`);
-            fd.append("autoMatting", String(autoMatting));
+            const cellName = draft ? `${base}_${draft.role}` : `${base}_r${r + 1}c${c + 1}`;
+            fd.append("file", rawCell, `${cellName}.png`);
+            if (m.processed_path) fd.append("processedFile", cell, `${cellName}_processed.png`);
+            fd.append("autoMatting", String(autoMatting && !m.processed_path));
+            fd.append("metadata", JSON.stringify({
+              gridSplit: {
+                fromMaterial: m.id,
+                rows,
+                cols,
+                row: r + 1,
+                col: c + 1,
+                sourceSlot: slot,
+                autoTrim,
+              },
+            }));
             if (m.folder_id) fd.append("folderId", m.folder_id);
             const uploaded = await api.uploadMaterial(fd);
             if (splitLine === "skeletal") {
@@ -473,7 +495,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                   <input type="checkbox" checked={autoTrim} disabled={busy} onChange={(e) => setAutoTrim(e.target.checked)} />
                   {t("msg.auto_trim_transparent_edges_per_cell")}
                 </label>
-                <MattingOption checked={autoMatting} onChange={setAutoMatting} />
+                {!m.processed_path && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
               </div>
             </div>
           </section>

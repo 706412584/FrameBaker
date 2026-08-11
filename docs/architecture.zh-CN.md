@@ -66,12 +66,15 @@
 
 根 `tsconfig.base.json` 提供共享 compilerOptions（strict、moduleResolution: bundler、noEmit），各 app 的 `tsconfig.json` extends 后补自己的 lib/jsx/types。
 
+根级 `scripts/version.ts` 实现 main 的 `MAJOR.WEEK.BUG` 发布规则，并统一同步根包/workspace package 版本、Bun lockfile workspace 版本、MCP 对外版本及中英文 changelog 发布标题。WEEK 是大版本内单调递增的开发周序号，不使用会跨年回退的 ISO 自然周。版本历史存放在 `docs/CHANGELOG.md` 与 `docs/CHANGELOG.zh-CN.md`，详细规则见 `docs/VERSIONING.md` 与 `docs/VERSIONING.zh-CN.md`。
+
 ## 关键设计
 
 - **HTML import 全栈**：`apps/server/src/index.ts` 里 `import index from "../../web/index.html"`，`Bun.serve` 的 `routes` 把它挂在 `/` 与 `/project/:id`；编辑器页前端读 `location.pathname` 恢复项目上下文（无路由库）。development 模式（`NODE_ENV !== "production"`）下每次请求重新打包并支持 HMR。
 - **storage 与 cwd 无关**：`db.ts` 用 `import.meta.dir` 上溯三级得到仓库根，`STORAGE_ROOT = <root>/storage`；DB 中 `raw_path`/`processed_path` 存绝对路径。从根 `bun dev` 或从 `apps/server` 内启动都指向同一位置。
 - **任务队列**：`queue.ts` 内存 FIFO，并发上限 2；job 状态落 SQLite（queued/running/done/error/cancelled + progress/error），负载（staging 路径、prompt 等）只存内存——重启后未完成任务不恢复，启动时统一把遗留的 queued/running 标记为 error（「服务重启，任务中断」）。`POST /api/jobs/:id/cancel` 可取消排队/运行中任务（AbortSignal → `runCmd` 杀进程 / API 轮询中断）。所有状态变化经 `ws.ts` 广播；前端由 `JobPanel`（右侧常驻面板，挂在 App 根部）经 WS `job_*` 事件 + `GET /api/jobs(/:id)` 兜底轮询展示进度，排队/运行中可点取消。调度依赖保持单向：`queue.ts` 调用 `jobs/*` worker；拆帧/生成后的抠图任务通过调度层注入的窄回调入队，worker 不反向依赖队列。
 - **WS 广播**：`ws.ts` 维护客户端 Set，`broadcast(type, payload)` 发 JSON；事件名在 shared 的 `WS_EVENTS` 统一定义。前端收到 `frame_updated/frames_reordered/frames_changed/job_done` 后重拉帧列表，收到 `material_updated/materials_changed` 后重拉素材列表。
+- **素材来源语义**：图片分层产物使用共享 `layers` 来源并显示「分层」，不再伪装成普通 `api` 来源；启动迁移按 `metadata.provider=imageLayers` 识别并修正历史产物。
 - **拆帧编号**：ffmpeg 先拆到 `staging/extract_<uuid>/frame_%04d.png`，再按 raw 目录现存最大编号续编搬入 `raw/frame_XXXX.png`，多次导入互不覆盖；`duplicate` 生成的 `dup_<uuid>.png` 不匹配该扫描规则，不会被误收。
 - **注入安全**：外部命令（生成 CLI / 抠图 CLI）不走模板字符串：设置页配的是结构化字段（命令 + 参数名映射），服务端组装 argv 数组（Bun.spawn，不经 shell）；遗留 env 模板（FRAMEBAKER_GEN_CLI / FRAMEBAKER_MATTING_CLI）按空白 split 成 argv 后再替换占位符，同样不经 shell，prompt 含空格也安全。
 - **生成 provider 解析**（`provider.ts`，每次调用实时读 settings 表）：settings `genProviders` 列表模型——CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider（legacyTemplate 遗留模板路径）兜底。生成请求按 `providerId` 选择（缺省第一个配置齐备的）；`type=cli` 走结构化 argv 组装（`cliBin` + 参数名映射 `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，参数名留空=位置参数或不下发）；`type=api`/`dashscope`/`gemini`/`minimax` 走 `jobs/generateApi.ts`：

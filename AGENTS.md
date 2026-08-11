@@ -10,7 +10,8 @@ apps/
   web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react; index.html is the bundle entry
 packages/
   shared/        @framebaker/shared — shared types/constants for front & back (no build, exports point directly to src/index.ts)
-docs/            architecture / API / roadmap documentation
+docs/            architecture / API / roadmap / changelog documentation
+scripts/         environment setup + synchronized SemVer version management
 storage/         generated at runtime (gitignored), resolves to repo root regardless of startup cwd
 ```
 
@@ -21,6 +22,9 @@ bun install          # install all workspace dependencies (bun uses isolated lay
 bun dev              # development (--hot), http://localhost:3000, PORT overridable
 bun start            # production
 bun run typecheck    # tsc -p apps/server && tsc -p apps/web, must pass after changes
+bun run version:check # verify all workspace versions and changelog baseline agree
+bun run version:plan -- bug|week|major # preview the next weekly version without writing
+bun run version:bump -- bug # release Unreleased notes and bump all workspace versions
 ```
 
 No test framework; verification = typecheck + curl smoke tests (see examples in docs/api.md).
@@ -28,6 +32,7 @@ No test framework; verification = typecheck + curl smoke tests (see examples in 
 ## Conventions
 
 - **Do not perform any git operations** (no init / commit / push) unless the user explicitly requests it.
+- Main releases use `MAJOR.WEEK.BUG`: `major` starts a new major at week 1, `week` advances the sequential development week and resets bug to 0, and `bug` increments fixes within the current week. Add entries under `Unreleased` in both changelogs, then run `bun run version:bump -- bug|week|major`; the script never performs git operations. Full versions remain accepted for controlled corrections.
 - Shared types, enums, and WS event names all go in `packages/shared` (FRAME_STATUSES / FRAME_SOURCES / JOB_TYPES / WS_EVENTS / SOURCE_COLORS / Frame / FramePatch etc.); both front and back import from here — do not redefine in web.
 - Backend file paths must use `STORAGE_ROOT` exported from `db.ts` (based on import.meta.dir); do not use cwd-relative paths.
 - Minimize dependencies: do not introduce new deps unless truly necessary; drag-and-drop uses native HTML5 DnD — no dnd libraries; no Vite / react-router / drizzle.

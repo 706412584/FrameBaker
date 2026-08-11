@@ -181,7 +181,7 @@ Image stream (`image/png`, no-store). `type=processed` falls back to raw when no
 
 ### POST /api/materials/upload
 
-multipart/form-data: `file` + optional `autoMatting` (`"true"`), `fps` (video extraction, default 8).
+multipart/form-data: `file` + optional `processedFile`, `metadata` (JSON object string), `autoMatting` (`"true"`), and `fps` (video extraction, default 8). `processedFile` creates a material with both raw/processed slots and `status=matted`; grid splitting uses it to preserve real before/after pairs.
 PNG/JPG single image → directly creates 1 material, response `{ "materialId": "…" }`; GIF/MP4 → queued frame extraction, one material per frame, response `{ "jobId": "…" }`.
 
 ```bash
@@ -332,7 +332,7 @@ Returns entire kv object (values JSON-parsed):
 ### PUT /api/settings/:key
 
 ```json
-// Request (key allowlist: layout, theme, lang, genProviders, matting, promptEnhancers; other keys return 400)
+// Request (key allowlist: layout, theme, lang, genProviders, matting, imageLayers, promptEnhancers; other keys return 400)
 { "value": { "sidebarW": 260, "timelineH": 160 } }
 // Response
 { "ok": true }
@@ -345,6 +345,18 @@ Returns entire kv object (values JSON-parsed):
 `promptEnhancers` elements are `{ id, name, providerId, model }`, reusing `api` or `dashscope` provider connection credentials; legacy `{ apiBaseUrl, apiKey, apiModel }` still readable at runtime. `POST /api/enhance-prompt` accepts `mediaKind: "image" | "video"` — video mode uses action-temporal, camera-focused, consistency-oriented system prompts.
 
 `matting`: structured matting command `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg` (all empty → falls back to env `FRAMEBAKER_MATTING_CLI` template → auto-detection); `model` empty falls back to `FRAMEBAKER_MATTING_MODEL` / default `u2net`.
+
+`imageLayers`: standalone image-layer service configuration `{ "apiBaseUrl", "apiKey", "model" }`. It is independent from generation providers and calls `POST {apiBaseUrl}/images/layers`. If this setting has never been saved, the server temporarily reads the first legacy `genProviders[].layerModels` entry for migration compatibility.
+
+### POST /api/materials/:id/layers
+
+Queues semantic scene-layer decomposition. It reconstructs editable RGBA layers such as background, whole subject, props, and foreground; it does not promise character body parts or strict pixel-label segmentation. Source must be an image (processed preferred over raw), and the standalone `imageLayers` setting must contain Base URL, API key, and model. The async job type is `image_layers`. Full scenes should normally use `autoMatting: false` to preserve context. For an already isolated foreground without a processed image, set `autoMatting: true` to remove its background within the same job before the layer service is called; if matting fails or is cancelled, the layer request is not sent.
+
+```json
+{ "layers": 4, "numInferenceSteps": 50, "trueCfgScale": 4, "negativePrompt": "", "seed": 0, "autoMatting": false }
+```
+
+Ranges: `layers` 1–4 (the current Gitee Qwen-Image-Layered endpoint rejects values above 4), `numInferenceSteps` 1–100 (UI/MCP default `50`, matching the upstream quality configuration), `trueCfgScale` 0–20 (default `4`), integer `seed >= 0`. Returns `{ "jobId": "…" }`; result layers become raw materials in the source folder. For deeper decomposition, split one returned layer again recursively.
 
 ## Other
 
@@ -359,6 +371,10 @@ Returns entire kv object (values JSON-parsed):
     "hint": null,
     "modelCached": true
   },
+  "imageLayers": {
+    "configured": true,
+    "model": "Qwen-Image-Layered"
+  },
   "gen": {
     "providers": [
       { "id": "…", "name": "OpenAI", "type": "api", "models": ["gpt-image-1"], "configured": true }
@@ -367,8 +383,8 @@ Returns entire kv object (values JSON-parsed):
 }
 ```
 
-  `engine`: `custom-cli` (settings page matting.cliTemplate or `FRAMEBAKER_MATTING_CLI`) / `rembg-bundled` (`.venv-matting` bundled) / `rembg-path` (found in PATH) / `none` (not installed, matting only copies raw, `hint` contains install instructions). `model` is rembg model name (settings page matting.model → `FRAMEBAKER_MATTING_MODEL` → default `u2net`); `modelCached` indicates model file exists in `storage/models` (uncached models auto-download on first matting). `gen.providers` is a summary of all generation providers (no apiKey; `models` for generation dialog dropdown, `configured` indicates key fields are complete, `video` indicates video generation support — CLI/DashScope/MiniMax only, mapping in shared constant `PROVIDER_VIDEO_SUPPORT`).
-- `GET /api/doctor` → health check: checks storage directory writable / ffmpeg / matting engine & model cache / each generation provider (CLI validates command existence; OpenAI-compatible sends `GET /models`, Gemini sends `GET /v1beta/models`, DashScope sends `GET /compatible-mode/v1/models` for connectivity test; MiniMax has no probe endpoint, field validation only) → `{ "checks": [{ "id", "ok", "label", "detail" }] }`.
+  `engine`: `custom-cli` (settings page matting.cliTemplate or `FRAMEBAKER_MATTING_CLI`) / `rembg-bundled` (`.venv-matting` bundled) / `rembg-path` (found in PATH) / `none` (not installed, matting only copies raw, `hint` contains install instructions). `model` is rembg model name (settings page matting.model → `FRAMEBAKER_MATTING_MODEL` → default `u2net`); `modelCached` indicates model file exists in `storage/models` (uncached models auto-download on first matting). `imageLayers` reports the standalone image-layer service state without exposing its API key. `gen.providers` is a summary of all generation providers (no apiKey; model capability lists feed generation dialogs, `configured` indicates key fields are complete, `video` indicates video generation support — CLI/DashScope/MiniMax only, mapping in shared constant `PROVIDER_VIDEO_SUPPORT`).
+- `GET /api/doctor` → health check: checks storage directory writable / ffmpeg / matting engine & model cache / standalone image-layer service / each generation provider (CLI validates command existence; OpenAI-compatible sends `GET /models`, Gemini sends `GET /v1beta/models`, DashScope sends `GET /compatible-mode/v1/models` for connectivity test; MiniMax has no probe endpoint, field validation only) → `{ "checks": [{ "id", "ok", "label", "detail" }] }`.
 - `POST /api/provider/test` → API provider connectivity test (uses current form values, no need to save first): `{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`; api sends `GET {baseUrl}/models` + Bearer, gemini sends `GET {baseUrl}/v1beta/models` (x-goog-api-key), dashscope sends `GET {baseUrl}/compatible-mode/v1/models` + Bearer, returns `{ "ok", "status", "latencyMs", "modelsFound" }` (401/403 = authentication failure); minimax has no lightweight probe endpoint, field validation only with explanation in `note`.
 - `POST /api/provider/models` → API provider model list (settings page "Fetch Models", uses current form values, no need to save first): `{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`; endpoints same source as connectivity test (api `/models`, dashscope `/compatible-mode/v1/models`, gemini `/v1beta/models` strips `models/` prefix; minimax best-effort tries `/v1/models`); failure returns `{ "ok": false, "error" }`, frontend keeps manual input.
 - `POST /api/enhance-prompt` → prompt enhancement (enhancer model configured in settings page, OpenAI-compatible `chat/completions`, enhancement system prompt built-in server-side, assembled by `style`): `{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`; `enhancerId` defaults to first fully configured; `style` takes shared constant `ENHANCE_STYLES` id (pixel/anime/illustration/3d/realistic/general), default or unknown → `pixel`; unconfigured/call failure returns 400 text. Frontend preserves original prompt and shows both versions side by side for selection.
@@ -450,7 +466,7 @@ All tools manage pixel-art animation projects — frames, materials, generation,
 // Request
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // Response
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.1.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.2" } } }
 ```
 
 After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.
@@ -473,6 +489,7 @@ After handshake, send `notifications/initialized` notification (no response need
 | `generate_materials` | Generate materials (AI provider) |
 | `list_materials` | List all materials |
 | `matting_material` | Single material background removal |
+| `split_material_layers` | Split an image material with the standalone image-layer service |
 | `batch_matting` | Batch background removal |
 | `extract_material_frames` | Extract video/GIF material frames |
 | `import_material_to_project` | Import material as project frame |

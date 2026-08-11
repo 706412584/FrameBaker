@@ -2393,8 +2393,10 @@ input[type="range"] {
   touch-action: none;
   user-select: none;
 }
-.compare.preview-only {
+.compare.preview-only,
+.compare.single {
   cursor: default;
+  touch-action: auto;
 }
 .cmp-img {
   position: absolute;

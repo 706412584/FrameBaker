@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { Layers3, PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
   GenProviderType,
+  ImageLayerSettings,
   MattingSettings,
   PromptEnhancer,
   ProviderTestResponse,
@@ -47,6 +48,11 @@ interface EnhancerDraft {
 }
 
 const MAT_DEFAULT: MattingSettings = { cliBin: "", cliInputArg: "", cliOutputArg: "", cliModelArg: "", model: "" };
+const IMAGE_LAYERS_DEFAULT: ImageLayerSettings = {
+  apiBaseUrl: "https://ai.gitee.com/v1",
+  apiKey: "",
+  model: "Qwen-Image-Layered",
+};
 
 const CLI_EMPTY = {
   cliBin: "",
@@ -252,10 +258,12 @@ export default function SettingsPage() {
   const t = useT();
   const [drafts, setDrafts] = useState<ProviderDraft[]>([]);
   const [mat, setMat] = useState<MattingSettings>(MAT_DEFAULT);
+  const [imageLayers, setImageLayers] = useState<ImageLayerSettings>(IMAGE_LAYERS_DEFAULT);
   const [enhancers, setEnhancers] = useState<EnhancerDraft[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savingMat, setSavingMat] = useState(false);
+  const [savingImageLayers, setSavingImageLayers] = useState(false);
   const [savingEnh, setSavingEnh] = useState(false);
   const [tests, setTests] = useState<Record<string, { testing: boolean; result: ProviderTestResponse | null }>>({});
   // 「获取模型」拉取结果：models 为拉到的全量列表（可过滤点选），error 时保持手填
@@ -271,11 +279,23 @@ export default function SettingsPage() {
     api
       .getSettings()
       .then((s) => {
-        const list = Array.isArray(s["genProviders"]) ? (s["genProviders"] as GenProvider[]) : [];
+        const list = Array.isArray(s["genProviders"])
+          ? (s["genProviders"] as Array<GenProvider & { layerModels?: unknown }>)
+          : [];
         const providerDrafts = list.map(toDraft);
         setDrafts(providerDrafts);
         const m = s["matting"] as Partial<MattingSettings> | undefined;
         if (m && typeof m === "object") setMat({ ...MAT_DEFAULT, ...m });
+        const standaloneLayers = s["imageLayers"] as Partial<ImageLayerSettings> | undefined;
+        if (standaloneLayers && typeof standaloneLayers === "object") {
+          setImageLayers({ ...IMAGE_LAYERS_DEFAULT, ...standaloneLayers });
+        } else {
+          const legacy = list.find((p) => p.type === "api" && Array.isArray(p.layerModels) && p.layerModels.some((model) => typeof model === "string"));
+          const legacyModel = legacy && Array.isArray(legacy.layerModels)
+            ? legacy.layerModels.find((model): model is string => typeof model === "string")
+            : undefined;
+          if (legacy && legacyModel) setImageLayers({ apiBaseUrl: legacy.apiBaseUrl, apiKey: legacy.apiKey, model: legacyModel });
+        }
         const enh = Array.isArray(s["promptEnhancers"]) ? (s["promptEnhancers"] as PromptEnhancer[]) : [];
         setEnhancers(
           enh.map((e) => {
@@ -399,6 +419,36 @@ export default function SettingsPage() {
       notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
     } finally {
       setSavingMat(false);
+    }
+  };
+
+  const saveImageLayerSettings = async () => {
+    setSavingImageLayers(true);
+    try {
+      await api.putSetting("imageLayers", imageLayers);
+      await refreshServerConfig();
+      notify(t("layers.configSaved"), "info");
+      runDoctorCheck();
+    } catch (e) {
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setSavingImageLayers(false);
+    }
+  };
+
+  const testImageLayerSettings = async () => {
+    const key = "image-layers";
+    setTests((prev) => ({ ...prev, [key]: { testing: true, result: null } }));
+    try {
+      const result = await api.testProvider({
+        type: "api",
+        apiBaseUrl: imageLayers.apiBaseUrl,
+        apiKey: imageLayers.apiKey,
+        apiModel: imageLayers.model,
+      });
+      setTests((prev) => ({ ...prev, [key]: { testing: false, result } }));
+    } catch (e) {
+      setTests((prev) => ({ ...prev, [key]: { testing: false, result: { ok: false, error: (e as Error).message } } }));
     }
   };
 
@@ -724,6 +774,52 @@ export default function SettingsPage() {
             </div>
           );
         })}
+      </section>
+
+      {/* ===== 图片分层 ===== */}
+      <section className="settings-sec">
+        <h3>
+          <Layers3 size={14} /> {t("layers.settingsTitle")}
+          <span className={`engine-status ${cfg?.imageLayers.configured ? "ok" : "bad"}`}>
+            <span className="dot" />
+            {cfg?.imageLayers.configured ? t("layers.configuredModel", { model: cfg.imageLayers.model }) : t("layers.notConfigured")}
+          </span>
+        </h3>
+        <div className="hint">{t("layers.settingsHint")}</div>
+        <div className="form-row">
+          <div className="form-inline">
+            <label className="field">
+              <span>Base URL</span>
+              <input className="px-input" placeholder="https://ai.gitee.com/v1" value={imageLayers.apiBaseUrl} onChange={(e) => setImageLayers((s) => ({ ...s, apiBaseUrl: e.target.value }))} />
+            </label>
+            <label className="field">
+              <span>API Key</span>
+              <input className="px-input" type="password" autoComplete="off" placeholder="sk-…" value={imageLayers.apiKey} onChange={(e) => setImageLayers((s) => ({ ...s, apiKey: e.target.value }))} />
+            </label>
+            <label className="field">
+              <span>{t("layers.model")}</span>
+              <input className="px-input" placeholder="Qwen-Image-Layered" value={imageLayers.model} onChange={(e) => setImageLayers((s) => ({ ...s, model: e.target.value }))} />
+            </label>
+          </div>
+        </div>
+        <div className="provider-test">
+          <button type="button" className="px-btn mini" disabled={tests["image-layers"]?.testing} onClick={testImageLayerSettings}>
+            <PlugZap size={12} /> {tests["image-layers"]?.testing ? t("msg.testing") : t("msg.test_connection")}
+          </button>
+          {tests["image-layers"]?.result && (
+            <span className={`engine-status ${tests["image-layers"].result!.ok ? "ok" : "bad"}`}>
+              <span className="dot" />
+              {tests["image-layers"].result!.ok
+                ? t("msg.ok_msms", { ms: tests["image-layers"].result!.latencyMs ?? 0 })
+                : t("msg.failed_err", { err: tests["image-layers"].result!.error ?? t("msg.unknown_error") })}
+            </span>
+          )}
+        </div>
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={savingImageLayers} onClick={saveImageLayerSettings}>
+            <Save size={14} /> {savingImageLayers ? t("msg.saving") : t("layers.saveConfig")}
+          </motion.button>
+        </div>
       </section>
 
       {/* ===== 抠图 ===== */}
