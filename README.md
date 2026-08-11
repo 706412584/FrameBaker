@@ -16,6 +16,12 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 
 ![Playback preview demo](docs/media/demo.gif)
 
+> 🚧 **In progress:** skeletal binding and skeletal-animation editing are under development.
+
+| Character skeletal binding | Skeletal animation editor |
+| --- | --- |
+| ![Character skeletal binding](docs/media/skeletal-rigging.png) | ![Skeletal animation editor](docs/media/skeletal-animation.png) |
+
 | Frame editor | Materials library |
 | --- | --- |
 | ![Frame editor](docs/media/editor.png) | ![Materials library](docs/media/library.png) |

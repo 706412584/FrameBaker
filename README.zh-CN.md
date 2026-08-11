@@ -16,6 +16,12 @@
 
 ![播放预览演示](docs/media/demo.gif)
 
+> 🚧 **施工中：**骨骼绑定与骨骼动画编辑功能正在开发。
+
+| 角色骨骼绑定 | 骨骼动画编辑 |
+| --- | --- |
+| ![角色骨骼绑定](docs/media/skeletal-rigging.png) | ![骨骼动画编辑](docs/media/skeletal-animation.png) |
+
 | 帧编辑器 | 素材库 |
 | --- | --- |
 | ![帧编辑器](docs/media/editor.png) | ![素材库](docs/media/library.png) |
