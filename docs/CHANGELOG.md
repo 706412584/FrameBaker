@@ -4,14 +4,32 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+### Changed
+
+- Standardized downstream material consumption to prefer valid matted output, including project imports and generation references; original images remain available only to explicit original/restore/rematting actions.
+
+## [0.2.3] - 2026-08-11
+
 ### Added
 
 - Added the backward-compatible multi-axis, multi-track composited timeline foundation, canonical REST/MCP operations, and idempotent legacy-project migration.
-- Added a canvas fit-to-window control with safer composition margins, automatic playback fitting above the floating controls, Cmd/Ctrl+wheel canvas zoom in edit and playback, and changed the animation-axis picker to the shared pixel-style select.
+- Added a canvas fit-to-window control with safer composition margins, Cmd/Ctrl+wheel canvas zoom in edit and playback, and changed the animation-axis picker to the shared pixel-style select.
 - Added free frame-cell drag and drop within and across tracks; dropping on an occupied cell atomically swaps both frames, while locked tracks remain protected.
+- Added ordered multi-selection placement that copies reusable frame assets into consecutive timeline cells through the REST API, MCP, and editor drag and drop.
 - Changed project imports to enter a compact, tile-based unassigned frame pool on the left; frames are assembled by dragging them onto timeline cells, with replaced cells returned to the pool.
 - Changed the left panel from a consuming queue into a persistent reusable frame-asset panel, and added Space+drag canvas panning with grab/grabbing feedback.
 - Added visible in-editor usage guidance for dragging reusable assets onto timeline cells and for Space+drag canvas panning.
+
+### Fixed
+
+- Prevented batch timeline placement from mixing frames and tracks from different projects or partially changing the timeline when validation fails.
+- Fixed job status recovery after WebSocket interruptions and prevented initial job loading from overwriting newer live events.
+- Fixed stale material detail previews after background processing updates.
+
+### Changed
+
+- Changed playback controls into a draggable in-canvas overlay that no longer reserves or shrinks canvas space.
+- Reduced material-grid and job-panel rerenders by batching live updates, applying per-item cache versions, and memoizing unchanged rows and cards.
 
 ## [0.2.2] - 2026-08-11
 

@@ -168,3 +168,56 @@ export function placeFrame(frameId: string, trackId: string, stepId: string, swa
   })();
   return serializeFrame(getFrame(placedId)!);
 }
+
+/**
+ * 批量把资产帧 copy 到目标轨道的连续格子（从 startStepId 起；该轨道上被占用的格子其原帧推回资产池；
+ * 连续 step 不足时新建追加到 axis 末尾）。只影响目标轨道的 cell，不动其他轨道。
+ */
+export function placeAssetFramesBatch(
+  projectId: string,
+  frameIds: string[],
+  target: { axisId: string; trackId: string; startStepId?: string }
+): string[] {
+  if (!frameIds.length) return [];
+  return db.transaction(() => {
+    const track = db.query(`SELECT t.id,t.axis_id,a.project_id FROM animation_tracks t JOIN animation_axes a ON a.id=t.axis_id WHERE t.id=?`).get(target.trackId) as { id: string; axis_id: string; project_id: string } | null;
+    if (!track || track.project_id !== projectId || track.axis_id !== target.axisId) throw new Error("目标轨道不属于项目的该动画轴");
+    // 在创建 step 或挪动已有 cell 前一次性校验全部来源，确保失败时不产生任何时间轴变更。
+    const frames = frameIds.map((frameId) => {
+      const frame = getFrame(frameId);
+      if (!frame) throw new Error("帧不存在");
+      if (frame.project_id !== projectId) throw new Error("资产帧与目标轨道必须属于同一项目");
+      if (!frame.is_asset) throw new Error("只有帧资产可以创建时间轴实例");
+      return frame;
+    });
+    const n = frameIds.length;
+    const all = db.query("SELECT * FROM animation_steps WHERE axis_id=? ORDER BY idx,id").all(target.axisId) as TimelineStep[];
+    // 解析目标连续 step 序列：从 startStepId 起取现有 step；无 startStepId 则全部新建
+    const steps: TimelineStep[] = [];
+    if (target.startStepId) {
+      const startIdx = all.findIndex((s) => s.id === target.startStepId);
+      if (startIdx < 0) throw new Error("起始步骤不属于目标动画轴");
+      for (let i = startIdx; i < all.length && steps.length < n; i++) steps.push(all[i]!);
+    }
+    let nextIdx = (db.query("SELECT COALESCE(MAX(idx),-1)+1 next FROM animation_steps WHERE axis_id=?").get(target.axisId) as { next: number }).next;
+    while (steps.length < n) {
+      const id = uid();
+      db.query("INSERT INTO animation_steps (id,axis_id,idx,duration) VALUES (?,?,?,1)").run(id, target.axisId, nextIdx);
+      steps.push({ id, axis_id: target.axisId, idx: nextIdx, duration: 1 });
+      nextIdx++;
+    }
+    const placedIds: string[] = [];
+    frames.forEach((frame, i) => {
+      const step = steps[i]!;
+      // 目标轨道该 step 若已有帧 → 推回资产池（与单帧 copy+swap 行为一致）
+      const occupied = db.query("SELECT id FROM frames WHERE track_id=? AND step_id=?").get(target.trackId, step.id) as { id: string } | null;
+      if (occupied) db.query("UPDATE frames SET track_id=NULL,step_id=NULL,is_asset=1,idx=? WHERE id=?").run(nextFrameIdx(projectId), occupied.id);
+      const placedId = uid();
+      db.query(`INSERT INTO frames (id,project_id,track_id,step_id,is_asset,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata)
+        VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(placedId, projectId, target.trackId, step.id, step.idx, frame.raw_path, frame.processed_path, frame.status, frame.duration, frame.is_keyframe, frame.offset_x, frame.offset_y, frame.scale, frame.rotation, frame.opacity, frame.tags, frame.source, frame.metadata);
+      placedIds.push(placedId);
+    });
+    syncAxis(target.axisId);
+    return placedIds;
+  })();
+}

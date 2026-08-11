@@ -105,6 +105,7 @@ Deletes frame and image files; subsequent frames in the same project have their 
 - `POST /api/axes/:id/tracks`; `PATCH|DELETE /api/tracks/:id`; `POST /api/axes/:id/tracks/reorder` with exact unique `trackIds`. The primary/sole track is protected.
 - `POST /api/axes/:id/steps`; `PATCH|DELETE /api/steps/:id`; `POST /api/axes/:id/steps/reorder` with exact unique `stepIds`. Step duration is 1–600 ticks and is mirrored to every cell.
 - `PATCH /api/frames/:id/placement` with `{ "trackId", "stepId", "swap"?, "copy"? }`. Timeline moves use the existing frame; left-panel assembly uses `copy: true` to create an instance while keeping the source asset visible and reusable. With `swap: true`, an occupied target returns to the asset panel.
+- `POST /api/tracks/:id/place-frames` with `{ "frameIds": [...], "startStepId"? }` copies same-project frame assets into consecutive cells on the target track. Occupied cells return to the asset panel, and missing trailing steps are appended atomically. Cross-project and non-asset sources are rejected before the timeline changes.
 
 Timeline mutations broadcast `timeline_changed` with `projectId` and relevant axis/track/step/frame IDs. Deleting a cell prunes its step only when empty. Legacy duplication inserts shared steps after the source; legacy reorder is accepted only for an unambiguous primary-track one-cell-per-step shape.
 
@@ -237,7 +238,7 @@ Deletes processed, restores to `raw` status. Response `{ "material": {…} }`.
 { "ok": true, "count": 2, "frameIds": ["…", "…"] }
 ```
 
-Copies material as unassigned project frame(s) into the left-side frame pool: raw and processed slots are copied separately to avoid matting result overwriting the original; falls back to processed only for legacy materials missing raw. Frames enter a timeline only after placement. `source` and metadata are preserved. `count` 1–16, default 1. Broadcasts `frames_changed`.
+Copies material as unassigned project frame(s) into the left-side frame pool. When a material has a valid matted image, all imported frame image slots use that matted result so downstream operations cannot silently revert to the original; otherwise they use the raw image. The material library still retains the original for explicit compare, restore, rematting, and raw-export actions. Frames enter a timeline only after placement. `source` and metadata are preserved. `count` 1–16, default 1. Broadcasts `frames_changed`.
 
 ### POST /api/materials/batch-delete
 
@@ -478,7 +479,7 @@ All tools manage pixel-art animation projects — frames, materials, generation,
 // Request
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // Response
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.2" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.3" } } }
 ```
 
 After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.

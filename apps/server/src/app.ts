@@ -15,7 +15,7 @@ import { settingsApi } from "./api/settings";
 import { foldersApi } from "./api/folders";
 import { timelineApi } from "./api/timeline";
 import { mcpHandler } from "./mcp";
-import { cancelJob } from "./queue";
+import { cancelJob, getQueueConcurrency } from "./queue";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
 let imageOpsWorkerCode: string | null = null;
@@ -68,6 +68,7 @@ export const app = new Elysia()
       promptEnhancers: getPromptEnhancers()
         .filter(enhancerConfigured)
         .map((e) => ({ id: e.id, name: e.name, model: e.model })),
+      queueConcurrency: getQueueConcurrency(),
     };
   })
   // 提示词加强：调用设置页配置的加强模型（OpenAI 兼容 chat/completions），原提示词由前端保留

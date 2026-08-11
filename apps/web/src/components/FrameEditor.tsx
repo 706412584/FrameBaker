@@ -75,7 +75,6 @@ export default function FrameEditor({ frame, composite, editable, prev, next, v,
   const updateFit = useCallback(() => {
     const p = pixi.current;
     if (!p) return;
-    // 播放模式由 stage-shell 预留独立控制区；Pixi 只按实际可见画布尺寸自动适配。
     const availableHeight = Math.max(1, p.app.screen.height);
     p.viewport.position.set(p.app.screen.width / 2 + panOffsetRef.current.x, availableHeight / 2 + panOffsetRef.current.y);
     const bounds = [...p.spriteFrames.entries()]
@@ -322,7 +321,7 @@ export default function FrameEditor({ frame, composite, editable, prev, next, v,
     updateFit();
   }, [fitRequest, ready, updateFit]);
 
-  // 进入/退出播放立即切换安全区域；播放中的每次切帧还会在合成贴图加载后再次自动适配。
+  // 进入/退出播放立即重新适配；播放中的每次切帧还会在合成贴图加载后再次自动适配。
   useEffect(() => {
     if (!ready) return;
     updateFit();

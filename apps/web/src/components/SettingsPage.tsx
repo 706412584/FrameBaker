@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Layers3, PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { Layers3, ListTodo, PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
@@ -264,6 +264,8 @@ export default function SettingsPage() {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savingMat, setSavingMat] = useState(false);
   const [savingImageLayers, setSavingImageLayers] = useState(false);
+  const [queueConcurrency, setQueueConcurrency] = useState(2);
+  const [savingQueue, setSavingQueue] = useState(false);
   const [savingEnh, setSavingEnh] = useState(false);
   const [tests, setTests] = useState<Record<string, { testing: boolean; result: ProviderTestResponse | null }>>({});
   // 「获取模型」拉取结果：models 为拉到的全量列表（可过滤点选），error 时保持手填
@@ -308,6 +310,8 @@ export default function SettingsPage() {
             return { id: e.id, name: e.name, providerId: match, model, legacy: !match && !!e.apiBaseUrl };
           })
         );
+        const qc = s["queueConcurrency"];
+        if (typeof qc === "number" && qc >= 1) setQueueConcurrency(qc);
       })
       .catch((e) => notify(t("msg.load_settings_failed_msg", { msg: (e as Error).message })));
   }, []);
@@ -433,6 +437,21 @@ export default function SettingsPage() {
       notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
     } finally {
       setSavingImageLayers(false);
+    }
+  };
+
+  const saveQueue = async () => {
+    const n = Math.max(1, Math.min(16, Math.floor(Number(queueConcurrency)) || 1));
+    setQueueConcurrency(n);
+    setSavingQueue(true);
+    try {
+      await api.putSetting("queueConcurrency", n);
+      await refreshServerConfig();
+      notify(t("msg.queue_concurrency_saved"), "info");
+    } catch (e) {
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setSavingQueue(false);
     }
   };
 
@@ -896,6 +915,48 @@ export default function SettingsPage() {
             onClick={saveMatting}
           >
             <Save size={14} /> {savingMat ? t("msg.saving") : t("msg.save_matting_config")}
+          </motion.button>
+        </div>
+      </section>
+
+      {/* ===== 任务队列 ===== */}
+      <section className="settings-sec">
+        <h3>
+          <ListTodo size={14} /> {t("msg.queue_concurrency")}
+        </h3>
+        <div className="form-row">
+          <label>{t("msg.queue_concurrency_desc")}</label>
+          <div className="form-inline">
+            <label className="field">
+              <span>{t("msg.queue_concurrency")}</span>
+              <input
+                className="px-input num"
+                type="number"
+                min={1}
+                max={16}
+                value={queueConcurrency}
+                onChange={(e) => setQueueConcurrency(Number(e.target.value))}
+              />
+            </label>
+          </div>
+          <div className="hint">
+            {t("msg.queue_concurrency_hint")}
+            {cfg && (
+              <>
+                （{t("msg.current")}：<code>{cfg.queueConcurrency}</code>）
+              </>
+            )}
+          </div>
+        </div>
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            className="px-btn accent"
+            disabled={savingQueue}
+            onClick={saveQueue}
+          >
+            <Save size={14} /> {savingQueue ? t("msg.saving") : t("msg.save_queue_config")}
           </motion.button>
         </div>
       </section>

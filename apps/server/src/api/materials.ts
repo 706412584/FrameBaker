@@ -36,7 +36,7 @@ export function sortMaterialsByFrameNumber(materials: MaterialRow[]): MaterialRo
   );
 }
 
-/** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
+/** 把素材复制为项目帧追加到末尾；有抠图结果时两个槽位都以抠图图为准，返回新帧 id */
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
   const cell = prepareMaterialFrame(m, projectId);
   appendFramePool(projectId, cell);
@@ -44,9 +44,10 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
 }
 
 function prepareMaterialFrame(m: MaterialRow, projectId: string): NewFrameCell {
-  const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
-  if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
-  if (/\.(mp4|mov|webm|avi)$/i.test(rawSrc)) {
+  const processedSrc = m.processed_path && existsSync(m.processed_path) ? m.processed_path : null;
+  const inputSrc = processedSrc ?? (m.raw_path && existsSync(m.raw_path) ? m.raw_path : null);
+  if (!inputSrc) throw new Error(`素材文件缺失: ${m.id}`);
+  if (/\.(mp4|mov|webm|avi)$/i.test(inputSrc)) {
     throw new Error(`「${m.name}」是视频素材，请先抽帧再导入项目`);
   }
   const frameId = uid();
@@ -56,11 +57,11 @@ function prepareMaterialFrame(m: MaterialRow, projectId: string): NewFrameCell {
   mkdirSync(procDir, { recursive: true });
   // mat_ 前缀：不会被拆帧扫描的 frame_\d+ 规则命中
   const rawPath = join(rawDir, `mat_${frameId}.png`);
-  copyFileSync(rawSrc, rawPath);
+  copyFileSync(inputSrc, rawPath);
   let procPath: string | null = null;
-  if (m.processed_path && existsSync(m.processed_path)) {
+  if (processedSrc) {
     procPath = join(procDir, `${frameId}.png`);
-    copyFileSync(m.processed_path, procPath);
+    copyFileSync(processedSrc, procPath);
   }
   let metadata: Record<string, unknown> = { fromMaterial: m.id };
   try {

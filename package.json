@@ -1,6 +1,6 @@
 {
   "name": "framebaker",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "像素风逐帧动画编辑器（Bun 全栈 monorepo）",
   "private": true,
   "license": "MIT",

@@ -90,13 +90,17 @@ export function resolveReferencePath(opts: { referenceMaterialId?: string; refer
   if (mid) {
     const material = getMaterial(mid);
     if (!material) return { error: `素材不存在: ${mid}` };
-    path = material.processed_path ?? material.raw_path;
-    if (!path || !existsSync(path)) return { error: `素材文件缺失: ${mid}` };
+    path = material.processed_path && existsSync(material.processed_path)
+      ? material.processed_path
+      : material.raw_path && existsSync(material.raw_path) ? material.raw_path : null;
+    if (!path) return { error: `素材文件缺失: ${mid}` };
   } else if (fid) {
     const frame = getFrame(fid);
     if (!frame) return { error: `帧不存在: ${fid}` };
-    path = frame.processed_path ?? frame.raw_path;
-    if (!path || !existsSync(path)) return { error: `帧文件缺失: ${fid}` };
+    path = frame.processed_path && existsSync(frame.processed_path)
+      ? frame.processed_path
+      : frame.raw_path && existsSync(frame.raw_path) ? frame.raw_path : null;
+    if (!path) return { error: `帧文件缺失: ${fid}` };
   }
   if (provider.type === "cli" && path) {
     if (provider.legacyTemplate && !provider.legacyTemplate.includes("{reference}"))

@@ -300,6 +300,8 @@ export interface ServerConfig {
   };
   /** 提示词加强模型摘要（不含 apiKey）；为空表示未配置 */
   promptEnhancers: Array<{ id: string; name: string; model: string }>;
+  /** 任务队列并发数（settings.queueConcurrency 优先，env 兜底，默认 2） */
+  queueConcurrency: number;
 }
 
 /**
@@ -499,7 +501,16 @@ export const WS_EVENTS = [
 export type WSEventType = (typeof WS_EVENTS)[number];
 
 /** 服务端 settings 表白名单 key（PUT /api/settings/:key 校验用） */
-export const SETTING_KEYS = ["layout", "theme", "lang", "genProviders", "matting", "imageLayers", "promptEnhancers"] as const;
+export const SETTING_KEYS = [
+  "layout",
+  "theme",
+  "lang",
+  "genProviders",
+  "matting",
+  "imageLayers",
+  "promptEnhancers",
+  "queueConcurrency",
+] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 export interface WSMessage<T = unknown> {

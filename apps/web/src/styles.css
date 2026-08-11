@@ -465,6 +465,9 @@ input[type="range"] {
 .file-grid .project-card {
   padding: clamp(6px, calc(var(--tile-min) * 0.05), 12px);
   gap: clamp(6px, calc(var(--tile-min) * 0.05), 10px);
+  /* 渲染虚拟化：屏幕外卡片跳过 layout/paint，滚动进入视口才渲染（零 JS，配合网格 auto-fill） */
+  content-visibility: auto;
+  contain-intrinsic-size: var(--tile-min) calc(var(--tile-min) * 0.72 + 64px);
 }
 .file-grid .project-card .thumb {
   height: calc(var(--tile-min) * 0.72);
@@ -1123,21 +1126,20 @@ input[type="range"] {
   color: var(--text);
 }
 
-/* ===== 播放预览（就在 Pixi 画布内，悬浮控制条覆盖画布框底部） ===== */
+/* ===== 播放预览（就在 Pixi 画布内，可拖动控制条覆盖画布且不参与布局） ===== */
 .stage-shell {
   position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
 }
-.stage-shell.playing {
-  /* 播放条放进独立安全区，不覆盖 Pixi 画布；画布 resize 会触发自动适应。 */
-  padding-bottom: 64px;
-}
 .playback-bar {
   position: absolute;
   bottom: 14px;
   left: 50%;
+  translate: -50% 0;
+  max-width: calc(100% - 28px);
+  overflow-x: auto;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1149,6 +1151,24 @@ input[type="range"] {
     -3px 0 0 0 var(--border),
     3px 0 0 0 var(--border);
   z-index: 10;
+}
+.playback-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+}
+.playback-drag-handle:hover {
+  color: var(--text);
+}
+.playback-drag-handle:active {
+  cursor: grabbing;
 }
 .fps-ctl {
   display: flex;

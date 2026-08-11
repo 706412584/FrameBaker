@@ -7,6 +7,7 @@ import { getMattingInfo } from "../../jobs/matting";
 import { getGenProviders, getImageLayerSettings, imageLayerConfigured, providerConfigured, getPromptEnhancers, enhancerConfigured } from "../../provider";
 import { isModelCached, runDoctor } from "../../doctor";
 import { enhancePrompt } from "../../enhance";
+import { getQueueConcurrency } from "../../queue";
 import { ok, err } from "../helpers";
 
 export function register(server: McpServer) {
@@ -50,6 +51,7 @@ export function register(server: McpServer) {
         promptEnhancers: getPromptEnhancers()
           .filter(enhancerConfigured)
           .map((e) => ({ id: e.id, name: e.name, model: e.model })),
+        queueConcurrency: getQueueConcurrency(),
       });
     }
   );
@@ -108,7 +110,7 @@ export function register(server: McpServer) {
     {
       title: "Update Setting",
       description:
-        "Update a single server setting. Allowed keys: layout, theme, lang, genProviders, matting, promptEnhancers. The value must match the expected type for each key.",
+        "Update a single server setting. Allowed keys: layout, theme, lang, genProviders, matting, imageLayers, promptEnhancers, queueConcurrency. The value must match the expected type for each key.",
       inputSchema: z.object({
         key: z.enum(SETTING_KEYS as unknown as [string, ...string[]]).describe("Setting key"),
         value: z.any().describe("Setting value (type depends on key)"),

@@ -107,6 +107,9 @@ export const api = {
   deleteStep: (id: string) => req<OkResponse>(`/api/steps/${id}`, { method: "DELETE" }),
   reorderSteps: (axisId: string, stepIds: string[]) => req<OkResponse>(`/api/axes/${axisId}/steps/reorder`, { method: "POST", ...json({ stepIds }) }),
   moveFrameCell: (id: string, trackId: string, stepId: string, swap = false, copy = false) => req<FrameResponse>(`/api/frames/${id}/placement`, { method: "PATCH", ...json({ trackId, stepId, swap, copy }) }),
+  /** 批量把资产帧 copy 到目标轨道（从 startStepId 起连续放置，占用帧推回池，不足新建 step） */
+  placeFramesBatch: (trackId: string, body: { startStepId?: string; frameIds: string[] }) =>
+    req<{ frameIds: string[] }>(`/api/tracks/${trackId}/place-frames`, { method: "POST", ...json(body) }),
   patchFrame: (id: string, patch: FramePatch) =>
     req<FrameResponse>(`/api/frames/${id}`, { method: "PATCH", ...json(patch) }),
   replaceFrame: (id: string, file: Blob) => {

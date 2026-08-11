@@ -61,8 +61,12 @@ export default function FrameList({
             animate={{ opacity: 1, x: 0 }}
             draggable
             onDragStartCapture={(e: React.DragEvent<HTMLDivElement>) => {
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("application/x-framebaker-frame-cell", JSON.stringify({ frameId: f.id, copy: true }));
+              // 多选拖拽：拖一组选中帧（按显示顺序，保证动画序列正确）；否则只拖当前帧。资产帧入轨为 copy
+              const group = selectedIds.has(f.id) && selectedIds.size > 1
+                ? frames.filter((x) => selectedIds.has(x.id)).map((x) => x.id)
+                : [f.id];
+              e.dataTransfer.effectAllowed = "copy";
+              e.dataTransfer.setData("application/x-framebaker-frame-cell", JSON.stringify({ frameIds: group, copy: true }));
             }}
             onClick={(e) => onFrameClick(f.id, { ctrl: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
             onContextMenu={(e) => {

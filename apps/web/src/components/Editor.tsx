@@ -598,7 +598,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onCrop={onCropFrame}
               onPatch={patchFrame}
             />
-            {/* FrameEditor 常驻不卸载；播放时底部预留控制区，避免播放条覆盖合成内容。 */}
+            {/* FrameEditor 常驻不卸载；播放条悬浮在画布上，不参与布局。 */}
             <div className={`stage-shell ${showPreview ? "playing" : ""}`} ref={shellRef}>
               <FrameEditor
                 frame={displayFrame}
@@ -618,6 +618,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               <AnimatePresence>
                 {showPreview && (
                   <PlaybackBar
+                    dragConstraints={shellRef}
                     fps={fps}
                     paused={paused}
                     cursor={cursor}
@@ -648,6 +649,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         onDeleteAxis={async()=>{if(await askConfirm(t("timeline.confirmDeleteAxis"))){await api.deleteAxis(timeline.axis.id);axisIdRef.current=null;setAxisId(null);void loadFrames()}}}
         onCell={(trackId,stepId,frameId)=>{setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frameId);setSelectedIds(new Set())}}
         onMoveCell={async(frameId,trackId,stepId,copy)=>{try{const {frame}=await api.moveFrameCell(frameId,trackId,stepId,true,copy);await loadFrames(trackId);setActiveTrackId(trackId);setActiveStepId(stepId);setActiveId(frame.id);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
+        onPlaceBatch={async(frameIds,trackId,stepId)=>{try{await api.placeFramesBatch(trackId,{startStepId:stepId,frameIds});await loadFrames(trackId);setActiveTrackId(trackId);setActiveStepId(stepId);setSelectedIds(new Set())}catch(e){notify(t("timeline.moveFailed",{msg:(e as Error).message}))}}}
         onAddTrack={async()=>{await api.createTrack(timeline.axis.id,{name:t("timeline.defaultTrackName",{n:tracks.length+1})});void loadFrames()}}
         onPatchTrack={async(track,patch)=>{await api.patchTrack(track.id,patch);void loadFrames()}}
         onDeleteTrack={async(track)=>{if(await askConfirm(t("timeline.confirmDeleteTrack"))){await api.deleteTrack(track.id);void loadFrames()}}}

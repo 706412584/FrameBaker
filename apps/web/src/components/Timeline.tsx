@@ -11,6 +11,7 @@ interface Props {
   onAxis: (id: string) => void; onAddAxis: () => void; onDeleteAxis: () => void;
   onCell: (trackId: string, stepId: string, frameId: string | null) => void;
   onMoveCell: (frameId: string, trackId: string, stepId: string, copy?: boolean) => void;
+  onPlaceBatch: (frameIds: string[], trackId: string, stepId: string) => void;
   onAddTrack: () => void; onPatchTrack: (track: AnimationTrack, patch: Partial<AnimationTrack>) => void;
   onDeleteTrack: (track: AnimationTrack) => void; onMoveTrack: (track: AnimationTrack, delta: number) => void;
   onAddStep: () => void; onDeleteStep: () => void; onReorderSteps: (from: number, to: number) => void; onStepDuration: (duration: number) => void;
@@ -65,7 +66,7 @@ export default function Timeline(p: Props) {
             onDragStart={(e)=>{if(!f||track.locked){e.preventDefault();return;}frameDrag.current={frameId:f.id,trackId:track.id,stepId:step.id};setDraggingFrameId(f.id);e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("application/x-framebaker-frame-cell",JSON.stringify(frameDrag.current));}}
             onDragOver={(e)=>{if(!track.locked&&(frameDrag.current||Array.from(e.dataTransfer.types).includes("application/x-framebaker-frame-cell"))){e.preventDefault();e.dataTransfer.dropEffect="move";setDropTarget(targetKey);}}}
             onDragLeave={()=>setDropTarget((current)=>current===targetKey?null:current)}
-            onDrop={(e)=>{e.preventDefault();let source:typeof frameDrag.current=frameDrag.current;if(!source){try{const payload=JSON.parse(e.dataTransfer.getData("application/x-framebaker-frame-cell"));if(payload?.frameId)source={frameId:payload.frameId,trackId:payload.trackId??"",stepId:payload.stepId??"",copy:payload.copy===true};}catch{/* 忽略外部无效拖放 */}}frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);if(source&&!track.locked&&(source.copy||source.trackId!==track.id||source.stepId!==step.id))p.onMoveCell(source.frameId,track.id,step.id,source.copy);}}
+            onDrop={(e)=>{e.preventDefault();const reset=()=>{frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);};if(frameDrag.current){const s=frameDrag.current;reset();if(!track.locked&&(s.copy||s.trackId!==track.id||s.stepId!==step.id))p.onMoveCell(s.frameId,track.id,step.id,s.copy);return;}try{const payload=JSON.parse(e.dataTransfer.getData("application/x-framebaker-frame-cell"));if(Array.isArray(payload?.frameIds)&&payload.frameIds.length){reset();if(!track.locked)p.onPlaceBatch(payload.frameIds,track.id,step.id);return;}if(payload?.frameId){reset();const copy=payload.copy===true;if(!track.locked&&(copy||payload.trackId!==track.id||payload.stepId!==step.id))p.onMoveCell(payload.frameId,track.id,step.id,copy);return;}}catch{/* 忽略外部无效拖放 */}reset();}}
             onDragEnd={()=>{frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);}}
             onClick={() => p.onCell(track.id,step.id,f?.id??null)}
             onContextMenu={(e)=>{if(!f)return;e.preventDefault();p.onContextMenu(f.id,{x:e.clientX,y:e.clientY});}}
