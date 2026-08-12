@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { db, getFrame, nextFrameIdx, serializeFrame, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
 import { deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration, syncAxis } from "../timeline";
+import { getThumbnailPath, parseThumbnailSize, serveMediaFile } from "../media";
 
 const patchSchema = t.Partial(
   t.Object({
@@ -27,10 +28,12 @@ function isPng(bytes: Uint8Array): boolean {
 const frameImageHandler = ({
   params,
   query,
+  request,
   status,
 }: {
   params: { id: string };
-  query: { type?: string };
+  query: { type?: string; size?: string };
+  request: Request;
   status: (code: number, msg: string) => unknown;
 }) => {
   const frame = getFrame(params.id);
@@ -38,9 +41,13 @@ const frameImageHandler = ({
   let path: string | null = query.type === "raw" ? frame.raw_path : frame.processed_path;
   if (!path || !existsSync(path)) path = frame.raw_path;
   if (!path || !existsSync(path)) return status(404, "图片文件不存在");
-  return new Response(Bun.file(path), {
-    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
-  });
+  const size = parseThumbnailSize(query.size);
+  if (size) {
+    return getThumbnailPath(path, size).then((thumbnail) =>
+      serveMediaFile(thumbnail ?? path!, request, "image/png")
+    );
+  }
+  return serveMediaFile(path, request, "image/png");
 };
 
 export const framesApi = new Elysia({ prefix: "/api" })
@@ -70,7 +77,7 @@ export const framesApi = new Elysia({ prefix: "/api" })
         db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, params.id);
       }
       const updated = getFrame(params.id)!;
-      broadcast("frame_updated", { id: params.id, projectId: frame.project_id });
+      broadcast("frame_updated", { id: params.id, projectId: frame.project_id, imageChanged: false });
       return { frame: serializeFrame(updated) };
     },
     { body: patchSchema }
@@ -95,7 +102,7 @@ export const framesApi = new Elysia({ prefix: "/api" })
       ) {
         unlinkSync(frame.processed_path);
       }
-      broadcast("frame_updated", { id: frame.id, projectId: frame.project_id });
+      broadcast("frame_updated", { id: frame.id, projectId: frame.project_id, imageChanged: true });
       return { frame: serializeFrame(getFrame(frame.id)!) };
     },
     { body: t.Object({ file: t.File() }) }

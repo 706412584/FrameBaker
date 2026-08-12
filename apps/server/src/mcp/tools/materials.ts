@@ -10,6 +10,7 @@ import { createJob, createMattingJob } from "../../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/extract";
 import { getImageLayerSettings, imageLayerConfigured } from "../../provider";
 import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
+import { invalidateProjectUndo } from "../../undo";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -195,6 +196,7 @@ export function register(server: McpServer) {
       const count = Math.min(Math.max(rawCount ?? 1, 1), 16);
       try {
         const frameIds: string[] = [];
+        invalidateProjectUndo(projectId);
         for (let i = 0; i < count; i++) frameIds.push(importMaterialToProject(m, projectId));
         broadcast("frames_changed", { projectId });
         return ok({ ok: true, count, frameIds });
@@ -224,6 +226,7 @@ export function register(server: McpServer) {
         const materials = sortMaterialsByFrameNumber(
           ids.map((id) => getMaterial(id)).filter((m): m is MaterialRow => m !== null)
         );
+        invalidateProjectUndo(projectId);
         for (const m of materials) {
           importMaterialToProject(m, projectId);
           count++;

@@ -60,7 +60,7 @@ const MaterialCard = memo(function MaterialCard({
         {m.kind === "video" ? (
           <video src={materialFileUrl(m.id, imgV, "raw")} muted playsInline preload="metadata" draggable={false} />
         ) : (
-          <img src={materialImageUrl(m.id, imgV)} alt="" draggable={false} loading="lazy" />
+          <img src={materialImageUrl(m.id, imgV, "processed", 320)} alt="" draggable={false} loading="lazy" decoding="async" />
         )}
         <span
           className={`mat-check ${selected ? "on" : ""}`}
@@ -171,7 +171,11 @@ export default function MaterialsPage() {
         if (!p?.kind || p.kind === "material") void loadFolders();
       }
     });
-    return unsub;
+    return () => {
+      unsub();
+      if (loadTimer.current !== null) window.clearTimeout(loadTimer.current);
+      loadTimer.current = null;
+    };
   }, [load, loadFolders, loadDebounced]);
 
   const visible = useMemo(() => {

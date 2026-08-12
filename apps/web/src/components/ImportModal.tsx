@@ -72,7 +72,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [reference, setReference] = useState<ReferenceSelection | null>(null);
+  const [references, setReferences] = useState<ReferenceSelection[]>([]);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
@@ -158,7 +158,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
       const sel = resolveProviderSelection(providers, providerId, model, {
         videoOnly: mediaKind === "video",
-        preferI2v: mediaKind === "video" && !!reference,
+        preferI2v: mediaKind === "video" && references.length > 0,
       });
       await api.generate({
         projectId,
@@ -168,8 +168,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
         ...sel,
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
-        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(references.length ? { references } : {}),
       });
       notify(
         mediaKind === "video"
@@ -257,7 +256,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
                         title={m.name}
                         onClick={() => togglePick(m.id)}
                       >
-                        <img src={materialImageUrl(m.id, matV)} alt="" draggable={false} />
+                        <img src={materialImageUrl(m.id, matV, "processed", 256)} alt="" draggable={false} loading="lazy" decoding="async" />
                         <span className={`mat-dot ${m.status}`} title={m.status === "matted" ? t("msg.matted_431ee1") : t("msg.original")} />
                         <span
                           className="mat-src"
@@ -423,6 +422,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
             </div>
             <PromptEnhancer
               mediaKind={mediaKind}
+              referenceImageCount={references.length}
               label={t("msg.prompt")}
               placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_knight_with_sword_walk_cycle_right")}
               value={prompt}
@@ -436,7 +436,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
             ) : (
               <div className="hint">{t("msg.video_goes_to_materials_first_extract_frames_there_then")}</div>
             )}
-            <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            <ReferencePicker value={references} onChange={setReferences} showFrames projectId={projectId} />
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
@@ -446,7 +446,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
-              preferI2v={mediaKind === "video" && !!reference}
+              preferI2v={mediaKind === "video" && references.length > 0}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}

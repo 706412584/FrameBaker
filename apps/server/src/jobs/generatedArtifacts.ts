@@ -1,9 +1,10 @@
 import { closeSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { GenProviderType } from "@framebaker/shared";
-import { db, nextFrameIdx, STORAGE_ROOT, uid } from "../db";
+import { db, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
 import { appendFramePool } from "../timeline";
+import { invalidateProjectUndo } from "../undo";
 
 type Target = { kind: "project"; projectId: string } | { kind: "materials" };
 type EnqueueMatting = (projectId: string, target: "frame" | "material", id: string) => void;
@@ -65,13 +66,11 @@ export function createGeneratedArtifactCommitter(options: {
   let finished = false;
   let projectRaw = "";
   let projectStart = 0;
-  let projectIdx = 0;
   if (options.target.kind === "project") {
     projectRaw = join(STORAGE_ROOT, "projects", options.target.projectId, "raw");
     mkdirSync(projectRaw, { recursive: true });
     mkdirSync(join(STORAGE_ROOT, "projects", options.target.projectId, "processed"), { recursive: true });
     projectStart = nextNumber(projectRaw);
-    projectIdx = nextFrameIdx(options.target.projectId);
   }
   const metadata = (index: number) =>
     JSON.stringify({
@@ -89,11 +88,14 @@ export function createGeneratedArtifactCommitter(options: {
       return { kind, requestedKind, index, path: join(dir, "output.mp4"), disposableDir: dir };
     }
     if (options.target.kind === "project") {
+      const dir = join(STORAGE_ROOT, "staging", `genimg_${uid()}`);
+      mkdirSync(dir, { recursive: true });
       return {
         kind,
         requestedKind,
         index,
-        path: `${projectRaw}/frame_${String(projectStart + index).padStart(4, "0")}.png`,
+        path: join(dir, "output.png"),
+        disposableDir: dir,
       };
     }
     const id = uid();
@@ -110,7 +112,17 @@ export function createGeneratedArtifactCommitter(options: {
   const commitImage = (allocation: ArtifactAllocation): string => {
     const id = allocation.id ?? uid();
     if (options.target.kind === "project") {
-      appendFramePool(options.target.projectId,{id,raw_path:allocation.path,status:options.autoMatting?"matting":"ready",source:options.source,metadata:metadata(allocation.index)});
+      const rawPath = `${projectRaw}/frame_${String(projectStart + allocation.index).padStart(4, "0")}.png`;
+      // Provider 输出先留在 staging；完成后同步提交，避免撤销读到半写文件。
+      invalidateProjectUndo(options.target.projectId);
+      renameSync(allocation.path, rawPath);
+      if (allocation.disposableDir) rmSync(allocation.disposableDir, { recursive: true, force: true });
+      try {
+        appendFramePool(options.target.projectId,{id,raw_path:rawPath,status:options.autoMatting?"matting":"ready",source:options.source,metadata:metadata(allocation.index)});
+      } catch (error) {
+        rmSync(rawPath, { force: true });
+        throw error;
+      }
     } else {
       // 视频请求误返单图时只会提交一项，不追加 #1。
       const total = allocation.requestedKind === "video" ? 1 : options.count;

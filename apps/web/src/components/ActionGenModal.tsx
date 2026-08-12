@@ -242,7 +242,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
 
         <div className="ag-main">
           <div className="ag-ref">
-            <img src={materialImageUrl(m.id, v, slot)} alt={m.name} draggable={false} />
+            <img src={materialImageUrl(m.id, v, slot, 512)} alt={m.name} draggable={false} decoding="async" />
             <span className="ag-ref-tag">{isVideo ? t("msg.character_ref") : t("msg.reference")}</span>
           </div>
           <div className="ag-actions-col">

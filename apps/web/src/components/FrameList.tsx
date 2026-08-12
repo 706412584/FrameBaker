@@ -74,7 +74,7 @@ export default function FrameList({
               onContextMenu(f.id, { x: e.clientX, y: e.clientY });
             }}
           >
-            <img src={frameImageUrl(f.id, v)} alt="" draggable={false} />
+            <img src={frameImageUrl(f.id, v, 256)} alt="" draggable={false} loading="lazy" decoding="async" />
             <div className="fl-meta">
               <span>#{i + 1}</span>
               {f.status !== "ready" && <span className="fl-status">{f.status}</span>}

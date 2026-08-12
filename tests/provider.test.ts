@@ -11,6 +11,7 @@ import {
   resolveGenProvider,
 } from "../apps/server/src/provider";
 import { checkVideoSupport, createProviderAdapter, listProviderModels, probeProviderModels } from "../apps/server/src/providerAdapter";
+import { enhancePrompt } from "../apps/server/src/enhance";
 
 const originalFetch = globalThis.fetch;
 const originalGenCli = process.env.FRAMEBAKER_GEN_CLI;
@@ -129,6 +130,72 @@ describe("提示词加强器关联", () => {
     const [legacy, ambiguous] = getPromptEnhancers();
     expect(resolveEnhancerRuntime(legacy!)).toEqual({ baseUrl: "https://legacy", apiKey: "old-key", model: "old-model", providerType: "api" });
     expect(enhancerConfigured(ambiguous!)).toBe(false);
+  });
+
+  test("按图片/视频模式使用结构化且保留原意的优化指令", async () => {
+    saveSetting("genProviders", [{
+      id: "text", type: "api", apiBaseUrl: "https://api.example", apiKey: "key", textModels: ["text-model"],
+    }]);
+    saveSetting("promptEnhancers", [{ id: "enh", name: "增强", providerId: "text", model: "text-model" }]);
+    const bodies: any[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "a pixel hero" } }] }), { status: 200 });
+    }) as typeof fetch;
+
+    await enhancePrompt({ enhancerId: "enh", prompt: "red fox running right", style: "pixel", mediaKind: "image" });
+    await enhancePrompt({ enhancerId: "enh", prompt: "red fox running right", style: "pixel", mediaKind: "video" });
+
+    expect(bodies[0].messages[0].content).toContain("subject; action/pose; composition/camera");
+    expect(bodies[0].messages[0].content).toContain("readable silhouette");
+    expect(bodies[0].messages[2].content).toContain("crisp pixel art");
+    expect(bodies[1].messages[0].content).toContain("action order and timing");
+    expect(bodies[1].messages[0].content).toContain("stable subject identity");
+    expect(bodies[1].messages[2].content).toContain("continuous jump");
+    expect(bodies[0].messages.at(-1)).toEqual({ role: "user", content: 'Optimization request (JSON wrapper, not output format): {"originalPrompt":"red fox running right","referenceImageCount":0}' });
+  });
+
+  test("few-shot 严格跟随所选风格，不用像素示例污染写实结果", async () => {
+    saveSetting("genProviders", [{
+      id: "text", type: "api", apiBaseUrl: "https://api.example", apiKey: "key", textModels: ["text-model"],
+    }]);
+    saveSetting("promptEnhancers", [{ id: "enh", name: "增强", providerId: "text", model: "text-model" }]);
+    let body: any;
+    globalThis.fetch = (async (_input, init) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: "A black knight in realistic dark plate armor" } }] }), { status: 200 });
+    }) as typeof fetch;
+
+    await enhancePrompt({ enhancerId: "enh", prompt: "黑骑士", style: "realistic", mediaKind: "image", referenceImageCount: 3 });
+
+    expect(body.messages[0].content).toContain("photorealistic 风格");
+    expect(body.messages[0].content).not.toContain("pixel clusters");
+    expect(body.messages[0].content).toContain("3 images will be attached");
+    expect(body.messages[2].content).toContain("photorealistic rendering");
+    expect(body.messages[2].content).toContain("Image 1 through Image 3");
+    expect(body.messages[2].content).not.toContain("pixel art");
+  });
+
+  test("短名词被误答时自动纠正重试，不把聊天回答当提示词", async () => {
+    saveSetting("genProviders", [{
+      id: "text", type: "api", apiBaseUrl: "https://api.example", apiKey: "key", textModels: ["text-model"],
+    }]);
+    saveSetting("promptEnhancers", [{ id: "enh", name: "增强", providerId: "text", model: "text-model" }]);
+    const bodies: any[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      const content = bodies.length === 1
+        ? "你好！黑骑士可以指很多不同的东西。请提供更多上下文。"
+        : "A solitary black knight in dark plate armor; full-body heroic stance; centered composition; crisp pixel-art silhouette; limited charcoal and steel palette";
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+    }) as typeof fetch;
+
+    await expect(enhancePrompt({ enhancerId: "enh", prompt: "黑骑士", style: "pixel" })).resolves.toMatchObject({
+      enhanced: "A solitary black knight in dark plate armor; full-body heroic stance; centered composition; crisp pixel-art silhouette; limited charcoal and steel palette",
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].messages.at(-1).content).toContain("answered or questioned the source");
+    expect(bodies[1].messages[3]).toEqual({ role: "user", content: 'Optimization request (JSON wrapper, not output format): {"originalPrompt":"黑骑士","referenceImageCount":0}' });
   });
 });
 

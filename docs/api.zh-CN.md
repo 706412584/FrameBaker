@@ -69,9 +69,9 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 }
 ```
 
-### GET /api/frames/:id/image?type=raw|processed
+### GET /api/frames/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
-图片流（`image/png`，`Cache-Control: no-store`）。`type=processed` 且无 processed 文件时回退 raw。404：帧或文件不存在。
+PNG 图片流。`type=processed` 且无 processed 文件时回退 raw。可选整数参数 `size` 返回宽高均不超过该值的缓存缩略图；参数非法或越界时返回原图。缩略图使用 ImageMagick 或 ffmpeg，两者均不可用时无损回退原图。响应包含 `ETag` / `Last-Modified`；带 `v` 的版本化 URL 使用一年 immutable 缓存，未带版本时执行重新验证。404：帧或文件不存在。
 
 ### PATCH /api/frames/:id
 
@@ -110,6 +110,8 @@ multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器�
 
 时间轴变更广播 `timeline_changed` 及 `projectId` 和相关 ID。删除单元格仅在步骤变空时裁剪步骤；旧复制会在源步骤后插入共享步骤；旧换序仅接受主轨“一步骤一单元格”的无歧义形态。
 
+- `POST /api/projects/:id/undo`：恢复该项目最近一次成功的时间轴/帧编辑。服务端为每个项目最多保留 50 条快照；纯数据库编辑不会复制图片，替换、删除、复制或导入项目图片时才同时保存项目文件。同项目编辑与撤销请求会串行执行，恢复失败时回滚且不消费快照。异步任务完成及 MCP 项目写入会清除更早的历史，防止陈旧快照覆盖较新的产物。恢复成功后广播 `timeline_changed` 和 `frames_changed`；没有可撤销历史时返回 404。
+
 ### POST /api/projects/:id/reorder
 
 ```json
@@ -145,17 +147,17 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 
 ```json
 // 请求
-{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…", "mediaKind": "image", "fps": 8 }
+{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-image", "size": "1328*1328", "references": [{ "kind": "material", "id": "…" }, { "kind": "frame", "id": "…" }], "mediaKind": "image" }
 // 响应
 { "jobId": "…" }
 ```
 
 provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个共存，类型：`cli` / `api`（OpenAI 兼容）/ `dashscope`（百炼原生）/ `gemini`（banana）/ `minimax`；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。可选 `size` 在生成时覆盖 provider 的 `apiSize`（格式随 provider 类型：api 如 `1024x1024`、dashscope 如 `1328*1328`、gemini/minimax 如 `16:9`；预设档位见共享常量 `GEN_SIZE_PRESETS`；CLI provider 无尺寸概念忽略）。
 
-- **CLI provider**：结构化字段组装 argv（`cliBin` + 参数名映射：`cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，留空=位置参数或不下发），不经 shell；env `FRAMEBAKER_GEN_CLI` 与旧数据走遗留模板占位符路径（`{prompt}` `{output}` `{index}` `{reference}` `{model}`）。
-- **API provider（OpenAI 兼容，含 OpenAI 官方 / 火山方舟豆包 Seedream / 各类网关）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`（multipart：image + prompt + model + size?，需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
-- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（wan2.7-image / qwen-image 等，不在兼容模式内）；无引用图 content 仅 `[{text}]`，有引用图前置 `{image: dataURI}`（base64）；响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 可为 `2K`/`1K`/`4K` 或星号格式（如 `2048*2048`）原样透传。**Base URL 归一**（`normalizeDashscopeBaseUrl`）：可填 Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`，或文档兼容地址 `…/compatible-mode/v1` / 尾部 `/api/v1`（服务端剥掉后缀再拼原生路径）；按量付费常用 `https://dashscope.aliyuncs.com`。
-- **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；parts 为 `[{text}, {inlineData: base64 引用图}?]`；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）。适配器遍历全部 candidate/part 查找 `inlineData.data`（兼容代理的 `inline_data`）；HTTP 200 却无图片时会明确报告 `promptFeedback.blockReason`、候选 `finishReason`、安全类别、模型拒绝文本及 `responseId`，仅对 `NO_IMAGE`、`IMAGE_OTHER` 或暂时性空候选自动重试一次。
+- **CLI provider**：结构化字段组装 argv（`cliBin` + 参数名映射：`cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，留空=位置参数或不下发），不经 shell。多张引用图按选择顺序重复下发 `cliReferenceArg path`。env `FRAMEBAKER_GEN_CLI` 与旧数据使用遗留模板占位符（`{prompt}` `{output}` `{index}` `{reference}` `{model}`），因此只支持一张引用图。
+- **API provider（OpenAI 兼容，含 OpenAI 官方 / 火山方舟豆包 Seedream / 各类网关）**：无引用图走 `POST {apiBaseUrl}/images/generations`（JSON `{ model, prompt, size?, n: 1 }`）；有引用图走 `POST {apiBaseUrl}/images/edits`（multipart：单图使用 `image`，多图按顺序重复 `image[]`，另含 prompt/model/size；需模型支持，如 gpt-image 系列；dall-e-3 不支持 edits）。响应取 `data[0].b64_json` 或 `data[0].url` 下载。
+- **DashScope provider（百炼原生）**：`POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`（wan2.7-image / qwen-image 等，不在兼容模式内）；无引用图 content 仅 `[{text}]`，每张引用图按选择顺序前置一个 `{image: dataURI}`。响应取 `output.choices[0].message.content[*].image` URL 下载（24h 有效）。`apiSize` 可为 `2K`/`1K`/`4K` 或星号格式（如 `2048*2048`）原样透传。**Base URL 归一**（`normalizeDashscopeBaseUrl`）：可填 Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`，或文档兼容地址 `…/compatible-mode/v1` / 尾部 `/api/v1`（服务端剥掉后缀再拼原生路径）；按量付费常用 `https://dashscope.aliyuncs.com`。
+- **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；每张引用图按顺序作为 `{inlineData: {mimeType,data}}` part 放在文本 part 前；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）。适配器遍历全部 candidate/part 查找 `inlineData.data`（兼容代理的 `inline_data`）；HTTP 200 却无图片时会明确报告 `promptFeedback.blockReason`、候选 `finishReason`、安全类别、模型拒绝文本及 `responseId`，仅对 `NO_IMAGE`、`IMAGE_OTHER` 或暂时性空候选自动重试一次。
 - **MiniMax provider**：`POST {apiBaseUrl}/v1/image_generation`（Bearer）；引用图走 `subject_reference`（主体特征保持，限一张，base64 dataURI）；`apiSize` 映射 `aspect_ratio`（如 `16:9`）；`response_format=base64`，响应取 `data.image_base64[0]`，`base_resp.status_code` 非 0 视为失败。
 
 模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
@@ -164,11 +166,11 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 - **CLI provider**：`{output}` 给 `.mp4` 后缀路径，产出经魔数检测为视频（ftyp/EBML/RIFF-AVI）则走 ffmpeg 抽帧。**图片模式下 CLI 产物若实为视频同样自动转拆帧**（此时 `count` 忽略）。
 - **MiniMax provider**：按模型分协议——`MiniMax-Hailuo-*` / `T2V-*` 走 v1：`POST {apiBaseUrl}/v1/video_generation`（`{ model, prompt, duration? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v1/query/video_generation?task_id=`（`status`：Success/Fail 等）取 `file_id`，再 `GET {apiBaseUrl}/v1/files/retrieve?file_id=` 取 `download_url`。`MiniMax-H3` 等走 v2：`POST {apiBaseUrl}/v2/video_generation`（`{ model, content:[{type:"text",text}], duration, ratio? }`）→ `task_id`；轮询 `GET {apiBaseUrl}/v2/query/video_generation/{task_id}`（`task.status`：succeeded/failed/cancelled），成功取 `task.content.url` 下载。默认 `duration=6`；文生视频缺省 `ratio=16:9`。
-- **DashScope provider（万相 / HappyHorse）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`）。文生视频 `happyhorse-1.1-t2v`：`input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`；图生视频 `*-i2v`：`input.media[{type:first_frame,url}]`（引用图 base64）；参考生视频 `*-r2v`：`media[{type:reference_image}]`。→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。旧 wanx 仍可把 `apiSize` 当 `size` 透传。
+- **DashScope provider（万相 / HappyHorse）**：`POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis`（头 `X-DashScope-Async: enable`）。文生视频 `happyhorse-1.1-t2v`：`input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`；图生视频 `*-i2v` 只能使用一个 `input.media[{type:first_frame,url}]`；参考生视频 `*-r2v` 为每张引用图按顺序下发一个 `{type:reference_image}`。→ `output.task_id`；轮询 `GET {apiBaseUrl}/api/v1/tasks/{task_id}`（`output.task_status`：PENDING/RUNNING/SUCCEEDED/FAILED），成功取 `output.video_url` 下载。旧 wanx 仍可把 `apiSize` 当 `size` 透传。
 
-视频为异步任务（约 1–5 分钟），进度写 `job.progress` 并经 WS 推送；拆出帧按 target 入库（项目帧 / 素材），`autoMatting` 照常生效。视频模式不支持引用图（前端不展示，服务端忽略）。
+视频为异步任务（约 1–5 分钟），进度写 `job.progress` 并经 WS 推送。百炼 i2v 接受一张引用图，r2v 接受多张；MiniMax 视频会明确拒绝引用图而不是静默忽略；CLI 行为取决于所配置的参数。
 
-引用图（可选，仅图片模式）：`referenceMaterialId` / `referenceFrameId` 二选一，服务端按 id 解析文件路径（优先 processed 否则 raw，防止客户端路径注入）。API / 百炼 provider 原生支持引用图；CLI 前置校验（创建 job 前直接 400）：两个 id 同传 / id 查不到 / 选了引用图但模板缺 `{reference}` / 模板含 `{reference}` 但未选引用图。
+引用图通过有序 `references` 数组传入（最多 10 张）：`{ "kind": "material" | "frame", "id": "…" }`，可以混合素材与项目帧。服务端逐个按 id 解析文件路径（优先 processed，否则 raw），防止客户端路径注入。旧版单图字段 `referenceMaterialId` / `referenceFrameId` 继续兼容，但不能与 `references` 同传。OpenAI 兼容、百炼、Gemini 图片协议支持多图；MiniMax 与旧版 CLI 模板超过一张时会明确拒绝。
 
 ## 素材库 /api/materials
 
@@ -189,9 +191,9 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 }
 ```
 
-### GET /api/materials/:id/image?type=raw|processed
+### GET /api/materials/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
-图片流（`image/png`，no-store）。`type=processed` 且无 processed 时回退 raw。
+素材图片/视频流。`type=processed` 且无 processed 时回退 raw。图片素材可通过可选整数参数 `size` 获取宽高均不超过该值的缓存缩略图；参数非法或越界时返回原图。缩略图使用 ImageMagick 或 ffmpeg，两者均不可用时无损回退原图。响应包含 `ETag` / `Last-Modified`；带 `v` 的版本化 URL 使用一年 immutable 缓存，未带版本时执行重新验证。视频响应忽略 `size`。
 
 ### POST /api/materials/upload
 
@@ -205,7 +207,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }`（生成 provider 解析与 `/api/import/generate` 一致，未配置时 job error 给出配置说明）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。引用图规则与 `/api/import/generate` 一致（可选 `referenceMaterialId` / `referenceFrameId`，前置 400 校验）。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…" }`（provider 解析与多引用图规则同 `/api/import/generate`）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。
 
 ### POST /api/materials/:id/extract
 
@@ -356,7 +358,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 `genProviders`：生成 provider 列表。连接凭证只存一次（`apiBaseUrl` / `apiKey`），能力按 `imageModels` / `videoModels` / `textModels` 分类，图片与视频默认尺寸分别为 `imageSize` / `videoSize`。服务端仍读取旧 `apiModels` / `apiSize`：旧模型按名称迁移到图片或视频能力，旧尺寸同时作为两类尺寸 fallback；设置页只写新字段。CLI 继续使用 `cliBin`、各参数名与 `cliExtraArgs` 的结构化 argv，不经 shell；列表为空时 env `FRAMEBAKER_GEN_CLI` 兜底。
 
-`promptEnhancers` 元素为 `{ id, name, providerId, model }`，复用 `api` 或 `dashscope` provider 的连接凭证；旧 `{ apiBaseUrl, apiKey, apiModel }` 仍可读取运行。`POST /api/enhance-prompt` 可传 `mediaKind: "image" | "video"`，视频模式会使用动作时序、镜头与一致性导向的系统提示词。
+`promptEnhancers` 元素为 `{ id, name, providerId, model }`，复用 `api` 或 `dashscope` provider 的连接凭证；旧 `{ apiBaseUrl, apiKey, apiModel }` 仍可读取运行。`POST /api/enhance-prompt` 可传 `mediaKind: "image" | "video"` 与 `referenceImageCount`（0–10），服务端据此选择文生、单引用图或有序多引用图的提示词语义。
 
 `matting`：结构化抠图命令 `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg`（均留空走 env `FRAMEBAKER_MATTING_CLI` 模板 → 自动探测）；`model` 留空回退 `FRAMEBAKER_MATTING_MODEL` / 默认 `u2net`。
 
@@ -401,7 +403,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 - `GET /api/doctor` → 体检：逐项检查存储目录可写 / ffmpeg / 抠图引擎与模型缓存 / 独立图片分层服务 / 每个生成 provider（CLI 校验命令存在；OpenAI 兼容实发 `GET /models`、Gemini 实发 `GET /v1beta/models`、百炼实发 `GET /compatible-mode/v1/models` 联通测试；MiniMax 无探测端点仅校验字段）→ `{ "checks": [{ "id", "ok", "label", "detail" }] }`。
 - `POST /api/provider/test` → API provider 联通测试（用表单当前值，不要求已保存）：`{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`；api 实发 `GET {baseUrl}/models` + Bearer、gemini 实发 `GET {baseUrl}/v1beta/models`（x-goog-api-key）、dashscope 实发 `GET {baseUrl}/compatible-mode/v1/models` + Bearer，返回 `{ "ok", "status", "latencyMs", "modelsFound" }`（401/403 判定为认证失败）；minimax 无轻量探测端点，仅校验字段并在 `note` 说明。
 - `POST /api/provider/models` → API provider 模型列表（设置页「获取模型」，用表单当前值拉取，不要求已保存）：`{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`；端点与联通测试同源（api `/models`、dashscope `/compatible-mode/v1/models`、gemini `/v1beta/models` 去 `models/` 前缀；minimax 为 best-effort 试 `/v1/models`），失败返回 `{ "ok": false, "error" }`，前端保持手填。
-- `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，加强系统提示词服务端内置、按 `style` 组装）：`{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`；`enhancerId` 缺省用第一个配置齐备的；`style` 取共享常量 `ENHANCE_STYLES` 的 id（pixel/anime/illustration/3d/realistic/general），缺省或未知值按 `pixel` 处理；未配置/调用失败返回 400 文本说明。前端保留原提示词并并排展示两版供选择。
+- `POST /api/enhance-prompt` → 提示词加强（设置页配置的加强模型，OpenAI 兼容 `chat/completions`，系统模板内置于服务端）：`{ "enhancerId"?, "prompt", "style"?, "mediaKind"?, "referenceImageCount"? }` → `{ "enhanced", "enhancerName" }`。`style` 选择像素/动漫/插画/3D/写实/不限风格的规则与示例；`mediaKind` 区分图片和视频；`referenceImageCount`（0–10）区分文生、单引用图和按 Image 1…N 排序的多引用图语义。前端传入当前选择，选择变化时清除旧对比；聊天回答或澄清问题会自动纠正一次，仍无效则明确报错。
 - `GET /fonts/:name` → `apps/web/public/fonts/` 下的字体文件（woff2 / OFL.txt）
 - `GET /imageops/imageOps.worker.js` → 前端剪裁 worker 脚本（服务端按需 `Bun.build` 打包 `apps/web/src/imageops/imageOps.worker.ts` 下发；开发模式每次重建，生产缓存）
 
@@ -480,7 +482,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.6" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.0" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。

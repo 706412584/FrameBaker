@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { createJob } from "../queue";
-import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
+import { checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 
 export const importApi = new Elysia({ prefix: "/api" })
   // 上传素材拆帧：gif / mp4 / 单图
@@ -58,7 +58,7 @@ export const importApi = new Elysia({ prefix: "/api" })
       const project = db.query("SELECT id FROM projects WHERE id = ?").get(body.projectId);
       if (!project) return status(404, "项目不存在");
       // 引用图 id 解析 + 模板一致性前置校验（在创建 job 前就 400）
-      const ref = resolveReferencePath(body);
+      const ref = resolveReferencePaths(body);
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
@@ -68,7 +68,7 @@ export const importApi = new Elysia({ prefix: "/api" })
           count: body.count,
           autoMatting: body.autoMatting ?? false,
           target: { kind: "project", projectId: body.projectId },
-          referencePath: ref.referencePath,
+          referencePaths: ref.referencePaths,
           providerId: body.providerId,
           model: body.model,
           size: body.size,
@@ -86,6 +86,10 @@ export const importApi = new Elysia({ prefix: "/api" })
         autoMatting: t.Optional(t.Boolean()),
         referenceMaterialId: t.Optional(t.String()),
         referenceFrameId: t.Optional(t.String()),
+        references: t.Optional(t.Array(t.Object({
+          kind: t.Union([t.Literal("material"), t.Literal("frame")]),
+          id: t.String(),
+        }), { maxItems: 10 })),
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         size: t.Optional(t.String()),

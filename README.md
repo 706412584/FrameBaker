@@ -220,6 +220,28 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 <!-- latest-changelog:start -->
 ## Latest Changes
 
+### [0.3.0](docs/CHANGELOG.md#030---2026-08-12) · 2026-08-12
+
+#### Added
+
+- Added ordered multi-reference image selection (up to 10 mixed materials/project frames) across the web UI, REST API, MCP tools, queue, and provider adapters. OpenAI-compatible edits, DashScope, Gemini, DashScope r2v, and structured CLI providers now submit all references while single-image protocols reject unsupported combinations explicitly.
+- Added an in-context model compatibility tip when multiple references are selected, and wrap asynchronous provider failures with actionable guidance while preserving the original provider error.
+- Refined prompt enhancement with explicit subject/action/composition/style/continuity structure, conservative detail completion, prompt-injection-resistant input handling, and separate image/video guidance.
+- Added a visual-prompt few-shot example plus automatic correction retry, preventing short descriptions such as character names from being returned as encyclopedia answers or clarification questions.
+- Made prompt-enhancement examples follow the selected style and image/video mode, and clear stale comparisons when the style or enhancer changes.
+- Pass the selected reference-image count into prompt enhancement so it can switch between text-to-generation, single-reference editing, and ordered Image 1…N multi-reference instructions.
+- Added project-level Cmd/Ctrl+Z for successful frame and timeline edits, with per-project serialization, database-only snapshots for lightweight edits, file snapshots only when project images change, failure-safe restore, and a 50-entry history limit.
+
+#### Changed
+
+- Added cached server-side frame/material thumbnails, conditional image responses with ETag and immutable versioned caching, lazy thumbnail loading, and editor-only Pixi loading through a locally hosted gzip bundle.
+- Reduced timeline and live-update work by using indexed frame lookup maps and coalescing WebSocket-driven refreshes.
+- Stage asynchronous generation and matting outputs before committing them to project storage; completed background jobs and MCP project mutations invalidate older undo history so stale snapshots cannot remove newer artifacts.
+
+#### Fixed
+
+- Preserve the actual JPEG, WebP, GIF, or PNG MIME type when reference images are sent to generation providers instead of declaring every source as PNG.
+
 ### [0.2.6](docs/CHANGELOG.md#026---2026-08-11) · 2026-08-11
 
 #### Changed
@@ -229,12 +251,6 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 #### Fixed
 
 - Hardened the dedicated Gemini image provider adapter to scan all candidates, diagnose prompt/output safety blocks and text-only refusals, include response IDs, tolerate proxy response casing, and retry one transient no-image result instead of reporting every HTTP 200 without `inlineData` as the same schema error.
-
-### [0.2.5](docs/CHANGELOG.md#025---2026-08-11) · 2026-08-11
-
-#### Fixed
-
-- Kept a timeline step in place when Delete/Backspace clears its selected frame cell; whole-step deletion now remains an explicit toolbar action only.
 
 [View the complete changelog →](docs/CHANGELOG.md)
 <!-- latest-changelog:end -->

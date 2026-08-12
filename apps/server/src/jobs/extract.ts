@@ -7,6 +7,7 @@ import { broadcast } from "../ws";
 import { JobCancelledError, runCmd } from "./run";
 import { createGeneratedArtifactCommitter } from "./generatedArtifacts";
 import { appendFramePool } from "../timeline";
+import { invalidateProjectUndo } from "../undo";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -52,8 +53,8 @@ export interface GeneratePayload {
   target: JobTarget;
   /** 素材命名基准（仅 materials 目标；缺省取 prompt 前 24 字符） */
   name?: string;
-  /** 引用图绝对路径（服务端按 id 解析，防注入） */
-  referencePath?: string;
+  /** 引用图绝对路径（服务端按 id 解析，防注入，顺序与请求一致） */
+  referencePaths?: string[];
   /** 生成时选择的 provider id（缺省用第一个已配置 provider） */
   providerId?: string;
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
@@ -196,6 +197,8 @@ export async function extractFrames(
     const start = nextFrameNumber(rawDir);
     const frameIds: string[] = [];
     const source = p.mediaType === "mp4" || p.mediaType === "gif" ? "extract" : p.mediaType;
+    // staging 已完整产出；同步落盘前使旧撤销链失效，防止旧快照删除新帧。
+    invalidateProjectUndo(projectId);
     files.forEach((file, i) => {
       const id = uid();
       const rawPath = `${rawDir}/frame_${String(start + i).padStart(4, "0")}.png`;

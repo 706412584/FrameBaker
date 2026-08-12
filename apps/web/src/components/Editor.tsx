@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Copy, Crop, Download, Minus, Play, Plus, Scan, Star, Trash2, Upload } from "lucide-react";
 import type * as Pixi from "pixi.js";
@@ -53,6 +53,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeIdRef = useRef<string | null>(null);
   activeIdRef.current = activeId;
+  const undoingRef = useRef(false);
   const [showImport, setShowImport] = useState(false);
   const [replaceCrop, setReplaceCrop] = useState<{ frameId: string; image: Blob; title: string } | null>(null);
   // 播放预览：就在 Pixi 画布内播放（不换容器）。showPreview=播放模式，paused=暂停
@@ -151,19 +152,38 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     }
   }, [projectId, axisId]);
 
+  // 合并密集 WS 事件：批量导入/抠图时只拉一次时间轴，并把图片破缓存也合并到同一轮。
+  const frameRefreshTimer = useRef<number | null>(null);
+  const imageRefreshPending = useRef(false);
+  const scheduleFramesRefresh = useCallback((imageChanged = false) => {
+    imageRefreshPending.current ||= imageChanged;
+    if (frameRefreshTimer.current !== null) return;
+    frameRefreshTimer.current = window.setTimeout(() => {
+      frameRefreshTimer.current = null;
+      const shouldBustImages = imageRefreshPending.current;
+      imageRefreshPending.current = false;
+      if (shouldBustImages) setV((x) => x + 1);
+      void loadFrames();
+    }, 150);
+  }, [loadFrames]);
+
   useEffect(() => {
     api.getProject(projectId).then(setProject).catch(() => setProject(null));
-    loadFrames();
+    void loadFrames();
     // WS：任务/帧变更时刷新帧列表
     const unsub = wsClient.subscribe((msg) => {
-      const payload = msg.payload as { projectId?: string };
+      const payload = msg.payload as { projectId?: string; imageChanged?: boolean };
       if (["frame_updated", "frames_reordered", "frames_changed", "job_done", "timeline_changed"].includes(msg.type) && (!payload?.projectId || payload.projectId === projectId)) {
-        loadFrames();
-        setV((x) => x + 1);
+        scheduleFramesRefresh(msg.type === "frames_changed" || (msg.type === "frame_updated" && payload.imageChanged === true));
       }
     });
-    return unsub;
-  }, [loadFrames, projectId]);
+    return () => {
+      unsub();
+      if (frameRefreshTimer.current !== null) window.clearTimeout(frameRefreshTimer.current);
+      frameRefreshTimer.current = null;
+      imageRefreshPending.current = false;
+    };
+  }, [loadFrames, projectId, scheduleFramesRefresh]);
 
   const patchFrame = useCallback(
     (id: string, patch: FramePatch) => {
@@ -395,13 +415,24 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !showImport && !ctxMenu) clearSelection();
-      if ((e.key !== "Delete" && e.key !== "Backspace") || e.repeat || showPreview || ctxMenu) return;
+      if (e.repeat || showPreview || ctxMenu) return;
       const target = e.target as HTMLElement | null;
       if (
         target?.isContentEditable ||
         target?.closest("input, textarea, select, [contenteditable='true']") ||
         document.querySelector(".modal-mask")
       ) return;
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (undoingRef.current) return;
+        undoingRef.current = true;
+        void api.undoProject(projectId)
+          .then(() => loadFrames())
+          .catch((error) => notify(t("msg.undo_failed_msg", { msg: (error as Error).message })))
+          .finally(() => { undoingRef.current = false; });
+        return;
+      }
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const frame = allFrames.find(
         (item) => item.id === activeId && item.track_id === activeTrackId && item.step_id === activeStepId
       );
@@ -414,7 +445,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showImport, showPreview, ctxMenu, clearSelection, allFrames, activeId, activeTrackId, activeStepId, loadFrames]);
+  }, [projectId, showImport, showPreview, ctxMenu, clearSelection, allFrames, activeId, activeTrackId, activeStepId, loadFrames, t]);
 
   // ---- 批量操作：循环调现有 API，完成后统一刷新并清空选区 ----
   const selectedInOrder = useCallback(
@@ -500,7 +531,19 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const next = activeIndex >= 0 && activeIndex < frames.length - 1 ? frames[activeIndex + 1] : null;
   // 播放时画布显示游标帧，停止回到当前编辑帧
   const displayStep = showPreview ? steps[cursor] : steps.find((s) => s.id === activeStepId);
-  const composite = displayStep ? allFrames.filter((f) => f.step_id === displayStep.id && tracks.find((tr) => tr.id === f.track_id)?.visible).sort((a,b)=>(tracks.find(x=>x.id===a.track_id)?.idx??0)-(tracks.find(x=>x.id===b.track_id)?.idx??0)) : [];
+  const trackOrder = useMemo(() => new Map(tracks.map((track) => [track.id, track] as const)), [tracks]);
+  const composite = useMemo(
+    () => displayStep
+      ? allFrames
+          .filter((f) => f.step_id === displayStep.id && f.track_id !== null && trackOrder.get(f.track_id)?.visible)
+          .sort((a, b) => {
+            const aIndex = a.track_id === null ? 0 : (trackOrder.get(a.track_id)?.idx ?? 0);
+            const bIndex = b.track_id === null ? 0 : (trackOrder.get(b.track_id)?.idx ?? 0);
+            return aIndex - bIndex;
+          })
+      : [],
+    [allFrames, displayStep, trackOrder]
+  );
   const activeFrameId = active?.id;
   // 选择来源由 activeTrack/activeStep 表达；历史资产即使仍绑定轨道，从左侧选中时也按资产预览。
   const poolActive = !!active && activeTrackId === null && activeStepId === null;

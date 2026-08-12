@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, extname } from "node:path";
 import type { GenProvider } from "@framebaker/shared";
 type RuntimeProvider = GenProvider & { apiSize: string };
 import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
@@ -11,6 +11,20 @@ interface ImagesResponse {
 
 /** MiniMax 图像 prompt 上限（官方 invalid params: length must be less than 1500） */
 const MINIMAX_PROMPT_MAX = 1499;
+
+function imageMimeType(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg": return "image/jpeg";
+    case ".webp": return "image/webp";
+    case ".gif": return "image/gif";
+    default: return "image/png";
+  }
+}
+
+function imageDataUri(path: string): string {
+  return `data:${imageMimeType(path)};base64,${readFileSync(path).toString("base64")}`;
+}
 
 function clampMinimaxPrompt(prompt: string): string {
   if (prompt.length <= MINIMAX_PROMPT_MAX) return prompt;
@@ -64,7 +78,7 @@ async function generateViaOpenAI(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -72,9 +86,12 @@ async function generateViaOpenAI(
   const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
 
   let res: Response;
-  if (referencePath) {
+  if (referencePaths.length) {
     const form = new FormData();
-    form.append("image", new File([readFileSync(referencePath)], basename(referencePath), { type: "image/png" }));
+    const field = referencePaths.length === 1 ? "image" : "image[]";
+    for (const referencePath of referencePaths) {
+      form.append(field, new File([readFileSync(referencePath)], basename(referencePath), { type: imageMimeType(referencePath) }));
+    }
     form.append("prompt", prompt);
     form.append("model", model);
     if (cfg.apiSize.trim()) form.append("size", cfg.apiSize.trim());
@@ -118,16 +135,15 @@ async function generateViaDashscope(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
   const base = normalizeDashscopeBaseUrl(cfg.apiBaseUrl);
   const content: Array<Record<string, string>> = [];
-  if (referencePath) {
-    const b64 = readFileSync(referencePath).toString("base64");
-    content.push({ image: `data:image/png;base64,${b64}` });
+  for (const referencePath of referencePaths) {
+    content.push({ image: imageDataUri(referencePath) });
   }
   content.push({ text: prompt });
   const parameters: Record<string, unknown> = { n: 1, watermark: false };
@@ -268,16 +284,16 @@ async function generateViaGemini(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
   // 有引用图时图在前、文在后，利于图像编辑/角色一致性（无引用则仅 text）
   const parts: Array<Record<string, unknown>> = [];
-  if (referencePath) {
+  for (const referencePath of referencePaths) {
     parts.push({
-      inlineData: { mimeType: "image/png", data: readFileSync(referencePath).toString("base64") },
+      inlineData: { mimeType: imageMimeType(referencePath), data: readFileSync(referencePath).toString("base64") },
     });
   }
   parts.push({ text: prompt });
@@ -318,7 +334,7 @@ interface MinimaxResponse {
 
 /**
  * MiniMax 图像生成（image-01）：POST {base}/v1/image_generation（Bearer）
- * 引用图走 subject_reference（主体特征保持，每次限一张；base64 dataURI 上送）
+ * 引用图走 subject_reference（主体特征保持，协议限一张；base64 dataURI 上送）
  * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；response_format=base64 直接取 data.image_base64[0]
  * prompt 官方限制小于 1500 字符，超长截断
  */
@@ -327,7 +343,7 @@ async function generateViaMinimax(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -339,9 +355,9 @@ async function generateViaMinimax(
     response_format: "base64",
   };
   if (cfg.apiSize.trim()) body.aspect_ratio = cfg.apiSize.trim();
+  const referencePath = referencePaths[0];
   if (referencePath) {
-    const dataUri = `data:image/png;base64,${readFileSync(referencePath).toString("base64")}`;
-    body.subject_reference = [{ type: "character", image_file: dataUri }];
+    body.subject_reference = [{ type: "character", image_file: imageDataUri(referencePath) }];
   }
 
   let res: Response;
@@ -377,16 +393,27 @@ export async function generateViaApi(
   model: string,
   _index: number,
   outPath: string,
-  referencePath?: string,
+  referencePaths?: string[],
   sizeOverride?: string,
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
-  if (eff.type === "dashscope") return generateViaDashscope(eff, prompt, model, outPath, referencePath, signal);
-  if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath, signal);
-  if (eff.type === "minimax") return generateViaMinimax(eff, prompt, model, outPath, referencePath, signal);
-  return generateViaOpenAI(eff, prompt, model, outPath, referencePath, signal);
+  if (eff.type === "minimax" && (referencePaths?.length ?? 0) > 1)
+    throw new Error("MiniMax 图像协议最多支持 1 张引用图");
+  try {
+    if (eff.type === "dashscope") return await generateViaDashscope(eff, prompt, model, outPath, referencePaths, signal);
+    if (eff.type === "gemini") return await generateViaGemini(eff, prompt, model, outPath, referencePaths, signal);
+    if (eff.type === "minimax") return await generateViaMinimax(eff, prompt, model, outPath, referencePaths, signal);
+    return await generateViaOpenAI(eff, prompt, model, outPath, referencePaths, signal);
+  } catch (error) {
+    if (error instanceof JobCancelledError || signal?.aborted) throw error;
+    if ((referencePaths?.length ?? 0) > 1) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`多引用图生成失败：当前模型或 API 接口可能不支持 ${referencePaths!.length} 张引用图。请确认模型的多图输入能力，或减少为 1 张后重试。Provider 原始错误：${detail}`);
+    }
+    throw error;
+  }
 }
 
 // ===== 视频生成（异步任务制：创建 → 轮询 → 下载 mp4；仅 dashscope / minimax）=====
@@ -620,7 +647,7 @@ async function generateVideoViaDashscope(
   outPath: string,
   report: (s: string) => void,
   signal?: AbortSignal,
-  referencePath?: string
+  referencePaths: string[] = []
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
@@ -630,19 +657,22 @@ async function generateVideoViaDashscope(
   const isR2v = /r2v/i.test(model);
   const isHappyOrWanVideo = /happyhorse|wan\d/i.test(model) && /(t2v|i2v|r2v)/i.test(model);
 
-  if ((isI2v || isR2v) && !referencePath) {
+  if ((isI2v || isR2v) && referencePaths.length === 0) {
     throw new Error(`模型「${model}」需要引用图（${isI2v ? "首帧" : "参考图"}），请在生成时选择素材/帧作为引用`);
   }
+  if (isI2v && referencePaths.length > 1) throw new Error(`首帧视频模型「${model}」只能使用 1 张引用图`);
 
   let text = prompt;
   const input: Record<string, unknown> = {};
-  if (referencePath && (isI2v || isR2v)) {
-    const dataUri = `data:image/png;base64,${readFileSync(referencePath).toString("base64")}`;
+  if (referencePaths.length && (isI2v || isR2v)) {
     if (isI2v) {
-      input.media = [{ type: "first_frame", url: dataUri }];
+      input.media = [{ type: "first_frame", url: imageDataUri(referencePaths[0]!) }];
       if (text.trim()) input.prompt = text;
     } else {
-      input.media = [{ type: "reference_image", url: dataUri }];
+      input.media = referencePaths.map((referencePath) => ({
+        type: "reference_image",
+        url: imageDataUri(referencePath),
+      }));
       if (!/\[Image\s*1\]/i.test(text)) text = `Based on [Image 1], ${text}`;
       input.prompt = text;
     }
@@ -709,7 +739,7 @@ async function generateVideoViaDashscope(
 /**
  * API 视频生成统一入口（仅 dashscope / minimax，其余类型在前端已被过滤，这里兜底报错）。
  * 产出 mp4 到 outPath；耗时数分钟，进度经 report 写入 job.progress
- * referencePath：百炼 i2v/r2v 作首帧/参考图；其余忽略
+ * referencePaths：百炼 i2v 作单张首帧、r2v 作多张参考图；其余协议不接收
  * sizeOverride：生成弹窗选择的比例/分辨率，非空时覆盖 provider.apiSize
  */
 export async function generateVideoViaApi(
@@ -719,13 +749,13 @@ export async function generateVideoViaApi(
   outPath: string,
   report: (s: string) => void,
   signal?: AbortSignal,
-  referencePath?: string,
+  referencePaths?: string[],
   sizeOverride?: string
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
   if (eff.type === "dashscope") {
-    return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePath);
+    return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePaths);
   }
   if (eff.type === "minimax") return generateVideoViaMinimax(eff, prompt, model, outPath, report, signal);
   throw new Error(`该 provider 类型（${eff.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);

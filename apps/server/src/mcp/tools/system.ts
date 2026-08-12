@@ -141,12 +141,13 @@ export function register(server: McpServer) {
           .optional(),
         enhancerId: z.string().describe("Enhancer UUID (omit to use first configured)").optional(),
         mediaKind: z.enum(["image", "video"]).describe("Target media kind").optional(),
+        referenceImageCount: z.number().int().min(0).max(10).describe("Number of ordered reference images selected for generation").optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
     },
-    async ({ prompt, style, enhancerId, mediaKind }) => {
+    async ({ prompt, style, enhancerId, mediaKind, referenceImageCount }) => {
       try {
-        const result = await enhancePrompt({ enhancerId, prompt, style, mediaKind });
+        const result = await enhancePrompt({ enhancerId, prompt, style, mediaKind, referenceImageCount });
         return ok(result);
       } catch (e) {
         return err((e as Error).message);

@@ -51,7 +51,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [reference, setReference] = useState<ReferenceSelection | null>(null);
+  const [references, setReferences] = useState<ReferenceSelection[]>([]);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
@@ -92,7 +92,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
       const sel = resolveProviderSelection(providers, providerId, model, {
         videoOnly: mediaKind === "video",
-        preferI2v: mediaKind === "video" && !!reference,
+        preferI2v: mediaKind === "video" && references.length > 0,
       });
       await api.generateMaterial({
         prompt: prompt.trim(),
@@ -102,8 +102,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         folderId,
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
-        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(references.length ? { references } : {}),
       });
       notify(
         mediaKind === "video"
@@ -255,6 +254,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             </div>
             <PromptEnhancer
               mediaKind={mediaKind}
+              referenceImageCount={references.length}
               label={t("msg.prompt")}
               placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
               value={prompt}
@@ -269,7 +269,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             {mediaKind === "video" && (
               <div className="hint">{t("msg.saves_video_only_open_the_material_later_and_extract_fra")}</div>
             )}
-            <ReferencePicker value={reference} onChange={setReference} showFrames={false} />
+            <ReferencePicker value={references} onChange={setReferences} showFrames={false} />
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
@@ -279,7 +279,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
-              preferI2v={mediaKind === "video" && !!reference}
+              preferI2v={mediaKind === "video" && references.length > 0}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}

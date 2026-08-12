@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Wand2, X } from "lucide-react";
 import { ENHANCE_STYLES } from "@framebaker/shared";
 import { api } from "../api";
@@ -14,6 +14,7 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   mediaKind?: "image" | "video";
+  referenceImageCount?: number;
 }
 
 interface EnhanceResult {
@@ -27,7 +28,7 @@ interface EnhanceResult {
  * 提示词输入行 + 「优化提示词」：调用设置页配置的加强模型，
  * 原/优化后提示词并排展示，由用户点按钮决定用哪版（原文永不覆盖）
  */
-export default function PromptEnhancer({ label, placeholder, value, onChange, mediaKind = "image" }: Props) {
+export default function PromptEnhancer({ label, placeholder, value, onChange, mediaKind = "image", referenceImageCount = 0 }: Props) {
   const t = useT();
   const cfg = useServerConfig();
   const enhancers = cfg?.promptEnhancers ?? [];
@@ -35,6 +36,8 @@ export default function PromptEnhancer({ label, placeholder, value, onChange, me
   const [style, setStyle] = useState<string>(ENHANCE_STYLES[0].id);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<EnhanceResult | null>(null);
+
+  useEffect(() => setResult(null), [mediaKind, referenceImageCount]);
 
   const run = async () => {
     if (!value.trim() || busy) return;
@@ -44,7 +47,7 @@ export default function PromptEnhancer({ label, placeholder, value, onChange, me
     }
     setBusy(true);
     try {
-      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style, mediaKind);
+      const r = await api.enhancePrompt(enhancerId || undefined, value.trim(), style, mediaKind, referenceImageCount);
       // original 快照保留发起时的原文，之后用户怎么改输入框都不影响对比
       setResult({
         original: value.trim(),
@@ -74,14 +77,20 @@ export default function PromptEnhancer({ label, placeholder, value, onChange, me
           className="enhance-style"
           value={style}
           options={ENHANCE_STYLES.map((s) => ({ value: s.id, label: t(s.label) }))}
-          onChange={setStyle}
+          onChange={(next) => {
+            setStyle(next);
+            setResult(null);
+          }}
         />
         {enhancers.length > 1 && (
           <PxSelect
             className="enhance-model"
             value={enhancerId || enhancers[0]?.id || ""}
             options={enhancers.map((e) => ({ value: e.id, label: e.name }))}
-            onChange={setEnhancerId}
+            onChange={(next) => {
+              setEnhancerId(next);
+              setResult(null);
+            }}
           />
         )}
         <button

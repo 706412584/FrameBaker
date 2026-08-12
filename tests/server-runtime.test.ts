@@ -1,7 +1,59 @@
 import { describe, expect, test } from "bun:test";
-import { db, getFrame, getMaterial, nextFrameIdx, serializeFrame, serializeMaterial } from "../apps/server/src/db";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { app } from "../apps/server/src/app";
+import { db, getFrame, getMaterial, nextFrameIdx, serializeFrame, serializeMaterial, STORAGE_ROOT } from "../apps/server/src/db";
 import { JobCancelledError, runCmd } from "../apps/server/src/jobs/run";
+import { parseThumbnailSize, serveMediaFile } from "../apps/server/src/media";
 import { clearFramePlacement } from "../apps/server/src/timeline";
+import { invalidateProjectUndo, undoProject } from "../apps/server/src/undo";
+
+function createUndoFixture() {
+  const projectId = `undo-project-${crypto.randomUUID()}`;
+  const axisId = crypto.randomUUID();
+  const trackId = crypto.randomUUID();
+  const stepId = crypto.randomUUID();
+  const frameId = crypto.randomUUID();
+  const projectPath = join(STORAGE_ROOT, "projects", projectId);
+  const rawPath = join(projectPath, "raw", `${frameId}.png`);
+  mkdirSync(join(projectPath, "raw"), { recursive: true });
+  mkdirSync(join(projectPath, "processed"), { recursive: true });
+  writeFileSync(rawPath, "original-image");
+  db.query("INSERT INTO projects (id, name, created_at) VALUES (?, ?, ?)").run(projectId, "撤销测试", Date.now());
+  db.query("INSERT INTO animation_axes (id, project_id, name, idx, fps, created_at) VALUES (?, ?, 'Test', 0, 8, ?)").run(axisId, projectId, Date.now());
+  db.query("INSERT INTO animation_tracks (id, axis_id, name, idx, is_primary) VALUES (?, ?, 'Main', 0, 1)").run(trackId, axisId);
+  db.query("INSERT INTO animation_steps (id, axis_id, idx, duration) VALUES (?, ?, 0, 1)").run(stepId, axisId);
+  db.query("INSERT INTO frames (id, project_id, track_id, step_id, is_asset, idx, raw_path, status) VALUES (?, ?, ?, ?, 0, 0, ?, 'ready')").run(
+    frameId,
+    projectId,
+    trackId,
+    stepId,
+    rawPath
+  );
+  return { projectId, axisId, trackId, stepId, frameId, projectPath, rawPath };
+}
+
+function cleanupUndoFixture(fixture: ReturnType<typeof createUndoFixture>) {
+  invalidateProjectUndo(fixture.projectId);
+  db.query("DELETE FROM frames WHERE project_id=?").run(fixture.projectId);
+  db.query("DELETE FROM animation_steps WHERE axis_id=?").run(fixture.axisId);
+  db.query("DELETE FROM animation_tracks WHERE axis_id=?").run(fixture.axisId);
+  db.query("DELETE FROM animation_axes WHERE project_id=?").run(fixture.projectId);
+  db.query("DELETE FROM projects WHERE id=?").run(fixture.projectId);
+  rmSync(fixture.projectPath, { recursive: true, force: true });
+}
+
+function patchFrame(frameId: string, body: Record<string, unknown>) {
+  return app.handle(new Request(`http://localhost/api/frames/${frameId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }));
+}
+
+function undoCount(projectId: string): number {
+  return (db.query("SELECT COUNT(*) count FROM project_undo WHERE project_id=?").get(projectId) as { count: number }).count;
+}
 
 describe("外部命令执行器", () => {
   test("成功命令正常结束", async () => {
@@ -16,6 +68,39 @@ describe("外部命令执行器", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(runCmd(["/usr/bin/false"], undefined, controller.signal)).rejects.toBeInstanceOf(JobCancelledError);
+  });
+});
+
+describe("媒体响应", () => {
+  test("缩略图尺寸只接受 64 到 1024 的整数", () => {
+    expect(parseThumbnailSize("64")).toBe(64);
+    expect(parseThumbnailSize("320")).toBe(320);
+    expect(parseThumbnailSize("1024")).toBe(1024);
+    for (const value of [undefined, "", "63", "1025", "64.5", " 320", "1e2"]) {
+      expect(parseThumbnailSize(value)).toBeNull();
+    }
+  });
+
+  test("图片支持版本化缓存与 ETag 条件请求", async () => {
+    const path = `/tmp/framebaker-media-${crypto.randomUUID()}.png`;
+    try {
+      await Bun.write(path, "image-bytes");
+      const response = serveMediaFile(path, new Request("http://localhost/image.png?v=1"), "image/png");
+      const etag = response.headers.get("etag");
+      expect(await response.text()).toBe("image-bytes");
+      expect(etag).toBeTruthy();
+      expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+
+      const revalidated = serveMediaFile(
+        path,
+        new Request("http://localhost/image.png", { headers: { "If-None-Match": etag! } }),
+        "image/png"
+      );
+      expect(revalidated.status).toBe(304);
+      expect(revalidated.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    } finally {
+      unlinkSync(path);
+    }
   });
 });
 
@@ -86,6 +171,152 @@ describe("时间轴单元格", () => {
       db.query("DELETE FROM animation_tracks WHERE axis_id = ?").run(axisId);
       db.query("DELETE FROM animation_axes WHERE project_id = ?").run(projectId);
       db.query("DELETE FROM projects WHERE id = ?").run(projectId);
+    }
+  });
+});
+
+describe("项目级撤销", () => {
+  test("仅成功 mutation 提交历史，纯 DB 编辑不复制图片", async () => {
+    const fixture = createUndoFixture();
+    try {
+      expect((await patchFrame(fixture.frameId, {})).status).toBe(400);
+      expect(undoCount(fixture.projectId)).toBe(0);
+      expect(readdirSync(join(STORAGE_ROOT, "undo", ".pending"))).toHaveLength(0);
+
+      expect((await patchFrame(fixture.frameId, { offset_x: 12 })).status).toBe(200);
+      const history = db.query("SELECT files_path FROM project_undo WHERE project_id=?").get(fixture.projectId) as { files_path: string };
+      expect(history.files_path).toBe("");
+      expect(getFrame(fixture.frameId)?.offset_x).toBe(12);
+
+      const undone = await app.handle(new Request(`http://localhost/api/projects/${fixture.projectId}/undo`, { method: "POST" }));
+      expect(undone.status).toBe(200);
+      expect(getFrame(fixture.frameId)?.offset_x).toBe(0);
+      expect(undoCount(fixture.projectId)).toBe(0);
+    } finally {
+      cleanupUndoFixture(fixture);
+    }
+  });
+
+  test("删除帧后同时恢复数据库和图片文件", async () => {
+    const fixture = createUndoFixture();
+    try {
+      const deleted = await app.handle(new Request(`http://localhost/api/frames/${fixture.frameId}`, { method: "DELETE" }));
+      expect(deleted.status).toBe(200);
+      expect(getFrame(fixture.frameId)).toBeNull();
+      expect(existsSync(fixture.rawPath)).toBeFalse();
+      const history = db.query("SELECT files_path FROM project_undo WHERE project_id=?").get(fixture.projectId) as { files_path: string };
+      expect(history.files_path).toBeTruthy();
+      expect(existsSync(history.files_path)).toBeTrue();
+
+      expect(await undoProject(fixture.projectId)).toBeTrue();
+      expect(getFrame(fixture.frameId)?.id).toBe(fixture.frameId);
+      expect(readFileSync(fixture.rawPath, "utf8")).toBe("original-image");
+      expect(undoCount(fixture.projectId)).toBe(0);
+    } finally {
+      cleanupUndoFixture(fixture);
+    }
+  });
+
+  test("素材导入按 body 中的项目建立可恢复文件快照", async () => {
+    const fixture = createUndoFixture();
+    const materialId = crypto.randomUUID();
+    const materialPath = join(STORAGE_ROOT, "materials", materialId, "raw.png");
+    try {
+      mkdirSync(join(STORAGE_ROOT, "materials", materialId), { recursive: true });
+      writeFileSync(materialPath, "material-image");
+      db.query("INSERT INTO materials (id, name, raw_path, status, source, metadata, created_at) VALUES (?, '测试素材', ?, 'raw', 'upload', '{}', ?)").run(
+        materialId,
+        materialPath,
+        Date.now()
+      );
+      const imported = await app.handle(new Request(`http://localhost/api/materials/${materialId}/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: fixture.projectId, count: 1 }),
+      }));
+      expect(imported.status).toBe(200);
+      expect((db.query("SELECT COUNT(*) count FROM frames WHERE project_id=?").get(fixture.projectId) as { count: number }).count).toBe(2);
+      const history = db.query("SELECT files_path FROM project_undo WHERE project_id=?").get(fixture.projectId) as { files_path: string };
+      expect(history.files_path).toBeTruthy();
+
+      expect(await undoProject(fixture.projectId)).toBeTrue();
+      expect((db.query("SELECT COUNT(*) count FROM frames WHERE project_id=?").get(fixture.projectId) as { count: number }).count).toBe(1);
+      expect(readdirSync(join(fixture.projectPath, "raw"))).toEqual([`${fixture.frameId}.png`]);
+    } finally {
+      db.query("DELETE FROM materials WHERE id=?").run(materialId);
+      rmSync(join(STORAGE_ROOT, "materials", materialId), { recursive: true, force: true });
+      cleanupUndoFixture(fixture);
+    }
+  });
+
+  test("DB 恢复失败时回滚文件并保留未消费快照", async () => {
+    const fixture = createUndoFixture();
+    try {
+      expect((await app.handle(new Request(`http://localhost/api/frames/${fixture.frameId}`, { method: "DELETE" }))).status).toBe(200);
+      const item = db.query("SELECT id,snapshot,files_path FROM project_undo WHERE project_id=?").get(fixture.projectId) as { id: string; snapshot: string; files_path: string };
+      const snapshot = JSON.parse(item.snapshot) as { tables: { frames: Array<Record<string, unknown>> } };
+      snapshot.tables.frames.push({ ...snapshot.tables.frames[0] });
+      db.query("UPDATE project_undo SET snapshot=? WHERE id=?").run(JSON.stringify(snapshot), item.id);
+      const marker = join(fixture.projectPath, "current-state.txt");
+      writeFileSync(marker, "post-delete");
+
+      await expect(undoProject(fixture.projectId)).rejects.toThrow();
+      expect(getFrame(fixture.frameId)).toBeNull();
+      expect(existsSync(fixture.rawPath)).toBeFalse();
+      expect(readFileSync(marker, "utf8")).toBe("post-delete");
+      expect(undoCount(fixture.projectId)).toBe(1);
+      expect(existsSync(item.files_path)).toBeTrue();
+    } finally {
+      cleanupUndoFixture(fixture);
+    }
+  });
+
+  test("外部 mutation 会使旧历史失效", async () => {
+    const fixture = createUndoFixture();
+    try {
+      expect((await patchFrame(fixture.frameId, { opacity: 0.5 })).status).toBe(200);
+      expect(undoCount(fixture.projectId)).toBe(1);
+      invalidateProjectUndo(fixture.projectId);
+      expect(undoCount(fixture.projectId)).toBe(0);
+      expect(await undoProject(fixture.projectId)).toBeFalse();
+    } finally {
+      cleanupUndoFixture(fixture);
+    }
+  });
+
+  test("同项目并发编辑按顺序形成历史，不同项目互不影响", async () => {
+    const first = createUndoFixture();
+    const second = createUndoFixture();
+    try {
+      const responses = await Promise.all([
+        patchFrame(first.frameId, { offset_x: 1 }),
+        patchFrame(first.frameId, { offset_x: 2 }),
+        patchFrame(second.frameId, { offset_x: 9 }),
+      ]);
+      expect(responses.every((response) => response.status === 200)).toBeTrue();
+      expect(undoCount(first.projectId)).toBe(2);
+      expect(undoCount(second.projectId)).toBe(1);
+
+      expect(await undoProject(first.projectId)).toBeTrue();
+      expect(getFrame(first.frameId)?.offset_x).not.toBe(0);
+      expect(getFrame(second.frameId)?.offset_x).toBe(9);
+      expect(await undoProject(first.projectId)).toBeTrue();
+      expect(getFrame(first.frameId)?.offset_x).toBe(0);
+    } finally {
+      cleanupUndoFixture(first);
+      cleanupUndoFixture(second);
+    }
+  });
+
+  test("每个项目最多保留 50 条历史", async () => {
+    const fixture = createUndoFixture();
+    try {
+      for (let i = 1; i <= 51; i++) {
+        expect((await patchFrame(fixture.frameId, { offset_x: i })).status).toBe(200);
+      }
+      expect(undoCount(fixture.projectId)).toBe(50);
+    } finally {
+      cleanupUndoFixture(fixture);
     }
   });
 });

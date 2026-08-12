@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { MotionConfig } from "motion/react";
 import ProjectList from "./components/ProjectList";
-import Editor from "./components/Editor";
 import MaterialsPage from "./components/MaterialsPage";
 import SettingsPage from "./components/SettingsPage";
 import TopNav from "./components/TopNav";
@@ -9,6 +8,10 @@ import AppModals from "./components/AppModals";
 import JobPanel from "./components/JobPanel";
 import { MaterialEditorProvider } from "./components/MaterialEditor";
 import { wsClient } from "./api";
+import { hasPixi, loadPixi } from "./pixiLoader";
+import { useT } from "./i18n";
+
+const Editor = lazy(() => import("./components/Editor"));
 
 type View = { page: "home" } | { page: "editor"; projectId: string } | { page: "materials" } | { page: "settings" };
 
@@ -17,6 +20,34 @@ function viewFromLocation(): View {
   if (/^\/settings/.test(location.pathname)) return { page: "settings" };
   const m = /^\/project\/([\w-]+)/.exec(location.pathname);
   return m ? { page: "editor", projectId: m[1] } : { page: "home" };
+}
+
+function EditorRoute({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+  const t = useT();
+  const [ready, setReady] = useState(hasPixi);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (ready) return;
+    let alive = true;
+    loadPixi()
+      .then(() => alive && setReady(true))
+      .catch((error) => {
+        console.error(error);
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [ready]);
+
+  if (failed) return <div className="page-loading">{t("msg.editor_engine_load_failed")}</div>;
+  if (!ready) return <div className="page-loading">{t("msg.loading_editor")}</div>;
+  return (
+    <Suspense fallback={<div className="page-loading">{t("msg.loading_editor")}</div>}>
+      <Editor projectId={projectId} onBack={onBack} />
+    </Suspense>
+  );
 }
 
 export default function App() {
@@ -64,7 +95,7 @@ export default function App() {
         {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
         {view.page === "materials" && <MaterialsPage />}
         {view.page === "settings" && <SettingsPage />}
-        {view.page === "editor" && <Editor projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
+        {view.page === "editor" && <EditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
         {/* 右侧常驻任务队列面板（有任务时才显示） */}
         <JobPanel />
         {/* 全局通知条 + 确认弹窗（notice.ts） */}

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
 import { ensureDefaultTimeline } from "../timeline";
+import { invalidateProjectUndo } from "../undo";
 
 export const projectsApi = new Elysia({ prefix: "/api" })
   // 项目列表（含帧数与首帧 id，供卡片缩略图用）
@@ -86,6 +87,7 @@ export const projectsApi = new Elysia({ prefix: "/api" })
   .delete("/projects/:id", ({ params, status }) => {
     const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
     if (!row) return status(404, "项目不存在");
+    invalidateProjectUndo(params.id);
     db.transaction(()=>{db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_axes WHERE project_id=?").run(params.id);})();
     db.query("DELETE FROM jobs WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM projects WHERE id = ?").run(params.id);

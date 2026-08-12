@@ -4,9 +4,10 @@ import { db, uid } from "../../db";
 import { getTimeline, placeAssetFramesBatch, placeFrame, reorderSteps, setStepDuration, syncAxis } from "../../timeline";
 import { broadcast } from "../../ws";
 import { err, ok } from "../helpers";
+import { invalidateProjectUndo } from "../../undo";
 
 const axis = (id:string)=>db.query("SELECT id,project_id FROM animation_axes WHERE id=?").get(id) as {id:string;project_id:string}|null;
-const notify=(projectId:string,ids={})=>broadcast("timeline_changed",{projectId,...ids});
+const notify=(projectId:string,ids={})=>{invalidateProjectUndo(projectId);broadcast("timeline_changed",{projectId,...ids});};
 export function register(server:McpServer) {
   server.registerTool("get_timeline",{title:"Get Timeline",description:"Get every animation axis and the selected/default axis tracks, shared steps, and composited frame cells.",inputSchema:z.object({projectId:z.string(),axisId:z.string().optional()}),annotations:{readOnlyHint:true}},async({projectId,axisId})=>{try{return ok(getTimeline(projectId,axisId));}catch(e){return err((e as Error).message)}});
   server.registerTool("create_track",{title:"Create Track",description:"Append a compositing track to an animation axis.",inputSchema:z.object({axisId:z.string(),name:z.string(),visible:z.number().int().min(0).max(1).optional(),locked:z.number().int().min(0).max(1).optional()})},async({axisId,name,visible,locked})=>{const a=axis(axisId);if(!a)return err("动画轴不存在");const id=uid(),idx=(db.query("SELECT COALESCE(MAX(idx),-1)+1 n FROM animation_tracks WHERE axis_id=?").get(axisId) as any).n;db.query("INSERT INTO animation_tracks VALUES (?,?,?,?,?,?,0)").run(id,axisId,name||"Track",idx,visible??1,locked??0);notify(a.project_id,{axisId,trackId:id});return ok({track:db.query("SELECT * FROM animation_tracks WHERE id=?").get(id)});});

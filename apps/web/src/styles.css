@@ -391,6 +391,13 @@ input[type="range"] {
   overflow-y: auto;
   padding: 84px clamp(20px, 6vw, 80px) 40px;
 }
+.page-loading {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  padding: 24px;
+}
 
 .home-header {
   display: flex;
@@ -2224,18 +2231,28 @@ input[type="range"] {
 
 /* ===== 素材详情：原图/抠图对比滑杆 ===== */
 .mat-modal {
-  width: min(920px, calc(100vw - 48px));
+  width: min(1200px, calc(100vw - 32px));
+  height: min(900px, calc(100dvh - 32px));
+  max-height: none;
+  overflow: hidden;
+  padding: 20px;
+  gap: 12px;
 }
 /* 按钮多（抠图/还原/剪裁/切分/多动作/导入/删除），禁止文字换行 */
 .mat-modal .modal-actions {
   gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
 }
 .mat-modal .modal-actions .px-btn {
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .compare {
   position: relative;
-  height: 460px;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   overflow: hidden;
   background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px;
   box-shadow:
@@ -2818,6 +2835,11 @@ body.resizing-row * {
     0 3px 0 0 var(--border),
     -3px 0 0 0 var(--border),
     3px 0 0 0 var(--border);
+}
+
+.ref-selected-list {
+  display: grid;
+  gap: 6px;
 }
 .ref-selected img {
   width: 40px;

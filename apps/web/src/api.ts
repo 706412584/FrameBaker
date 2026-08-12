@@ -51,7 +51,7 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-/** 生成请求体（引用图二选一，服务端按 id 解析路径防注入；providerId/model 生成时选择） */
+/** 生成请求体（引用图按 id 解析路径防注入；旧版单引用字段继续兼容） */
 interface GenerateBody {
   prompt: string;
   count: number;
@@ -60,6 +60,8 @@ interface GenerateBody {
   name?: string;
   referenceMaterialId?: string;
   referenceFrameId?: string;
+  /** 有序引用图，最多 10 张；可混合素材与项目帧。 */
+  references?: Array<{ kind: "material" | "frame"; id: string }>;
   providerId?: string;
   model?: string;
   /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */
@@ -92,6 +94,7 @@ export const api = {
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),
   patchProject: (id: string, body: { name?: string; folderId?: string | null }) =>
     req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
+  undoProject: (id: string) => req<OkResponse>(`/api/projects/${id}/undo`, { method: "POST" }),
 
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
   getTimeline: (projectId: string, axisId?: string) => req<TimelineResponse>(`/api/projects/${projectId}/timeline${axisId ? `?axisId=${encodeURIComponent(axisId)}` : ""}`),
@@ -136,8 +139,8 @@ export const api = {
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
   listProviderModels: (body: ProviderModelsRequest) =>
     req<ProviderModelsResponse>("/api/provider/models", { method: "POST", ...json(body) }),
-  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video") =>
-    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind }) }),
+  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video", referenceImageCount?: number) =>
+    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind, referenceImageCount }) }),
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),
@@ -195,13 +198,13 @@ export const api = {
     }),
 };
 
-/** 帧图片 URL（.png 后缀：Pixi Assets 按扩展名命中 texture parser；v 变化可破缓存） */
-export const frameImageUrl = (id: string, v?: number) =>
-  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}`;
+/** 帧图片 URL；size 仅用于列表/时间轴缩略图，编辑画布不传 size 以保留原图。 */
+export const frameImageUrl = (id: string, v?: number, size?: number) =>
+  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}`;
 
-/** 素材图片 URL；type=raw 强制原图，默认 processed（缺失时服务端回退 raw） */
-export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed") =>
-  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}`;
+/** 素材图片 URL；size 仅用于列表缩略图，详情/编辑不传 size。 */
+export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed", size?: number) =>
+  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}`;
 
 /** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
 export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>

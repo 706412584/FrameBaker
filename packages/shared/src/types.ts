@@ -425,6 +425,8 @@ export interface EnhancePromptRequest {
   /** 目标风格（ENHANCE_STYLES 的 id）；缺省/未知值按 pixel 处理 */
   style?: string;
   mediaKind?: "image" | "video";
+  /** 生成时已选择的有序引用图数量，用于切换文生图/图生图/多图模板语义。 */
+  referenceImageCount?: number;
 }
 
 export interface EnhancePromptResponse {

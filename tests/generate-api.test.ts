@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generateViaApi } from "../apps/server/src/jobs/generateApi";
@@ -22,6 +22,38 @@ function provider(type: "api" | "dashscope" | "gemini" | "minimax", apiSize = ""
 }
 
 describe("图像 API 生成编排", () => {
+  test("OpenAI edits 按顺序提交多张引用图", async () => {
+    let request: Request | undefined;
+    globalThis.fetch = (async (input, init) => {
+      request = new Request(input, init);
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from("edited").toString("base64") }] }), { status: 200 });
+    }) as typeof fetch;
+    const refs = [join(tempDir, "ref-a.png"), join(tempDir, "ref-b.png")];
+    writeFileSync(refs[0]!, "a");
+    writeFileSync(refs[1]!, "b");
+
+    await generateViaApi(provider("api"), "combine", "gpt-image", 0, join(tempDir, "openai-edited.png"), refs);
+
+    expect(request?.url).toBe("https://api.example/images/edits");
+    const form = await request!.formData();
+    const images = form.getAll("image[]") as File[];
+    expect(images.map((image) => image.name)).toEqual(["ref-a.png", "ref-b.png"]);
+    expect(await Promise.all(images.map((image) => image.text()))).toEqual(["a", "b"]);
+  });
+
+  test("多引用图上游失败时给出模型兼容建议并保留原始错误", async () => {
+    globalThis.fetch = (async () => new Response("model accepts only one image", { status: 400 })) as typeof fetch;
+    const refs = [join(tempDir, "error-a.png"), join(tempDir, "error-b.png")];
+    writeFileSync(refs[0]!, "a");
+    writeFileSync(refs[1]!, "b");
+
+    await expect(generateViaApi(
+      provider("api"), "combine", "single-image-model", 0, join(tempDir, "openai-error.png"), refs
+    )).rejects.toThrow(
+      "多引用图生成失败：当前模型或 API 接口可能不支持 2 张引用图。请确认模型的多图输入能力，或减少为 1 张后重试。Provider 原始错误：生成 API images/edits（引用图） 返回 400: model accepts only one image"
+    );
+  });
+
   test("OpenAI 兼容接口传递尺寸并写入 base64 图片", async () => {
     let request: Request | undefined;
     globalThis.fetch = (async (input, init) => {
@@ -60,6 +92,28 @@ describe("图像 API 生成编排", () => {
     expect(readFileSync(output).toString()).toBe("dashscope-image");
   });
 
+  test("DashScope 按顺序发送多张引用图", async () => {
+    let body: any;
+    globalThis.fetch = (async (input, init) => {
+      if (init?.body) body = JSON.parse(String(init.body));
+      if (String(input).includes("multimodal-generation")) {
+        return new Response(JSON.stringify({ output: { choices: [{ message: { content: [{ image: "https://cdn.example/multi.png" }] } }] } }), { status: 200 });
+      }
+      return new Response("dashscope-multi", { status: 200 });
+    }) as typeof fetch;
+    const refs = [join(tempDir, "dash-a.png"), join(tempDir, "dash-b.png")];
+    writeFileSync(refs[0]!, "a");
+    writeFileSync(refs[1]!, "b");
+
+    await generateViaApi(provider("dashscope"), "combine", "qwen-image", 0, join(tempDir, "dash-multi.png"), refs);
+
+    expect(body.input.messages[0].content).toEqual([
+      { image: `data:image/png;base64,${Buffer.from("a").toString("base64")}` },
+      { image: `data:image/png;base64,${Buffer.from("b").toString("base64")}` },
+      { text: "combine" },
+    ]);
+  });
+
   test("Gemini 使用模型转义、API key 头并写入 inlineData", async () => {
     let request: Request | undefined;
     globalThis.fetch = (async (input, init) => {
@@ -73,6 +127,25 @@ describe("图像 API 生成编排", () => {
     expect(request?.url).toBe("https://gemini.example/v1beta/models/gemini%2Fimage:generateContent");
     expect(request?.headers.get("x-goog-api-key")).toBe("test-key");
     expect(readFileSync(output).toString()).toBe("gemini-image");
+  });
+
+  test("Gemini parts 保留多张引用图顺序", async () => {
+    let body: any;
+    globalThis.fetch = (async (_input, init) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { data: Buffer.from("result").toString("base64") } }] } }] }), { status: 200 });
+    }) as typeof fetch;
+    const refs = [join(tempDir, "gemini-a.png"), join(tempDir, "gemini-b.png")];
+    writeFileSync(refs[0]!, "a");
+    writeFileSync(refs[1]!, "b");
+
+    await generateViaApi(provider("gemini"), "combine", "gemini-image", 0, join(tempDir, "gemini-multi.png"), refs);
+
+    expect(body.contents[0].parts).toEqual([
+      { inlineData: { mimeType: "image/png", data: Buffer.from("a").toString("base64") } },
+      { inlineData: { mimeType: "image/png", data: Buffer.from("b").toString("base64") } },
+      { text: "combine" },
+    ]);
   });
 
   test("Gemini 遍历全部候选并兼容代理的 snake_case 图片 part", async () => {
@@ -143,6 +216,12 @@ describe("图像 API 生成编排", () => {
     expect(body).toMatchObject({ model: "image-01", n: 1, response_format: "base64", aspect_ratio: "9:16" });
     expect(String(body?.prompt)).toHaveLength(1499);
     expect(readFileSync(output).toString()).toBe("minimax-image");
+  });
+
+  test("MiniMax 明确拒绝多张引用图", async () => {
+    await expect(generateViaApi(
+      provider("minimax"), "combine", "image-01", 0, join(tempDir, "minimax-multi.png"), ["a.png", "b.png"]
+    )).rejects.toThrow("MiniMax 图像协议最多支持 1 张引用图");
   });
 
   test("取消状态会在发请求前失败", async () => {

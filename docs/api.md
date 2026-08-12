@@ -69,9 +69,9 @@ Compatibility view: this returns only the default axis primary track, ordered by
 }
 ```
 
-### GET /api/frames/:id/image?type=raw|processed
+### GET /api/frames/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
-Image stream (`image/png`, `Cache-Control: no-store`). `type=processed` falls back to raw when no processed file exists. 404: frame or file not found.
+PNG image stream. `type=processed` falls back to raw when no processed file exists. The optional integer `size` returns a cached thumbnail whose width and height are each at most that value; invalid or out-of-range values return the original image. Thumbnail generation uses ImageMagick or ffmpeg and gracefully falls back to the original image when neither is available. Responses include `ETag` / `Last-Modified`; URLs with `v` use a one-year immutable cache, while unversioned URLs revalidate. 404: frame or file not found.
 
 ### PATCH /api/frames/:id
 
@@ -110,6 +110,8 @@ Deletes frame and image files; subsequent frames in the same project have their 
 
 Timeline mutations broadcast `timeline_changed` with `projectId` and relevant axis/track/step/frame IDs. Deleting a cell prunes its step only when empty. Legacy duplication inserts shared steps after the source; legacy reorder is accepted only for an unambiguous primary-track one-cell-per-step shape.
 
+- `POST /api/projects/:id/undo` restores the most recent successful timeline/frame edit for the project. The server keeps up to 50 per-project snapshots. Database-only edits do not copy image files; operations that replace, delete, duplicate, or import project images also snapshot the project files. Same-project edits and undo requests are serialized, and a failed restore rolls back without consuming the snapshot. Completed asynchronous jobs and MCP project mutations clear older history so stale snapshots cannot overwrite newer artifacts. A successful restore broadcasts `timeline_changed` and `frames_changed`; a project with no undo history returns 404.
+
 ### POST /api/projects/:id/reorder
 
 ```json
@@ -145,17 +147,17 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 
 ```json
 // Request
-{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-t2i-turbo", "size": "1328*1328", "referenceFrameId": "…", "mediaKind": "image", "fps": 8 }
+{ "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-image", "size": "1328*1328", "references": [{ "kind": "material", "id": "…" }, { "kind": "frame", "id": "…" }], "mediaKind": "image" }
 // Response
 { "jobId": "…" }
 ```
 
 Provider resolution: if `providerId` is passed, looks up by id (not found → 400); default uses the first fully configured provider (settings page can configure multiple coexisting providers, types: `cli` / `api` (OpenAI-compatible) / `dashscope` (DashScope native) / `gemini` (banana) / `minimax`; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider as fallback). Optional `size` overrides the provider's `apiSize` at generation time (format varies by provider type: api e.g., `1024x1024`, dashscope e.g., `1328*1328`, gemini/minimax e.g., `16:9`; preset tiers in shared constant `GEN_SIZE_PRESETS`; CLI providers ignore size).
 
-- **CLI provider**: structured fields assemble argv (`cliBin` + parameter name mappings: `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`, empty = positional arg or not sent), no shell; env `FRAMEBAKER_GEN_CLI` and legacy data use legacy template placeholder path (`{prompt}` `{output}` `{index}` `{reference}` `{model}`).
-- **API provider (OpenAI-compatible, incl. OpenAI official / VolcEngine Doubao Seedream / various gateways)**: no reference image → `POST {apiBaseUrl}/images/generations` (JSON `{ model, prompt, size?, n: 1 }`); with reference image → `POST {apiBaseUrl}/images/edits` (multipart: image + prompt + model + size?, requires edits-capable model e.g., gpt-image series; dall-e-3 doesn't support edits). Response takes `data[0].b64_json` or `data[0].url` to download.
-- **DashScope provider (native)**: `POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation` (wan2.7-image / qwen-image etc., not in compatible mode); no reference image content is `[{text}]` only; with reference image prepends `{image: dataURI}` (base64); response takes `output.choices[0].message.content[*].image` URL to download (24h valid). `apiSize` can be `2K`/`1K`/`4K` or star format (e.g., `2048*2048`) passed through as-is. **Base URL normalization** (`normalizeDashscopeBaseUrl`): accepts Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`, or docs-style compatible address `…/compatible-mode/v1` / trailing `/api/v1` (server strips suffix then appends native path); pay-as-you-go commonly uses `https://dashscope.aliyuncs.com`.
-- **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); parts `[{text}, {inlineData: base64 reference}?]`; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`). The adapter searches every candidate/part for `inlineData.data` (and tolerates proxy `inline_data`), reports `promptFeedback.blockReason`, candidate `finishReason`, safety categories, model refusal text, and `responseId` when HTTP 200 contains no image, and retries once only for `NO_IMAGE`, `IMAGE_OTHER`, or a transient empty-candidate response.
+- **CLI provider**: structured fields assemble argv (`cliBin` + parameter name mappings: `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`, empty = positional arg or not sent), no shell. For multiple references, `cliReferenceArg path` is repeated in selection order. Env `FRAMEBAKER_GEN_CLI` and legacy data use the legacy template placeholders (`{prompt}` `{output}` `{index}` `{reference}` `{model}`) and therefore support only one reference.
+- **API provider (OpenAI-compatible, incl. OpenAI official / VolcEngine Doubao Seedream / various gateways)**: no reference image → `POST {apiBaseUrl}/images/generations` (JSON `{ model, prompt, size?, n: 1 }`); with references → `POST {apiBaseUrl}/images/edits` (multipart uses `image` for one file and repeated `image[]` for multiple files, plus prompt/model/size; requires an edits-capable model e.g., gpt-image series; dall-e-3 doesn't support edits). Response takes `data[0].b64_json` or `data[0].url` to download.
+- **DashScope provider (native)**: `POST {apiBaseUrl}/api/v1/services/aigc/multimodal-generation/generation` (wan2.7-image / qwen-image etc., not in compatible mode); no reference image content is `[{text}]` only; each reference prepends one `{image: dataURI}` item in selection order. Response takes `output.choices[0].message.content[*].image` URL to download (24h valid). `apiSize` can be `2K`/`1K`/`4K` or star format (e.g., `2048*2048`) passed through as-is. **Base URL normalization** (`normalizeDashscopeBaseUrl`): accepts Token Plan `https://token-plan.cn-beijing.maas.aliyuncs.com`, or docs-style compatible address `…/compatible-mode/v1` / trailing `/api/v1` (server strips suffix then appends native path); pay-as-you-go commonly uses `https://dashscope.aliyuncs.com`.
+- **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); each reference is sent as an ordered `{inlineData: {mimeType,data}}` part before the text part; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`). The adapter searches every candidate/part for `inlineData.data` (and tolerates proxy `inline_data`), reports `promptFeedback.blockReason`, candidate `finishReason`, safety categories, model refusal text, and `responseId` when HTTP 200 contains no image, and retries once only for `NO_IMAGE`, `IMAGE_OTHER`, or a transient empty-candidate response.
 - **MiniMax provider**: `POST {apiBaseUrl}/v1/image_generation` (Bearer); reference image via `subject_reference` (subject feature preservation, one image limit, base64 dataURI); `apiSize` maps to `aspect_ratio` (e.g., `16:9`); `response_format=base64`, response takes `data.image_base64[0]`; `base_resp.status_code` non-0 = failure.
 
 Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16.
@@ -164,11 +166,11 @@ Model defaults to request's `model`, then first item in provider's model list; n
 
 - **CLI provider**: `{output}` given `.mp4` suffix path; output detected as video by magic bytes (ftyp/EBML/RIFF-AVI) → ffmpeg frame extraction. **In image mode, CLI output that is actually video also auto-converts to frame extraction** (`count` ignored in this case).
 - **MiniMax provider**: protocol by model — `MiniMax-Hailuo-*` / `T2V-*` use v1: `POST {apiBaseUrl}/v1/video_generation` (`{ model, prompt, duration? }`) → `task_id`; poll `GET {apiBaseUrl}/v1/query/video_generation?task_id=` (`status`: Success/Fail etc.) to get `file_id`, then `GET {apiBaseUrl}/v1/files/retrieve?file_id=` to get `download_url`. `MiniMax-H3` etc. use v2: `POST {apiBaseUrl}/v2/video_generation` (`{ model, content:[{type:"text",text}], duration, ratio? }`) → `task_id`; poll `GET {apiBaseUrl}/v2/query/video_generation/{task_id}` (`task.status`: succeeded/failed/cancelled), success takes `task.content.url` to download. Default `duration=6`; text-to-video defaults to `ratio=16:9`.
-- **DashScope provider (Wanxiang / HappyHorse)**: `POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis` (header `X-DashScope-Async: enable`). Text-to-video `happyhorse-1.1-t2v`: `input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`; image-to-video `*-i2v`: `input.media[{type:first_frame,url}]` (reference image base64); reference-to-video `*-r2v`: `media[{type:reference_image}]`. → `output.task_id`; poll `GET {apiBaseUrl}/api/v1/tasks/{task_id}` (`output.task_status`: PENDING/RUNNING/SUCCEEDED/FAILED), success takes `output.video_url` to download. Legacy wanx can pass `apiSize` as `size`.
+- **DashScope provider (Wanxiang / HappyHorse)**: `POST {apiBaseUrl}/api/v1/services/aigc/video-generation/video-synthesis` (header `X-DashScope-Async: enable`). Text-to-video `happyhorse-1.1-t2v`: `input:{prompt}` + `parameters:{resolution,ratio,duration,watermark:false}`; image-to-video `*-i2v`: exactly one `input.media[{type:first_frame,url}]`; reference-to-video `*-r2v`: one ordered `{type:reference_image}` media item per reference. → `output.task_id`; poll `GET {apiBaseUrl}/api/v1/tasks/{task_id}` (`output.task_status`: PENDING/RUNNING/SUCCEEDED/FAILED), success takes `output.video_url` to download. Legacy wanx can pass `apiSize` as `size`.
 
-Video is async (approximately 1–5 minutes); progress written to `job.progress` and pushed via WS; extracted frames committed by target (project frames / materials); `autoMatting` works as usual. Video mode does not support reference images (frontend hides the option, server ignores).
+Video is async (approximately 1–5 minutes); progress is written to `job.progress` and pushed via WS. DashScope i2v accepts one reference and r2v accepts multiple; MiniMax video rejects references rather than silently ignoring them. CLI behavior depends on its configured argument.
 
-Reference image (optional, image mode only): `referenceMaterialId` / `referenceFrameId` — pick one; server resolves file path by id (prefers processed, falls back to raw — prevents client path injection). API / DashScope providers natively support reference images; CLI pre-validates (400 before job creation): both ids provided / id not found / reference image selected but template lacks `{reference}` / template has `{reference}` but no reference image selected.
+Reference images are passed as an ordered `references` array (maximum 10): `{ "kind": "material" | "frame", "id": "…" }`. Sources can be mixed. The server resolves every id to a file path (prefers processed, falls back to raw), preventing client path injection. Legacy `referenceMaterialId` / `referenceFrameId` remain supported for one image but cannot be combined with `references`. OpenAI-compatible, DashScope, and Gemini image protocols support multiple references; MiniMax and legacy CLI templates explicitly reject more than one.
 
 ## Material Library /api/materials
 
@@ -189,9 +191,9 @@ Materials are first generated/uploaded to the library, matted, compared, then im
 }
 ```
 
-### GET /api/materials/:id/image?type=raw|processed
+### GET /api/materials/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
-Image stream (`image/png`, no-store). `type=processed` falls back to raw when no processed file exists.
+Material image/video stream. `type=processed` falls back to raw when no processed file exists. For image materials, the optional integer `size` returns a cached thumbnail whose width and height are each at most that value; invalid or out-of-range values return the original image. Thumbnail generation uses ImageMagick or ffmpeg and gracefully falls back to the original image when neither is available. Responses include `ETag` / `Last-Modified`; URLs with `v` use a one-year immutable cache, while unversioned URLs revalidate. Video responses ignore `size`.
 
 ### POST /api/materials/upload
 
@@ -205,7 +207,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "referenceMaterialId": "…" }` → `{ "jobId": "…" }` (provider resolution same as `/api/import/generate`; when unconfigured, job error with setup instructions). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Reference image rules same as `/api/import/generate` (optional `referenceMaterialId` / `referenceFrameId`, pre-validated 400). Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…" }` (provider resolution and multi-reference rules are the same as `/api/import/generate`). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
 
 ### POST /api/materials/:id/extract
 
@@ -356,7 +358,7 @@ Returns entire kv object (values JSON-parsed):
 
 `genProviders`: generation provider list. Connection credentials stored once (`apiBaseUrl` / `apiKey`); capabilities split by `imageModels` / `videoModels` / `textModels`; default sizes for image and video are `imageSize` / `videoSize` respectively. Server still reads legacy `apiModels` / `apiSize`: legacy models are migrated by name to image or video capabilities; legacy sizes serve as fallback for both types; settings page only writes new fields. CLI continues using `cliBin`, parameter names, and `cliExtraArgs` structured argv — no shell; when list is empty, env `FRAMEBAKER_GEN_CLI` is fallback.
 
-`promptEnhancers` elements are `{ id, name, providerId, model }`, reusing `api` or `dashscope` provider connection credentials; legacy `{ apiBaseUrl, apiKey, apiModel }` still readable at runtime. `POST /api/enhance-prompt` accepts `mediaKind: "image" | "video"` — video mode uses action-temporal, camera-focused, consistency-oriented system prompts.
+`promptEnhancers` elements are `{ id, name, providerId, model }`, reusing `api` or `dashscope` provider connection credentials; legacy `{ apiBaseUrl, apiKey, apiModel }` still readable at runtime. `POST /api/enhance-prompt` accepts `mediaKind: "image" | "video"` and `referenceImageCount` (0–10). The server selects text-to-generation, single-reference, or ordered multi-reference prompt semantics from that complete context.
 
 `matting`: structured matting command `cliBin` / `cliInputArg` / `cliOutputArg` / `cliModelArg` (all empty → falls back to env `FRAMEBAKER_MATTING_CLI` template → auto-detection); `model` empty falls back to `FRAMEBAKER_MATTING_MODEL` / default `u2net`.
 
@@ -401,7 +403,7 @@ Ranges: `layers` 1–4 (the current Gitee Qwen-Image-Layered endpoint rejects va
 - `GET /api/doctor` → health check: checks storage directory writable / ffmpeg / matting engine & model cache / standalone image-layer service / each generation provider (CLI validates command existence; OpenAI-compatible sends `GET /models`, Gemini sends `GET /v1beta/models`, DashScope sends `GET /compatible-mode/v1/models` for connectivity test; MiniMax has no probe endpoint, field validation only) → `{ "checks": [{ "id", "ok", "label", "detail" }] }`.
 - `POST /api/provider/test` → API provider connectivity test (uses current form values, no need to save first): `{ "type"?, "apiBaseUrl", "apiKey", "apiModel?" }`; api sends `GET {baseUrl}/models` + Bearer, gemini sends `GET {baseUrl}/v1beta/models` (x-goog-api-key), dashscope sends `GET {baseUrl}/compatible-mode/v1/models` + Bearer, returns `{ "ok", "status", "latencyMs", "modelsFound" }` (401/403 = authentication failure); minimax has no lightweight probe endpoint, field validation only with explanation in `note`.
 - `POST /api/provider/models` → API provider model list (settings page "Fetch Models", uses current form values, no need to save first): `{ "type", "apiBaseUrl", "apiKey" }` → `{ "ok", "models": ["…"] }`; endpoints same source as connectivity test (api `/models`, dashscope `/compatible-mode/v1/models`, gemini `/v1beta/models` strips `models/` prefix; minimax best-effort tries `/v1/models`); failure returns `{ "ok": false, "error" }`, frontend keeps manual input.
-- `POST /api/enhance-prompt` → prompt enhancement (enhancer model configured in settings page, OpenAI-compatible `chat/completions`, enhancement system prompt built-in server-side, assembled by `style`): `{ "enhancerId"?, "prompt", "style"? }` → `{ "enhanced", "enhancerName" }`; `enhancerId` defaults to first fully configured; `style` takes shared constant `ENHANCE_STYLES` id (pixel/anime/illustration/3d/realistic/general), default or unknown → `pixel`; unconfigured/call failure returns 400 text. Frontend preserves original prompt and shows both versions side by side for selection.
+- `POST /api/enhance-prompt` → prompt enhancement (enhancer model configured in settings page, OpenAI-compatible `chat/completions`, enhancement system prompt built in server-side): `{ "enhancerId"?, "prompt", "style"?, "mediaKind"?, "referenceImageCount"? }` → `{ "enhanced", "enhancerName" }`. `style` selects pixel/anime/illustration/3d/realistic/general rules and examples; `mediaKind` selects image/video guidance; `referenceImageCount` (0–10) selects text-to-generation, single-reference, or ordered Image 1…N multi-reference semantics. The frontend forwards current selections and clears stale comparisons when they change. Invalid conversational/clarification responses are corrected once, then rejected with a clear error.
 - `GET /fonts/:name` → font files from `apps/web/public/fonts/` (woff2 / OFL.txt)
 - `GET /imageops/imageOps.worker.js` → frontend crop worker script (server `Bun.build`s `apps/web/src/imageops/imageOps.worker.ts` on demand; development mode rebuilds each time, production caches)
 
@@ -480,7 +482,7 @@ All tools manage pixel-art animation projects — frames, materials, generation,
 // Request
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // Response
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.2.6" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.0" } } }
 ```
 
 After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.

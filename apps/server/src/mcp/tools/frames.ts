@@ -6,6 +6,7 @@ import { db, getFrame, uid, STORAGE_ROOT, serializeFrame } from "../../db";
 import { broadcast } from "../../ws";
 import { ok, err } from "../helpers";
 import { clearFramePlacement, deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration } from "../../timeline";
+import { invalidateProjectUndo } from "../../undo";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -65,6 +66,7 @@ export function register(server: McpServer) {
       const own=keys.filter(k=>k!=="duration");
       if(own.length){const setSql=own.map(k=>`${k} = ?`).join(", ");const values=own.map(k=>(k==="tags"?JSON.stringify(rest[k]):rest[k]) as string|number);db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values,frameId);}
       const updated = getFrame(frameId)!;
+      invalidateProjectUndo(frame.project_id);
       broadcast("frame_updated", { id: frameId, projectId: frame.project_id });
       return ok({ frame: serializeFrame(updated) });
     }
@@ -84,6 +86,7 @@ export function register(server: McpServer) {
     async ({ frameId }) => {
       const frame = getFrame(frameId);
       if (!frame) return err("帧不存在");
+      invalidateProjectUndo(frame.project_id);
       for (const p of [frame.raw_path, frame.processed_path]) {
         if (p && existsSync(p)) unlinkSync(p);
       }
@@ -107,6 +110,7 @@ export function register(server: McpServer) {
     async ({ frameId }) => {
       const frame = clearFramePlacement(frameId);
       if (!frame) return err("轨道单元格不存在");
+      invalidateProjectUndo(frame.project_id);
       broadcast("timeline_changed", {
         projectId: frame.project_id,
         frameId: frame.id,
@@ -133,6 +137,7 @@ export function register(server: McpServer) {
       const frame = getFrame(frameId);
       if (!frame) return err("帧不存在");
       const count = Math.min(Math.max(rawCount ?? 1, 1), 16);
+      invalidateProjectUndo(frame.project_id);
       db.query("UPDATE frames SET idx = idx + ? WHERE project_id = ? AND idx > ?").run(
         count,
         frame.project_id,
@@ -201,6 +206,7 @@ export function register(server: McpServer) {
       if (rows.length!==count||frameIds.length !== set.size || new Set(frameIds).size!==frameIds.length||!frameIds.every((id) => set.has(id))) {
         return err("仅支持主轨每步骤恰好一个单元格的旧式时间轴换序");
       }
+      invalidateProjectUndo(projectId);
       const byId=new Map(rows.map(r=>[r.id,r.step_id]));reorderSteps(axis.id,frameIds.map(id=>byId.get(id)!));
       broadcast("frames_reordered", { projectId });
       return ok({ ok: true });

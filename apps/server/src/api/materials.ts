@@ -6,10 +6,12 @@ import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
-import { checkVideoSupport, resolveReferencePath } from "../providerAdapter";
+import { checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
 import { broadcast } from "../ws";
 import { appendFramePool, importFrameCellsToTarget, validateFrameImportTarget, type NewFrameCell } from "../timeline";
+import { getThumbnailPath, isImagePath, parseThumbnailSize, serveMediaFile } from "../media";
+import { beginProjectUndo } from "../undo";
 
 function baseName(filename: string): string {
   const n = filename.split("/").pop() ?? filename;
@@ -76,10 +78,12 @@ function prepareMaterialFrame(m: MaterialRow, projectId: string): NewFrameCell {
 const materialImageHandler = ({
   params,
   query,
+  request,
   status,
 }: {
   params: { id: string };
-  query: { type?: string };
+  query: { type?: string; size?: string };
+  request: Request;
   status: (code: number, msg: string) => unknown;
 }) => {
   const m = getMaterial(params.id);
@@ -95,9 +99,13 @@ const materialImageHandler = ({
       : lower.endsWith(".mov")
         ? "video/quicktime"
         : "image/png";
-  return new Response(Bun.file(path), {
-    headers: { "Content-Type": contentType, "Cache-Control": "no-store" },
-  });
+  const size = parseThumbnailSize(query.size);
+  if (size && contentType.startsWith("image/") && isImagePath(path)) {
+    return getThumbnailPath(path, size).then((thumbnail) =>
+      serveMediaFile(thumbnail ?? path!, request, "image/png")
+    );
+  }
+  return serveMediaFile(path, request, contentType);
 };
 
 export const materialsApi = new Elysia({ prefix: "/api" })
@@ -181,7 +189,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     "/materials/generate",
     ({ body, status }) => {
       // 引用图 id 解析 + 模板一致性前置校验（在创建 job 前就 400）
-      const ref = resolveReferencePath(body);
+      const ref = resolveReferencePaths(body);
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
@@ -192,7 +200,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           autoMatting: body.autoMatting ?? false,
           target: { kind: "materials" },
           name: body.name,
-          referencePath: ref.referencePath,
+          referencePaths: ref.referencePaths,
           providerId: body.providerId,
           model: body.model,
           size: body.size,
@@ -211,6 +219,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         name: t.Optional(t.String()),
         referenceMaterialId: t.Optional(t.String()),
         referenceFrameId: t.Optional(t.String()),
+        references: t.Optional(t.Array(t.Object({
+          kind: t.Union([t.Literal("material"), t.Literal("frame")]),
+          id: t.String(),
+        }), { maxItems: 10 })),
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         size: t.Optional(t.String()),
@@ -399,7 +411,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         return status(500, (e as Error).message);
       }
     },
-    { body: t.Object({ projectId: t.String(), count: t.Optional(t.Integer()) }) }
+    {
+      body: t.Object({ projectId: t.String(), count: t.Optional(t.Integer()) }),
+      beforeHandle: ({ request, body }) => beginProjectUndo(request, body),
+    }
   )
   // 批量删除
   .post(
@@ -440,5 +455,8 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         return status(400, (e as Error).message);
       }
     },
-    { body: t.Object({ ids: t.Array(t.String()), projectId: t.String(), target: t.Optional(t.Object({ axisId: t.String(), trackId: t.String(), startStepId: t.Optional(t.String()) })) }) }
+    {
+      body: t.Object({ ids: t.Array(t.String()), projectId: t.String(), target: t.Optional(t.Object({ axisId: t.String(), trackId: t.String(), startStepId: t.Optional(t.String()) })) }),
+      beforeHandle: ({ request, body }) => beginProjectUndo(request, body),
+    }
   );
