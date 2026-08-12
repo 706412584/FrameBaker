@@ -14,6 +14,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Fixed
 
+- Strengthened the character eight-view generation prompt so every occupied 3×3 cell explicitly requires a distinct full-body heading instead of allowing the reference orientation to be repeated.
 - Fixed grid split uploads failing validation because multipart JSON metadata was parsed into an object, and now surface the first per-cell upload error when every cell fails.
 - Prevented the video frame picker workspace from overlapping its selection and submit areas on short desktop viewports, and made the `M` capture shortcut work after focusing timeline and button controls.
 

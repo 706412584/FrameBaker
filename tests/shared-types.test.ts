@@ -99,9 +99,11 @@ describe("动作生成 prompt", () => {
       "front-right",
     ]);
     expect(prompt).toContain("arranged as 3 columns × 3 rows");
-    expect(prompt).toContain("middle row left, EMPTY, right");
-    expect(prompt).toContain("Rotate only the character around the vertical axis");
-    expect(prompt).toContain("bottom row front-left, front, front-right");
+    expect(prompt).toContain("all eight distinct 45-degree body headings exactly once");
+    expect(prompt).toContain("center EMPTY");
+    expect(prompt).toContain("Rotate the entire character around the vertical axis—not only the head or eyes");
+    expect(prompt).toContain("bottom-center FRONT (face/chest toward viewer)");
+    expect(prompt).toContain("Do not fill all cells with the reference orientation");
     expect(prompt).toContain("Appearance only (ignore pose, view and composition in this description): red knight");
     expect(prompt).toContain("pixel art");
     expect(prompt.length).toBeLessThanOrEqual(1400);
