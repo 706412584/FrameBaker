@@ -9,6 +9,10 @@ This document records features, changes, and bug fixes by release. Main releases
 - Motion events can now accept, validate, display, and persist an optional JSON payload.
 - Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.
 
+### Changed
+
+- Unified skeletal project output on the `.fbanim` runtime package and removed the frame-project compatibility bake path, RenderProfile, and RasterSequence APIs.
+
 ## [0.3.0] - 2026-08-12
 
 ### Added

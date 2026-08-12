@@ -1,6 +1,6 @@
 # 通用动画资产与骨骼工作流规范
 
-> 状态：架构基线、核心资产、独立 schema、`.fbanim` v1 逻辑包、正式资产持久化 API 与基础资产 UI 已实现；最后更新：2026-08-08。
+> 状态：架构基线、核心资产、独立 schema、`.fbanim` v2 运行时包、正式资产持久化 API 与基础资产 UI 已实现；最后更新：2026-08-12。
 >
 > 本文取代早期以固定人形姿态表和特定生成 provider 为中心的试验方案。它定义 FrameBaker 面向成熟工具的长期动画内核、交换格式、扩展边界、迁移路线和验收标准。已实现 API 仍以 [`api.md`](./api.md) 为准，当前运行架构以 [`architecture.md`](./architecture.md) 为准。
 
@@ -8,10 +8,10 @@
 
 FrameBaker 的目标不是某个 AI 模型、Spine 或逐帧图片生成器的前端，而是一个可长期维护的动画生产工具：
 
-- 用统一资产表达骨架、动作、角色绑定、约束和光栅结果；
+- 用统一资产表达骨架、动作、角色绑定和约束；
 - 同时支持手工编辑、文件导入、程序化生成、AI 生成和动作捕捉；
 - 生成结果必须可编辑、可复现、可迁移，不能只得到一次性视频；
-- 骨骼编辑与逐帧像素润色并存，骨骼可以确定性烘焙为现有项目帧；
+- 骨骼编辑与逐帧像素润色作为两种独立项目类型并存，二者不互相转换；
 - 外部格式、模型和运行时都通过 adapter 接入，可替换且不会污染项目数据；
 - 项目在 provider、模型或外部服务下线后仍可打开、编辑和导出；
 - 格式、任务、迁移、许可证和质量检查按可商业发布的软件要求设计。
@@ -23,10 +23,10 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 以下决策是后续实现的约束；变更时必须修改本文并记录迁移影响。
 
 1. **通用内核优先**：不以 `humanoid-v1`、Spine、BVH、glTF 或任何模型输出作为内部唯一格式。
-2. **资产职责分离**：`Skeleton`、`MotionClip`、`CharacterBinding`、`ConstraintSet`、`RenderProfile`、`RasterSequence` 独立保存和引用。
+2. **资产职责分离**：`Skeleton`、`MotionClip`、`CharacterBinding` 与 `ConstraintSet` 独立保存和引用。
 3. **动作与外观分离**：`MotionClip` 不包含角色图片、Slot 或 provider 请求；同一动作可重定向到多个角色。
-4. **源资产与派生产物分离**：姿态表、预览视频、PNG 序列和精灵图都是可再生成产物，不能替代骨架与动作源数据。
-5. **时间使用秒**：关键帧时间以秒表示；FPS 是预览或烘焙策略，不是动作数据的时间单位。
+4. **源资产与预览分离**：姿态表和预览视频都是可再生成产物，不能替代骨架与动作源数据。
+5. **时间使用秒**：关键帧时间以秒表示；FPS 只用于预览采样，不是动作数据的时间单位。
 6. **局部变换为主**：骨骼轨道保存相对父骨骼的局部 TRS；世界坐标由 FK 求值，不逐帧持久化为事实源。
 7. **统一三维变换**：2D 与 3D 骨架共用 `translation[3] + quaternion[4] + scale[3]`，2D 资产通常令 `z=0`。UI 可显示角度，但持久化不用欧拉角作为标准旋转。
 8. **稳定 ID 优先**：层级、轨道和绑定引用稳定 ID，不通过骨骼显示名称建立关系。人体语义标签是可选映射，不限制拓扑。
@@ -34,12 +34,12 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 10. **开放包格式**：建立版本化、可校验、可迁移的 FrameBaker Animation Package；首版采用 ZIP + JSON + PNG，规范公开。
 11. **格式 adapter 隔离**：BVH、glTF、Spine、DragonBones 和模型专用格式只存在于导入、导出或 provider adapter。
 12. **能力而非厂商建模**：Provider 按 `text-to-motion`、`video-to-motion`、`auto-rigging` 等能力声明，不在核心类型中加入厂商分支。
-13. **持久任务**：动作生成、动作捕捉、重定向和批量烘焙进入可恢复任务系统，不能长期依赖前端等待或仅内存 payload。
+13. **持久任务**：动作生成、动作捕捉和重定向进入可恢复任务系统，不能长期依赖前端等待或仅内存 payload。
 14. **转换不静默丢失**：导入导出必须产生兼容性报告；无法表达的特性需明确降级、烘焙或拒绝。
 15. **光栅编辑语义不变**：现有 `Frame.offset_x/y`、`rotation`、`scale`、`opacity` 只表示整张帧图片变换，骨骼数据不得写入这些字段或长期塞入 metadata。
 16. **双项目类型**：统一项目入口下存在不可变的 `frame` 与 `skeletal` 两种项目类型；存量和省略类型的新项目均为 `frame`，项目类型创建后不可原地转换。
 17. **动作与项目分工**：`/motions` 生产可复用 Skeleton、MotionClip 与无具体角色素材的绑定模板；骨骼项目用素材组装具体角色、引用或复制动作、编排最终序列并导出运行时包。
-18. **骨骼输出优先**：骨骼项目的主输出是包含骨架、最终动作、角色绑定和纹理闭包的运行时包。RasterSequence 只是可选兼容输出，可复制到新的逐帧项目继续人工修帧。
+18. **骨骼输出唯一**：骨骼项目只输出包含骨架、最终动作、角色绑定和纹理闭包的 `.fbanim` 运行时包，不再提供转换为逐帧项目的兼容线路。
 19. **生成意图隔离**：底层 provider、抠图和图像处理能力共享；上层任务必须区分逐帧图片/序列/视频、骨骼部件生成、参考角色拆分和 MotionClip 生成，不能仅用 `image | video` 表达产物语义。
 
 ## 2.1 双项目工作流
@@ -51,9 +51,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 | `frame` | 有序 `Frame[]` 与独立 PNG | 洋葱皮、逐帧变换、排序、逐帧时长和人工修帧 | PNG 序列 / Spritesheet |
 | `skeletal` | 项目角色 + 命名骨骼序列 | 素材组装、Slot/Attachment、动作引用/复制、trim/变速/重复、事件和 Root Motion | `.fbanim` 运行时包 |
 
-骨骼项目可以显式烘焙并创建新的逐帧项目；该转换复制 PNG，不能替换骨骼项目或覆盖已经人工修过的帧。逐帧项目不能通过修改类型变成骨骼项目。
-
-`/motions` 是共享动作资产工作台，不拥有最终角色项目编排，也不选择 RasterSequence 的目标项目。它负责 Rig/Skeleton、单个 MotionClip、事件、循环接缝和可复用 Slot 绑定契约。具体 `materialId`、图片镜像、Pivot 和项目角色外观由骨骼项目持有；已有 CharacterBinding 可作为创建项目角色时复制的预制。
+两种项目类型互不转换。`/motions` 是共享动作资产工作台，不拥有最终角色项目编排。它负责 Rig/Skeleton、单个 MotionClip、事件、循环接缝和可复用 Slot 绑定契约。具体 `materialId`、图片镜像、Pivot 和项目角色外观由骨骼项目持有；已有 CharacterBinding 可作为创建项目角色时复制的预制。
 
 ## 2.2 双生成线路
 
@@ -62,7 +60,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 - 逐帧项目：`上传素材`、`AI 单图`、`AI 动作序列`、`GIF/视频`、`素材库`；产物最终都是 Frame。
 - 骨骼项目角色：`已有部件组装`、`参考精灵拆分`、`AI 生成部件`、`导入骨骼包`。
 - 骨骼项目动作：`动作库`、`AI 生成动作`、`导入动作`、`项目动作`。
-- 骨骼项目导出：`骨骼运行时包`、`兼容逐帧导出`。
+- 骨骼项目导出：仅 `.fbanim` 骨骼运行时包。
 
 参考精灵拆分包含两条明确路径：已有部件表使用确定性的网格/区域切分；完整组装角色先以引用图生成标准部件表草稿，再切分、逐件抠图、透明边扫描和紧边裁剪。AI 拆分必须经过草稿确认，不能假设可无损恢复被遮挡部位。
 
@@ -77,7 +75,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 - 动作关键帧编辑、循环播放和 512×512 姿态表导出；
 - 姿态表上传素材库后可作为现有图片生成链路的第二张参考图。
 
-当前 `MotionKeyframe` 和 `HumanoidBoneId` 只服务该页面的内存状态，未持久化为用户资产，不做格式兼容、迁移器或历史记录。现有骨骼编辑、内置动作和姿态表功能继续保留；正式动画资产 UI 完成后直接改用通用 `Skeleton + MotionClip`，届时删除不再使用的固定人形类型和计算代码。已有姿态表工作流可继续作为一种 `RenderProfile` 输出。
+当前 `MotionKeyframe` 和 `HumanoidBoneId` 只服务该页面的内存状态，未持久化为用户资产，不做格式兼容、迁移器或历史记录。现有骨骼编辑、内置动作和姿态表功能继续保留；正式动画资产 UI 完成后直接改用通用 `Skeleton + MotionClip`，届时删除不再使用的固定人形类型和计算代码。姿态表仅作为预览与生成参考，不属于骨骼项目的正式输出。
 
 现有双参考图属于普通多图语义引导，不等同于强姿态控制。它是通用动作资产的一个下游消费者，不再决定骨架系统是否成立。
 
@@ -188,7 +186,7 @@ interface MotionTrackV2 {
 - 旋转插值使用最短路径 slerp，导入欧拉角时先完成解卷绕；
 - 根运动可保留、提取为独立轨道或转换为原地动作；
 - 事件、脚底接触、命中点不能依赖光栅帧序号；
-- FPS 只在预览、采样和烘焙配置中出现；
+- FPS 只在预览和 adapter 采样配置中出现；
 - 非循环采样钳制到闭区间 `[0, duration]`；循环采样使用半开区间 `[0, duration)`，`duration` 映射回 `0`；
 - 循环轨道允许在 `duration` 放置首帧副本以定义接缝插值，但循环事件必须位于 `[0, duration)`，接触区间可以结束于 `duration`。
 
@@ -222,23 +220,6 @@ Slot/Attachment 与骨骼分离，以支持换皮、武器、正背面附件切�
 
 约束求值顺序必须版本化。导出到不支持约束的格式时，按指定采样率烘焙并记录误差。
 
-### 4.6 RenderProfile 与 RasterSequence
-
-```ts
-interface RenderProfile extends AssetIdentity {
-  camera: CameraSettings;
-  outputFps: number;
-  canvasSize: [number, number];
-  origin: [number, number];
-  sampling: "nearest" | "linear";
-  pixelSnap: boolean;
-  frameSelection: "uniform" | "key-pose" | "contact-aware";
-  paletteId?: string;
-}
-```
-
-`RasterSequence` 记录烘焙来源、帧文件、每帧时长、公共原点、画布和校验值，并可导入现有项目帧。骨骼资产和烘焙帧之间保留来源关系；重新烘焙默认创建新版本，不静默覆盖人工修过的帧。
-
 ## 5. FrameBaker Animation Package
 
 建议扩展名为 `.fbanim`，逻辑布局如下：
@@ -254,8 +235,6 @@ character.fbanim
 │   └── <sha256>.json
 ├── constraints/
 │   └── feet.json
-├── render-profiles/
-│   └── pixel-side-view.json
 ├── textures/
 │   └── <sha256>.png
 ├── previews/
@@ -292,7 +271,6 @@ character.fbanim
 | FBX | DCC 生态交换 | 经 Blender/独立转换器接入，不自行实现完整解析器 |
 | Spine JSON | 2D 商业生态 | 可选 adapter；运行时和许可证独立评估 |
 | DragonBones JSON | 2D cutout 交换 | 可选 adapter |
-| PNG 序列 + JSON | 稳定光栅交付 | 完整支持，保持公共原点与每帧时长 |
 | GIF/APNG/WebM | 预览与分享 | 不作为可编辑源资产 |
 
 Adapter 输出 `CompatibilityReport`，至少包含 `info/warning/error`、受影响资产、发生的烘焙或丢失。禁止静默丢弃 Mesh、约束、事件、Draw Order、曲线或根运动。
@@ -313,7 +291,7 @@ type AnimationCapability =
   | "motion-rendering";
 ```
 
-标准输出是 `AnimationArtifact`，可包含 Skeleton、MotionClip、Binding、RasterSequence、预览、来源和兼容警告。厂商参数保存在 provenance/request snapshot，不进入 MotionClip。
+标准输出是 `AnimationArtifact`，可包含 Skeleton、MotionClip、Binding、预览、来源和兼容警告。厂商参数保存在 provenance/request snapshot，不进入 MotionClip。
 
 每次生成必须记录：
 
@@ -328,7 +306,7 @@ type AnimationCapability =
 
 动作任务需要独立 job 类型，payload 持久化并支持重启恢复、取消、超时、阶段进度、临时目录隔离、原子提交和失败清理。调度依赖继续保持 `queue.ts → jobs/*` 单向。
 
-## 8. 编辑与渲染工作流
+## 8. 编辑与运行时工作流
 
 成熟工作流按非破坏方式组织：
 
@@ -338,27 +316,13 @@ type AnimationCapability =
   → 重定向到目标 Skeleton
   → FK/IK、接触、曲线和循环编辑
   → CharacterBinding 预览
-  → RenderProfile 确定性烘焙
-  → RasterSequence 版本
-  → 导入现有帧编辑器做像素级润色
+  → 打包项目动作、角色绑定与纹理闭包
+  → 导出并验证 .fbanim 运行时包
 ```
 
-骨骼轨道负责大范围动作修改，光栅轨道负责最终像素质量。人工修帧后再次烘焙必须由用户选择新建版本、覆盖未修改帧或显式覆盖全部，不能自动破坏人工成果。
+## 9. 运行时包要求
 
-## 9. 像素动画要求
-
-骨骼动作流畅不代表像素动画可用。烘焙器必须支持：
-
-- 最近邻采样和关闭抗锯齿；
-- 根节点、Pivot 和主要关节的整数像素吸附；
-- 可选旋转量化；
-- 固定调色板与透明度规则；
-- 6/8/10/12 FPS 等低帧率采样；
-- contact-aware/key-pose 采样，保护落脚、蓄力、命中和极值姿势；
-- 公共原点、地面线和统一单元格；
-- 近重复帧删除；
-- 首尾循环误差、一像素抖动、透明接缝和裁边检查；
-- 对 Draw Order 频繁切换增加迟滞，避免前后肢体闪烁。
+骨骼项目导出的 `.fbanim` 必须自包含最终动作、角色绑定及其纹理闭包，并保留动作速度、重复次数、事件和 Root Motion 语义。导出前校验所有引用与纹理摘要；消费端负责采样、像素吸附、过滤和 Draw Order 等渲染策略，编辑器不额外生成光栅兼容产物。
 
 ## 10. 持久化与模块边界
 
@@ -368,8 +332,6 @@ type AnimationCapability =
 - `motion_clips`；
 - `character_bindings`；
 - `constraint_sets`；
-- `render_profiles`；
-- `raster_sequences`；
 - `asset_dependencies`；
 - `animation_jobs` 或扩展后的统一 jobs payload。
 
@@ -399,14 +361,13 @@ type AnimationCapability =
 - 重定向后缺失/额外骨骼有明确报告；
 - 事件、命中点和接触点在重采样后保持时间语义。
 
-### 11.3 光栅门禁
+### 11.3 运行时包门禁
 
-- 无空帧、非法尺寸和画布裁切；
-- 公共原点稳定；
-- 调色板和透明边符合 profile；
-- 无非预期一像素抖动和 Slot 顺序闪烁；
-- 帧数、时长与采样配置一致；
-- 同一输入、版本和参数重复烘焙得到相同结果。
+- manifest、资产和纹理摘要全部匹配；
+- 骨架、绑定、动作和附件引用闭合；
+- 动作速度、重复次数、循环、事件与 Root Motion 语义完整；
+- 包路径、文件数和体积符合安全限制；
+- 相同输入和工具版本得到字节一致的逻辑条目。
 
 ## 12. 实施路线
 
@@ -429,13 +390,11 @@ type AnimationCapability =
 - [x] 正式资产 UI 的基础浏览、文件夹管理、JSON 导入、改名/删除与连续时间只读预览；
 - [x] 动作时间轴改为连续时间轨道；当前完成通用骨骼选择、基础 2D TRS 关键帧写入/删除、即时持久化与覆盖全部 clip 编辑的会话内 Undo/Redo；
 - [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name/payload 新增与查看/删除、根运动策略选择与基础循环接缝修复；
-- [x] MotionClip v2 逐片段 cubic-bezier 时间曲线、显式 v1 无损迁移、确定性采样与烘焙/`.fbanim` 往返兼容；
+- [x] MotionClip v2 逐片段 cubic-bezier 时间曲线、显式 v1 无损迁移、确定性采样与 `.fbanim` 往返兼容；
 - [ ] 其余高级循环工具（根运动提取算法/可视化及接触感知接缝）；
 - [x] CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；
-- [x] RenderProfile 与确定性 PNG 序列烘焙；
-- [x] 不可变 RasterSequence 版本、源摘要固化、追加导入与人工修帧保护策略。
 
-验收：同一动作可驱动至少两个不同角色绑定，并可重复烘焙后进入现有帧编辑器。
+验收：同一动作可驱动至少两个不同角色绑定，并能随项目角色一起确定性导出 `.fbanim` 运行时包。
 
 ### Phase C — 通用交换与重定向
 
@@ -457,7 +416,7 @@ type AnimationCapability =
 - [ ] 视频动作捕捉、文本动作等能力可独立扩展；
 - [ ] 模型安装、doctor、资源预算和许可证确认流程。
 
-验收：移除或替换 provider 后，已创建资产仍可完整编辑和烘焙。
+验收：移除或替换 provider 后，已创建资产仍可完整编辑和导出。
 
 ### Phase E — 生态与高级形变
 
@@ -494,7 +453,3 @@ type AnimationCapability =
 - provider 运行在一次性 CLI、常驻 sidecar 还是远程服务。
 
 这些选择必须服从已冻结边界：可迁移、可替换、可复现、无静默数据损失。
-
-### Phase B：RenderProfile 与本地烘焙草稿
-
-RenderProfile v1 已作为可编辑动画资产落库，描述透明画布尺寸、FPS、原点和世界缩放。动作工作区可选择同骨架 CharacterBinding 与 RenderProfile，在浏览器生成带 canonical RGBA SHA-256 摘要的 PNG 序列内存草稿并下载 ZIP。此项不扩展 `.fbanim` v1，也不代表 RasterSequence、服务端提交或完整 Phase B 已完成。

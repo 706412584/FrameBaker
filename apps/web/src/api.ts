@@ -33,9 +33,6 @@ import type {
   AnimationAssetKind,
   AnimationAssetResponse,
   AnimationAssetsResponse,
-  RasterSequenceResponse,
-  RasterSequencesResponse,
-  BakedRasterDraftManifest,
   SkeletalProjectDocument,
   SkeletalProjectDocumentResponse,
   WSMessage,
@@ -248,17 +245,6 @@ export const api = {
   copyAnimationAsset: (id: string, name?: string, folderId?: string | null) =>
     req<AnimationAssetResponse>(`/api/animation-assets/${id}/copy`, { method: "POST", ...json({ ...(name ? { name } : {}), ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
   deleteAnimationAsset: (id: string) => req<OkResponse>(`/api/animation-assets/${id}`, { method: "DELETE" }),
-
-  listRasterSequences: () => req<RasterSequencesResponse>("/api/raster-sequences").then((r) => r.rasterSequences),
-  createRasterSequence: (name: string, parentId: string | null, draft: Omit<BakedRasterDraftManifest, "frames"> & { frames: Array<BakedRasterDraftManifest["frames"][number] & { png: Uint8Array }> }) => {
-    const fd = new FormData();
-    const manifest = { ...draft, frames: draft.frames.map(({ png: _, ...frame }) => frame) };
-    fd.append("manifest", JSON.stringify(manifest)); fd.append("name", name); if (parentId) fd.append("parentId", parentId);
-    draft.frames.forEach((frame, i) => fd.append("frames", new Blob([frame.png.slice().buffer as ArrayBuffer], { type: "image/png" }), `${i}.png`));
-    return req<RasterSequenceResponse>("/api/raster-sequences", { method: "POST", body: fd }).then((r) => r.rasterSequence);
-  },
-  importRasterSequence: (id: string, projectId: string) => req<OkResponse & { count: number }>(`/api/raster-sequences/${id}/import-project`, { method: "POST", ...json({ projectId }) }),
-  deleteRasterSequence: (id: string) => req<OkResponse>(`/api/raster-sequences/${id}`, { method: "DELETE" }),
 };
 
 /** 帧图片 URL；size 仅用于列表/时间轴缩略图，编辑画布不传 size 以保留原图。 */

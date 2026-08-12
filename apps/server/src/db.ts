@@ -12,7 +12,6 @@ export const STORAGE_ROOT = join(REPO_ROOT, "storage");
 mkdirSync(join(STORAGE_ROOT, "projects"), { recursive: true });
 mkdirSync(join(STORAGE_ROOT, "staging"), { recursive: true });
 mkdirSync(join(STORAGE_ROOT, "materials"), { recursive: true });
-mkdirSync(join(STORAGE_ROOT, "raster-sequences"), { recursive: true });
 
 export const db = new Database(join(STORAGE_ROOT, "framebaker.db"), { create: true });
 db.exec("PRAGMA journal_mode = WAL;");
@@ -116,7 +115,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS animation_assets (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('skeleton', 'motion-clip', 'character-binding', 'render-profile')),
+  kind TEXT NOT NULL CHECK (kind IN ('skeleton', 'motion-clip', 'character-binding')),
   name TEXT NOT NULL,
   skeleton_id TEXT,
   folder_id TEXT,
@@ -132,15 +131,6 @@ CREATE TABLE IF NOT EXISTS skeletal_projects (
   document TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS raster_sequences (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  parent_id TEXT,
-  manifest TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_raster_sequences_created ON raster_sequences(created_at);
 `);
 
 // SQLite 无法原地修改 CHECK；扩充为 12 分件角色时保留旧六分件集合。
@@ -162,19 +152,19 @@ if (!characterPartMembersSql.includes("forearm-left") || !characterPartMembersSq
   })();
 }
 
-// SQLite 无法原地修改 CHECK；安全重建旧版动画资产表并保留全部行。
+// SQLite 无法原地修改 CHECK；迁移旧约束并丢弃已经取消的渲染配置资产。
 const animationAssetsSql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'animation_assets'").get() as { sql: string } | null)?.sql ?? "";
-if (!animationAssetsSql.includes("character-binding") || !animationAssetsSql.includes("render-profile")) {
+if (!animationAssetsSql.includes("character-binding") || animationAssetsSql.includes("render-profile")) {
   db.transaction(() => {
     db.exec("DROP INDEX IF EXISTS idx_animation_assets_kind_folder; DROP INDEX IF EXISTS idx_animation_assets_skeleton;");
     db.exec("ALTER TABLE animation_assets RENAME TO animation_assets_legacy");
     db.exec(`CREATE TABLE animation_assets (
       id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL CHECK (kind IN ('skeleton', 'motion-clip', 'character-binding', 'render-profile')),
+      kind TEXT NOT NULL CHECK (kind IN ('skeleton', 'motion-clip', 'character-binding')),
       name TEXT NOT NULL, skeleton_id TEXT, folder_id TEXT, data TEXT NOT NULL,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`);
-    db.exec("INSERT INTO animation_assets SELECT id, kind, name, skeleton_id, folder_id, data, created_at, updated_at FROM animation_assets_legacy");
+    db.exec("INSERT INTO animation_assets SELECT id, kind, name, skeleton_id, folder_id, data, created_at, updated_at FROM animation_assets_legacy WHERE kind != 'render-profile'");
     db.exec("DROP TABLE animation_assets_legacy");
     db.exec("CREATE INDEX idx_animation_assets_kind_folder ON animation_assets(kind, folder_id); CREATE INDEX idx_animation_assets_skeleton ON animation_assets(skeleton_id);");
   })();

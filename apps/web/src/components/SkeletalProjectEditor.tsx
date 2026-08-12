@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { BUILTIN_MOTIONS, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type RenderProfile, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
-import { ArrowLeft, Bone, Boxes, Download, Film, Pause, Play, Plus, Trash2 } from "lucide-react";
-import { api, materialImageUrl, type Project, type SkeletalProjectDocument } from "../api";
-import { bakedRasterZip, bakeAnimationPngSequence, configuredMotionClipForRaster, type BakedRasterDraft } from "../animationBake";
+import { BUILTIN_MOTIONS, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
+import { ArrowLeft, Bone, Boxes, Download, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { api, type Project, type SkeletalProjectDocument } from "../api";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { exportSkeletalProjectPackage } from "../export";
@@ -11,16 +10,15 @@ import { areSkeletonsRetargetCompatible, retargetMotionClip } from "../motionRet
 import { BindingEditor, CharacterPreview } from "./AnimationAssetsWorkspace";
 import PxSelect from "./PxSelect";
 
-type WorkspaceTab = "character" | "animations" | "raster";
+type WorkspaceTab = "character" | "animations";
 
-export default function SkeletalProjectEditor({ project, onBack, onEditActionLibrary, onOpenFrameProject }: { project: Project; onBack: () => void; onEditActionLibrary: () => void; onOpenFrameProject: (id: string) => void }) {
+export default function SkeletalProjectEditor({ project, onBack, onEditActionLibrary }: { project: Project; onBack: () => void; onEditActionLibrary: () => void }) {
   const t = useT();
   const [tab, setTab] = useState<WorkspaceTab>("character");
   const [document, setDocument] = useState<SkeletalProjectDocument>();
   const [assets, setAssets] = useState<AnimationAssetSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
-  const [frameProjects, setFrameProjects] = useState<Project[]>([]);
   const [assetSkeletons, setAssetSkeletons] = useState<Record<string, Skeleton>>({});
   const [partSetId, setPartSetId] = useState("");
   const [skeleton, setSkeleton] = useState<Skeleton>();
@@ -30,13 +28,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [rasterProfile, setRasterProfile] = useState<RenderProfile>({ schemaVersion: 1, kind: "render-profile", id: "project-raster-profile", name: "Project raster profile", width: 256, height: 256, fps: 12, origin: [128, 192], scale: 32, background: "transparent" });
-  const [rasterDraft, setRasterDraft] = useState<BakedRasterDraft>();
-  const [rasterDraftKey, setRasterDraftKey] = useState("");
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-  const [rasterProgress, setRasterProgress] = useState("");
-  const [targetFrameProjectId, setTargetFrameProjectId] = useState("");
-  const [newFrameProjectName, setNewFrameProjectName] = useState(`${project.name} · ${t("skeletal.raster.frameSuffix")}`);
 
   const exportPackage = async () => {
     if (!skeleton || !document?.character || !document.animations.length) return;
@@ -53,14 +44,13 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
 
   useEffect(() => {
     let active = true;
-    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listCharacterPartSets(), api.listProjects()])
-      .then(([nextDocument, nextAssets, nextMaterials, nextPartSets, nextProjects]) => {
+    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listCharacterPartSets()])
+      .then(([nextDocument, nextAssets, nextMaterials, nextPartSets]) => {
         if (!active) return;
         setDocument(nextDocument);
         setAssets(nextAssets);
         setMaterials(nextMaterials.filter((item) => item.kind === "image"));
         setPartSets(nextPartSets);
-        setFrameProjects(nextProjects.filter((item) => item.kind === "frame"));
       })
       .catch((e) => active && notify(t("skeletal.loadFailed", { msg: (e as Error).message })));
     return () => { active = false; };
@@ -146,21 +136,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const selectedPartSet = partSets.find((set) => set.id === partSetId);
   const articulatedPartSetStatus = getArticulatedPartSetStatus(selectedPartSet);
   const assemblyMaterials = selectedPartSet ? materials.filter((material) => selectedPartSet.members.some((member) => member.materialId === material.id)) : materials;
-  const currentBakeKey = JSON.stringify({ binding, clipId: clip?.id, activeId: activeAnimation?.id, speed: activeAnimation?.speed, repeat: activeAnimation?.repeat, profile: rasterProfile });
-  const validRasterDraft = rasterDraftKey === currentBakeKey ? rasterDraft : undefined;
-
-  useEffect(() => {
-    if (!validRasterDraft) { setPreviewUrls([]); return; }
-    const frames = validRasterDraft.frames;
-    const indexes = Array.from({ length: Math.min(24, frames.length) }, (_, index) => Math.round(index * (frames.length - 1) / Math.max(1, Math.min(24, frames.length) - 1)));
-    const urls = indexes.map((index) => {
-      const png = frames[index]!.png;
-      const bytes = png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
-      return URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
-    });
-    setPreviewUrls(urls);
-    return () => urls.forEach(URL.revokeObjectURL);
-  }, [validRasterDraft]);
 
   useEffect(() => {
     if (!bindingTemplateId || !bindingTemplates.some((item) => item.id === bindingTemplateId)) setBindingTemplateId(document?.character?.sourceBindingId && bindingTemplates.some((item) => item.id === document.character!.sourceBindingId) ? document.character.sourceBindingId : bindingTemplates[0]?.id ?? "");
@@ -299,89 +274,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
     await save({ ...document, animations, activeAnimationId: document.activeAnimationId === id ? animations[0]?.id ?? null : document.activeAnimationId });
   };
 
-  const bakeRaster = async () => {
-    if (!binding || !skeleton || !clip || !activeAnimation) return;
-    setBusy(true);
-    setRasterDraft(undefined);
-    setRasterProgress("");
-    try {
-      const configured = configuredMotionClipForRaster(clip, activeAnimation.speed, activeAnimation.repeat);
-      const draft = await bakeAnimationPngSequence({
-        skeleton,
-        clip: configured,
-        binding,
-        profile: rasterProfile,
-        resolveImage: (attachment) => materialImageUrl(attachment.materialId, undefined, attachment.imageSlot),
-        onProgress: (done, total) => setRasterProgress(`${done}/${total}`),
-      });
-      setRasterDraft(draft);
-      setRasterDraftKey(currentBakeKey);
-      notify(t("skeletal.raster.baked", { count: draft.frames.length }), "info");
-    } catch (e) {
-      notify(t("skeletal.raster.failed", { msg: (e as Error).message }));
-    } finally {
-      setRasterProgress("");
-      setBusy(false);
-    }
-  };
-
-  const downloadRaster = async () => {
-    if (!validRasterDraft || !activeAnimation) return;
-    const url = URL.createObjectURL(await bakedRasterZip(validRasterDraft));
-    const anchor = window.document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${project.name}-${activeAnimation.name}.zip`;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-
-  const importRasterToFrameProject = async () => {
-    if (!validRasterDraft || !activeAnimation || busy) return;
-    setBusy(true);
-    setRasterProgress("");
-    const temporaryMaterialIds: string[] = [];
-    let createdTargetId: string | undefined;
-    try {
-      let targetId = targetFrameProjectId;
-      for (const frame of validRasterDraft.frames) {
-        setRasterProgress(t("skeletal.raster.uploadProgress", { current: frame.index + 1, total: validRasterDraft.frames.length }));
-        const form = new FormData();
-        const png = frame.png.buffer.slice(frame.png.byteOffset, frame.png.byteOffset + frame.png.byteLength) as ArrayBuffer;
-        form.append("file", new File([png], `${activeAnimation.name}_${String(frame.index + 1).padStart(4, "0")}.png`, { type: "image/png" }));
-        form.append("autoMatting", "false");
-        const uploaded = await api.uploadMaterial(form);
-        if (!("materialId" in uploaded)) throw new Error(t("skeletal.raster.imageExpected"));
-        temporaryMaterialIds.push(uploaded.materialId);
-      }
-      if (!targetId) {
-        const created = await api.createProject(newFrameProjectName.trim() || `${project.name} · ${t("skeletal.raster.frameSuffix")}`, "frame");
-        targetId = created.id;
-        createdTargetId = targetId;
-        const next = { ...created, folder_id: null, created_at: Date.now() } as Project;
-        setFrameProjects((items) => [next, ...items]);
-        setTargetFrameProjectId(targetId);
-      }
-      let imported = 0;
-      for (const materialId of temporaryMaterialIds) {
-        setRasterProgress(t("skeletal.raster.importProgress", { current: imported + 1, total: validRasterDraft.frames.length }));
-        const result = await api.importMaterial(materialId, targetId);
-        imported += result.count;
-      }
-      if (imported !== validRasterDraft.frames.length) throw new Error(t("skeletal.raster.countMismatch", { expected: validRasterDraft.frames.length, actual: imported }));
-      notify(t("skeletal.raster.imported", { count: validRasterDraft.frames.length }), "info");
-      await api.batchDeleteMaterials(temporaryMaterialIds);
-      temporaryMaterialIds.length = 0;
-      onOpenFrameProject(targetId);
-    } catch (e) {
-      if (createdTargetId) await api.deleteProject(createdTargetId).catch(() => undefined);
-      notify(t("skeletal.raster.failed", { msg: (e as Error).message }));
-    } finally {
-      if (temporaryMaterialIds.length) await api.batchDeleteMaterials(temporaryMaterialIds).catch(() => undefined);
-      setRasterProgress("");
-      setBusy(false);
-    }
-  };
-
   if (!document) return <div className="project-route-state">{t("project.loading")}</div>;
 
   return (
@@ -398,7 +290,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
       <nav className="skeletal-project-tabs" aria-label={t("skeletal.workspaceTabs")}>
         <button type="button" className={`${tab === "character" ? "active " : ""}${binding ? "done" : ""}`} onClick={() => setTab("character")}><Boxes size={17} /> 1. {t("skeletal.tab.character")}</button>
         <button type="button" title={!binding ? t("skeletal.step.requiresCharacter") : undefined} className={`${tab === "animations" ? "active " : ""}${document.animations.length ? "done" : ""}`} onClick={() => binding ? setTab("animations") : undefined}><Play size={17} /> 2. {t("skeletal.tab.animations")} <span>{document.animations.length}</span></button>
-        <button type="button" title={!activeAnimation ? t("skeletal.step.requiresAction") : undefined} className={tab === "raster" ? "active" : ""} onClick={() => activeAnimation ? setTab("raster") : undefined}><Film size={17} /> 3. {t("skeletal.tab.raster")}</button>
         <button type="button" className="skeletal-export-button" disabled={busy || !binding || !document.animations.length} onClick={() => void exportPackage()}><Download size={17} /> {t("skeletal.export.runtime")}</button>
       </nav>
 
@@ -463,23 +354,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
         </section>
       </main>}
 
-      {tab === "raster" && binding && skeleton && clip && activeAnimation && <main className="pixel-panel skeletal-raster-workspace">
-        <header><div><span className="project-kind-badge frame">{t("project.kind.frame")}</span><h2>{t("skeletal.raster.title")}</h2><p>{t("skeletal.raster.hint")}</p></div></header>
-        <section className="skeletal-raster-summary"><strong>{activeAnimation.name}</strong><span>{t("skeletal.raster.timing", { speed: activeAnimation.speed, repeat: activeAnimation.repeat })}</span></section>
-        <section className="skeletal-raster-config">
-          {(["width", "height", "fps", "scale"] as const).map((key) => <label key={key}>{t(`animation.profile.${key}`)}<input className="px-input" type="number" min="1" max={key === "width" || key === "height" ? 4096 : key === "fps" ? 120 : undefined} step={key === "scale" ? .1 : 1} value={rasterProfile[key]} onChange={(e) => { setRasterDraft(undefined); setRasterProfile((old) => ({ ...old, [key]: +e.target.value })); }} /></label>)}
-          {([0, 1] as const).map((axis) => <label key={axis}>{t(axis ? "animation.profile.originY" : "animation.profile.originX")}<input className="px-input" type="number" step="1" value={rasterProfile.origin[axis]} onChange={(e) => { const origin = [...rasterProfile.origin] as [number, number]; origin[axis] = +e.target.value; setRasterDraft(undefined); setRasterProfile((old) => ({ ...old, origin })); }} /></label>)}
-        </section>
-        <div className="animation-editor-actions"><button type="button" className="px-btn accent" disabled={busy} onClick={() => void bakeRaster()}>{busy ? rasterProgress || t("skeletal.raster.baking") : t("skeletal.raster.bake")}</button></div>
-        {validRasterDraft && <section className="skeletal-raster-result">
-          <strong>{t("skeletal.raster.resultSampled", { count: validRasterDraft.frames.length, shown: previewUrls.length })}</strong>
-          <div className="skeletal-contact-sheet">{previewUrls.map((url, index) => <img key={url} src={url} alt={t("skeletal.raster.previewFrame", { index: index + 1 })} />)}</div>
-          <button type="button" className="px-btn" onClick={() => void downloadRaster()}><Download size={14} /> {t("skeletal.raster.download")}</button>
-          <label>{t("skeletal.raster.target")}<PxSelect value={targetFrameProjectId} options={[{ value: "", label: t("skeletal.raster.createTarget") }, ...frameProjects.map((item) => ({ value: item.id, label: item.name }))]} onChange={setTargetFrameProjectId} /></label>
-          {!targetFrameProjectId && <input className="px-input" value={newFrameProjectName} onChange={(e) => setNewFrameProjectName(e.target.value)} placeholder={t("skeletal.raster.projectName")} />}
-          <button type="button" className="px-btn accent" disabled={busy || (!targetFrameProjectId && !newFrameProjectName.trim())} onClick={() => void importRasterToFrameProject()}><Film size={14} /> {t("skeletal.raster.import")}</button>
-        </section>}
-      </main>}
     </div>
   );
 }

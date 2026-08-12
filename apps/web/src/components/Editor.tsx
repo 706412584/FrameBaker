@@ -214,7 +214,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         });
       patchChains.current.set(id, request);
     },
-    [loadFrames]
+    [loadFrames, t]
   );
 
   const onDuplicate = useCallback(
@@ -269,6 +269,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 时间轴拖拽换序：前端乐观更新 + 调 reorder
   const onReorder = useCallback(
     (from: number, to: number) => {
+      if (from < 0 || to < 0 || from >= frames.length || to >= frames.length) return;
       const arr = [...frames];
       const [moved] = arr.splice(from, 1);
       arr.splice(to, 0, moved);
@@ -278,7 +279,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
         loadFrames();
       });
     },
-    [frames, projectId, loadFrames]
+    [frames, projectId, loadFrames, t]
   );
 
   // ---- 多选 ----
@@ -286,6 +287,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
 
   // 右键菜单（帧列表 / 时间轴共用）：右键未选中帧 → 设为当前帧出单帧菜单；右键多选内帧 → 保留选区出批量菜单
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; frameId: string } | null>(null);
+
   const onFrameContextMenu = useCallback(
     (id: string, pos: { x: number; y: number }, source: "asset" | "timeline") => {
       if (!(selectedIds.size >= 2 && selectedIds.has(id))) {

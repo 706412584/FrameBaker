@@ -9,6 +9,10 @@
 - 动作事件支持输入、校验并查看可选 JSON payload，数据随 MotionClip 持久化。
 - 新增 MotionClip schema v2：逐片段 cubic-bezier 时间曲线、显式无损 v1 迁移、四元数缓动 slerp、曲线编辑及 `.fbanim`/光栅烘焙兼容。
 
+### 调整
+
+- 骨骼项目统一只输出 `.fbanim` 运行时包，移除逐帧项目兼容烘焙线路、RenderProfile 与 RasterSequence API。
+
 ## [0.3.0] - 2026-08-12
 
 ### 新增

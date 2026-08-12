@@ -38,7 +38,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
-  const [showSplit, setShowSplit] = useState(guidedSkeletalSplit);
+  const [showSplit, setShowSplit] = useState(false);
   const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [showExtract, setShowExtract] = useState(false);

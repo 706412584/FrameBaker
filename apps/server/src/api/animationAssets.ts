@@ -6,7 +6,6 @@ import {
   validateCharacterBinding,
   validateMotionClip,
   validateSkeleton,
-  validateRenderProfile,
   type AnimationAsset,
   type AnimationAssetKind,
   type AnimationAssetSummary,
@@ -101,11 +100,7 @@ async function validateAsset(value: unknown): Promise<{ asset: AnimationAsset } 
     const materialError = await validateBindingMaterials(result.value);
     return materialError ? { error: materialError } : { asset: result.value };
   }
-  if ((value as { kind?: unknown }).kind === "render-profile") {
-    const result = validateRenderProfile(value);
-    return result.ok ? { asset: result.value } : { error: issueText(result.issues) };
-  }
-  return { error: "kind 须为 skeleton、motion-clip、character-binding 或 render-profile" };
+  return { error: "kind 须为 skeleton、motion-clip 或 character-binding" };
 }
 
 function assetSkeletonId(asset: AnimationAsset): string | null {
@@ -146,7 +141,7 @@ function validateDependents(skeleton: Skeleton): string | null {
 export const animationAssetsApi = new Elysia({ prefix: "/api" })
   .get("/animation-assets", ({ query, status }) => {
     const kind = query.kind;
-    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding" && kind !== "render-profile") {
+    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding") {
       return status(400, "kind 无效");
     }
     const rows = (kind
