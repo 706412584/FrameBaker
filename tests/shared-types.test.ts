@@ -86,22 +86,22 @@ describe("动作生成 prompt", () => {
     expect(video).toContain("fast");
   });
 
-  test("角色 8 向图使用固定 4×2 顺序并锁定角色一致性", () => {
+  test("角色 8 向图使用中心留空的 3×3 环形布局并锁定角色一致性", () => {
     const prompt = buildCharacterDirectionSheetPrompt({ characterPrompt: "red knight", extra: "pixel art" });
     expect(CHARACTER_DIRECTION_PRESETS.map((direction) => direction.id)).toEqual([
+      "back-left",
+      "back",
+      "back-right",
+      "left",
+      "right",
+      "front-left",
       "front",
       "front-right",
-      "right",
-      "back-right",
-      "back",
-      "back-left",
-      "left",
-      "front-left",
     ]);
-    expect(prompt).toContain("arranged as 4 columns × 2 rows");
+    expect(prompt).toContain("arranged as 3 columns × 3 rows");
+    expect(prompt).toContain("middle row left, EMPTY, right");
     expect(prompt).toContain("Rotate only the character around the vertical axis");
-    expect(prompt).toContain("1:front view");
-    expect(prompt).toContain("8:front-left three-quarter view");
+    expect(prompt).toContain("bottom row front-left, front, front-right");
     expect(prompt).toContain("Appearance only (ignore pose, view and composition in this description): red knight");
     expect(prompt).toContain("pixel art");
     expect(prompt.length).toBeLessThanOrEqual(1400);

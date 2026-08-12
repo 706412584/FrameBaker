@@ -336,16 +336,16 @@ export const ACTION_PRESETS = [
 ] as const;
 export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
 
-/** 角色 8 向图固定顺序：4×2，按从左到右、从上到下读取。 */
+/** 角色 8 向图固定顺序：3×3 环形布局，中心格留空，按从左到右、从上到下读取。 */
 export const CHARACTER_DIRECTION_PRESETS = [
+  { id: "back-left", label: "direction.backLeft", prompt: "back-left three-quarter view" },
+  { id: "back", label: "direction.back", prompt: "back view" },
+  { id: "back-right", label: "direction.backRight", prompt: "back-right three-quarter view" },
+  { id: "left", label: "direction.left", prompt: "left profile view" },
+  { id: "right", label: "direction.right", prompt: "right profile view" },
+  { id: "front-left", label: "direction.frontLeft", prompt: "front-left three-quarter view" },
   { id: "front", label: "direction.front", prompt: "front view" },
   { id: "front-right", label: "direction.frontRight", prompt: "front-right three-quarter view" },
-  { id: "right", label: "direction.right", prompt: "right profile view" },
-  { id: "back-right", label: "direction.backRight", prompt: "back-right three-quarter view" },
-  { id: "back", label: "direction.back", prompt: "back view" },
-  { id: "back-left", label: "direction.backLeft", prompt: "back-left three-quarter view" },
-  { id: "left", label: "direction.left", prompt: "left profile view" },
-  { id: "front-left", label: "direction.frontLeft", prompt: "front-left three-quarter view" },
 ] as const;
 
 /** 视频定点抽帧最多时间点数（前后端一致） */
@@ -406,16 +406,14 @@ export function buildActionSheetPrompt(opts: {
   return clip(parts.join(" "), 1400);
 }
 
-/** 组装角色 8 向图 prompt：固定姿势、正交镜头和 4×2 有序方向，便于后续网格切分。 */
+/** 组装角色 8 向图 prompt：固定姿势、正交镜头和 3×3 环形方向，中心格留空。 */
 export function buildCharacterDirectionSheetPrompt(opts: {
   characterPrompt?: string | null;
   extra?: string | null;
 }): string {
   const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
-  const directions = CHARACTER_DIRECTION_PRESETS.map((direction, index) => `${index + 1}:${direction.prompt}`).join("; ");
   const parts = [
-    "Same character as reference. Create exactly one character turnaround sprite sheet arranged as 4 columns × 2 rows with 8 equal panels, read L→R then T→B. Full body centered in every panel; identical identity, outfit, equipment, colors, proportions, scale, neutral standing pose, eye level, orthographic camera and lighting. Rotate only the character around the vertical axis; no pose or design changes. One character per panel, no overlap, plain/transparent background, no text, labels, borders or watermark.",
-    `Directions: ${directions}.`,
+    "Same character as reference. Create exactly one character turnaround sprite sheet arranged as 3 columns × 3 rows with 9 equal cells. Place 8 views around an empty center cell: top row back-left, back, back-right; middle row left, EMPTY, right; bottom row front-left, front, front-right. Full body centered in each occupied cell; identical identity, outfit, equipment, colors, proportions, scale, neutral standing pose, eye level, orthographic camera and lighting. Rotate only the character around the vertical axis; no pose or design changes. One character per occupied cell, no overlap, center cell completely empty, plain/transparent background, no text, labels, borders or watermark.",
   ];
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Appearance only (ignore pose, view and composition in this description): ${clip(character, 180)}`);

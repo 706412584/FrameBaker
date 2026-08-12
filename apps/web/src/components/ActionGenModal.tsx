@@ -53,7 +53,7 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
   useModalEscClose(onClose);
   const slot = m.processed_path ? "processed" : "raw";
   const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
-  const directionSuffix = "_8directions_4x2";
+  const directionSuffix = "_8directions_3x3";
   const directionSheetName = `${base.slice(0, 48 - directionSuffix.length)}${directionSuffix}`;
   const characterPrompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : null;
 
@@ -63,8 +63,8 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
   const [seq, setSeq] = useState<SeqItem[]>(() =>
     Array.from({ length: 4 }, () => ({ key: nextKey(), id: "walk" as ActionPresetId }))
   );
-  const [cols, setCols] = useState(4);
-  const [rows, setRows] = useState(initialPreset === "directions" ? 2 : 1);
+  const [cols, setCols] = useState(initialPreset === "directions" ? 3 : 4);
+  const [rows, setRows] = useState(initialPreset === "directions" ? 3 : 1);
   const [gridTouched, setGridTouched] = useState(initialPreset === "directions");
   const [extra, setExtra] = useState("");
   const [autoMatting, setAutoMatting] = useState(true);
@@ -133,8 +133,8 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
   const useDirectionSheet = () => {
     setMediaKind("image");
     setDirectionMode(true);
-    setCols(4);
-    setRows(2);
+    setCols(3);
+    setRows(3);
     setGridTouched(true);
     setModel("");
     setSize("");
@@ -460,10 +460,14 @@ export default function ActionGenModal({ material: m, v, initialPreset = "action
             </div>
             <div className="ag-grid-preview" style={{ ["--ag-cols" as string]: cols }}>
               {Array.from({ length: cols * rows }, (_, i) => {
-                const a = directionMode ? CHARACTER_DIRECTION_PRESETS[i] : frames[i];
+                const a = directionMode
+                  ? i === 4
+                    ? undefined
+                    : CHARACTER_DIRECTION_PRESETS[i > 4 ? i - 1 : i]
+                  : frames[i];
                 return (
                   <div key={i} className={`ag-cell ${a ? "filled" : "empty"}`}>
-                    {a ? `${i + 1}.${t(a.label)}` : "·"}
+                    {a ? `${i + 1 - (directionMode && i > 4 ? 1 : 0)}.${t(a.label)}` : "·"}
                   </div>
                 );
               })}

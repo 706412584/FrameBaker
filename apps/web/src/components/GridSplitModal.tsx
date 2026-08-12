@@ -58,7 +58,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const t = useT();
   useModalEscClose(onClose);
 
-  const total = rows * cols;
+  const skipCenter = /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
+  const total = rows * cols - (skipCenter ? 1 : 0);
 
   // 载入尺寸，默认网格盖住整图
   useEffect(() => {
@@ -165,6 +166,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     let ok = 0;
     let fail = 0;
     let trimmed = 0;
+    let firstError = "";
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
@@ -180,7 +182,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          const i = r * cols + c + 1;
+          if (skipCenter && r === 1 && c === 1) continue;
+          const i = r * cols + c + 1 - (skipCenter && r > 1 ? 1 : 0);
           setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
@@ -219,11 +222,13 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             if (m.folder_id) fd.append("folderId", m.folder_id);
             await api.uploadMaterial(fd);
             ok++;
-          } catch {
+          } catch (e) {
             fail++;
+            firstError ||= (e as Error).message;
           }
         }
       }
+      if (ok === 0 && firstError) throw new Error(firstError);
       onDone();
       const msg = fail
         ? t("msg.split_done_ok_ok_fail_failed", { ok, fail })

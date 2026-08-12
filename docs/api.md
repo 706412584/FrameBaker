@@ -197,7 +197,7 @@ Material image/video stream. `type=processed` falls back to raw when no processe
 
 ### POST /api/materials/upload
 
-multipart/form-data: `file` + optional `processedFile`, `metadata` (JSON object string), `autoMatting` (`"true"`), and `fps` (video extraction, default 8). `processedFile` creates a material with both raw/processed slots and `status=matted`; grid splitting uses it to preserve real before/after pairs.
+multipart/form-data: `file` + optional `processedFile`, `metadata` (JSON object string; Elysia's multipart object parsing is also accepted), `autoMatting` (`"true"`), and `fps` (video extraction, default 8). `processedFile` creates a material with both raw/processed slots and `status=matted`; grid splitting uses it to preserve real before/after pairs.
 PNG/JPG single image → directly creates 1 material, response `{ "materialId": "…" }`; GIF/MP4 → queued frame extraction, one material per frame, response `{ "jobId": "…" }`.
 
 ```bash
