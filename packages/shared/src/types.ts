@@ -584,6 +584,30 @@ export interface Folder {
   created_at: number;
 }
 
+/** 攻击特效笔画点；pressure 用于毛笔粗细变化。 */
+export interface AttackEffectPoint {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
+/** 单次落笔保留当时的颜色和笔宽，后续可继续叠加不同样式。 */
+export interface AttackEffectStroke {
+  color: string;
+  size: number;
+  points: AttackEffectPoint[];
+}
+
+/** 每帧独立的矢量攻击特效；整体变换与角色帧变换互不影响。 */
+export interface AttackEffect {
+  strokes: AttackEffectStroke[];
+  offset_x: number;
+  offset_y: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+}
+
 export interface Frame {
   id: string;
   project_id: string;
@@ -607,6 +631,7 @@ export interface Frame {
   tags: string[];
   source: FrameSource;
   metadata: Record<string, unknown>;
+  attack_effect: AttackEffect | null;
 }
 
 export interface AnimationAxis {
@@ -657,12 +682,13 @@ export interface Job {
   created_at: number;
 }
 
-/** DB 行形态：tags/metadata 为未解析的 JSON 字符串，status/source 为宽松 string */
-export interface FrameRow extends Omit<Frame, "status" | "source" | "tags" | "metadata"> {
+/** DB 行形态：JSON 字段未解析，status/source 为宽松 string */
+export interface FrameRow extends Omit<Frame, "status" | "source" | "tags" | "metadata" | "attack_effect"> {
   status: string;
   source: string;
   tags: string;
   metadata: string;
+  attack_effect: string | null;
 }
 
 // ===== 素材库 =====
@@ -700,6 +726,7 @@ export interface FramePatch {
   duration?: number;
   is_keyframe?: number;
   tags?: string[];
+  attack_effect?: AttackEffect | null;
 }
 
 export interface ProjectsResponse {

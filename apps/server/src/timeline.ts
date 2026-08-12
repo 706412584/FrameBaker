@@ -166,8 +166,8 @@ export function placeFrame(frameId: string, trackId: string, stepId: string, swa
       if (!frame.is_asset) throw new Error("只有帧资产可以创建时间轴实例");
       if (occupied) db.query("UPDATE frames SET track_id=NULL,step_id=NULL,is_asset=1,idx=? WHERE id=?").run(nextFrameIdx(frame.project_id), occupied.id);
       placedId = uid();
-      db.query(`INSERT INTO frames (id,project_id,track_id,step_id,is_asset,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata)
-        VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(placedId,frame.project_id,trackId,stepId,frame.idx,frame.raw_path,frame.processed_path,frame.status,frame.duration,frame.is_keyframe,frame.offset_x,frame.offset_y,frame.scale,frame.rotation,frame.opacity,frame.tags,frame.source,frame.metadata);
+      db.query(`INSERT INTO frames (id,project_id,track_id,step_id,is_asset,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata,attack_effect)
+        VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(placedId,frame.project_id,trackId,stepId,frame.idx,frame.raw_path,frame.processed_path,frame.status,frame.duration,frame.is_keyframe,frame.offset_x,frame.offset_y,frame.scale,frame.rotation,frame.opacity,frame.tags,frame.source,frame.metadata,frame.attack_effect);
     } else if (occupied) {
       // 唯一坐标约束下先暂时移开目标帧，再完成原子交换。
       db.query("UPDATE frames SET track_id=NULL,step_id=NULL WHERE id=?").run(occupied.id);
@@ -229,8 +229,8 @@ export function placeAssetFramesBatch(
       const occupied = db.query("SELECT id FROM frames WHERE track_id=? AND step_id=?").get(target.trackId, step.id) as { id: string } | null;
       if (occupied) db.query("UPDATE frames SET track_id=NULL,step_id=NULL,is_asset=1,idx=? WHERE id=?").run(nextFrameIdx(projectId), occupied.id);
       const placedId = uid();
-      db.query(`INSERT INTO frames (id,project_id,track_id,step_id,is_asset,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata)
-        VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(placedId, projectId, target.trackId, step.id, step.idx, frame.raw_path, frame.processed_path, frame.status, frame.duration, frame.is_keyframe, frame.offset_x, frame.offset_y, frame.scale, frame.rotation, frame.opacity, frame.tags, frame.source, frame.metadata);
+      db.query(`INSERT INTO frames (id,project_id,track_id,step_id,is_asset,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata,attack_effect)
+        VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(placedId, projectId, target.trackId, step.id, step.idx, frame.raw_path, frame.processed_path, frame.status, frame.duration, frame.is_keyframe, frame.offset_x, frame.offset_y, frame.scale, frame.rotation, frame.opacity, frame.tags, frame.source, frame.metadata, frame.attack_effect);
       placedIds.push(placedId);
     });
     syncAxis(target.axisId);

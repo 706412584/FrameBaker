@@ -106,6 +106,7 @@ ensureColumn("materials", "folder_id", "TEXT");
 ensureColumn("frames", "track_id", "TEXT");
 ensureColumn("frames", "step_id", "TEXT");
 ensureColumn("frames", "is_asset", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("frames", "attack_effect", "TEXT");
 
 // v1：把旧项目无损投影到“默认轴 / 主轨 / 共享步骤”。确定性顺序为 idx,id。
 db.transaction(() => {
@@ -190,6 +191,7 @@ export function serializeFrame(f: FrameRow): Frame {
     ...f,
     tags: parseJson<string[]>(f.tags, []),
     metadata: parseJson<Record<string, unknown>>(f.metadata, {}),
+    attack_effect: parseJson<Frame["attack_effect"]>(f.attack_effect, null),
   } as Frame;
 }
 

@@ -2635,7 +2635,8 @@ input[type="range"] {
 .mat-search .px-input {
   flex: 1;
 }
-.mat-folder-filter {
+.mat-filter-row .mat-folder-filter {
+  flex: 0 0 min(240px, 28vw);
   width: min(240px, 28vw);
 }
 
@@ -2647,7 +2648,7 @@ input[type="range"] {
   .mat-search {
     flex-basis: 100%;
   }
-  .mat-folder-filter {
+.mat-filter-row .mat-folder-filter {
     flex: 1;
     width: auto;
   }

@@ -16,6 +16,25 @@ const patchSchema = t.Partial(
     duration: t.Integer({ minimum: 1, maximum: 600 }),
     is_keyframe: t.Integer({ minimum: 0, maximum: 1 }),
     tags: t.Array(t.String()),
+    attack_effect: t.Union([
+      t.Null(),
+      t.Object({
+        strokes: t.Array(t.Object({
+          color: t.String({ pattern: "^#[0-9a-fA-F]{6}$" }),
+          size: t.Number({ minimum: 1, maximum: 256 }),
+          points: t.Array(t.Object({
+            x: t.Number({ minimum: -100_000, maximum: 100_000 }),
+            y: t.Number({ minimum: -100_000, maximum: 100_000 }),
+            pressure: t.Number({ minimum: 0.1, maximum: 1 }),
+          }), { minItems: 1, maxItems: 4096 }),
+        }), { maxItems: 128 }),
+        offset_x: t.Number({ minimum: -100_000, maximum: 100_000 }),
+        offset_y: t.Number({ minimum: -100_000, maximum: 100_000 }),
+        scale: t.Number({ minimum: 0.1, maximum: 8 }),
+        rotation: t.Number({ minimum: -Math.PI, maximum: Math.PI }),
+        opacity: t.Number({ minimum: 0, maximum: 1 }),
+      }),
+    ]),
   })
 );
 
@@ -73,7 +92,9 @@ export const framesApi = new Elysia({ prefix: "/api" })
       const ownKeys = keys.filter((k) => k !== "duration" || !frame.step_id);
       if (ownKeys.length) {
         const setSql = ownKeys.map((k) => `${k} = ?`).join(", ");
-        const values = ownKeys.map((k) => (k === "tags" ? JSON.stringify(body[k]) : (body[k] as number)));
+        const values = ownKeys.map((k) =>
+          k === "tags" || k === "attack_effect" ? JSON.stringify(body[k]) : (body[k] as number)
+        );
         db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, params.id);
       }
       const updated = getFrame(params.id)!;
@@ -138,8 +159,8 @@ export const framesApi = new Elysia({ prefix: "/api" })
           if (rawPath && frame.raw_path && rawPath !== frame.raw_path) copyFileSync(frame.raw_path, rawPath);
           const procPath = frame.processed_path && existsSync(frame.processed_path) ? `${procDir}/${nid}.png` : frame.processed_path;
           if (procPath && frame.processed_path && procPath !== frame.processed_path) copyFileSync(frame.processed_path, procPath);
-          db.query(`INSERT INTO frames (id,project_id,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(nid,frame.project_id,nextFrameIdx(frame.project_id),rawPath,procPath,frame.status,frame.duration,frame.is_keyframe,frame.offset_x,frame.offset_y,frame.scale,frame.rotation,frame.opacity,frame.tags,"duplicate",frame.metadata);
+          db.query(`INSERT INTO frames (id,project_id,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata,attack_effect)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(nid,frame.project_id,nextFrameIdx(frame.project_id),rawPath,procPath,frame.status,frame.duration,frame.is_keyframe,frame.offset_x,frame.offset_y,frame.scale,frame.rotation,frame.opacity,frame.tags,"duplicate",frame.metadata,frame.attack_effect);
         }
         broadcast("frames_changed", { projectId: frame.project_id });
         return { ok: true, count };
@@ -165,8 +186,8 @@ export const framesApi = new Elysia({ prefix: "/api" })
         db.query("INSERT INTO animation_steps (id,axis_id,idx,duration) VALUES (?,?,?,?)").run(stepId,sourceStep.axis_id,sourceStep.idx+i,sourceStep.duration);
         db.query(
           `INSERT INTO frames (id, project_id, track_id, step_id, idx, raw_path, processed_path, status, duration, is_keyframe,
-             offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?)`
+             offset_x, offset_y, scale, rotation, opacity, tags, source, metadata, attack_effect)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?, ?)`
         ).run(
           nid,
           frame.project_id,
@@ -184,7 +205,8 @@ export const framesApi = new Elysia({ prefix: "/api" })
           frame.rotation,
           frame.opacity,
           frame.tags,
-          frame.metadata
+          frame.metadata,
+          frame.attack_effect
         );
       }
       syncAxis(sourceStep.axis_id);
