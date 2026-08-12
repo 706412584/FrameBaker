@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Package, Pencil, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
-import { api, materialImageUrl, type Material } from "../api";
+import { api, materialImageUrl, type Folder, type Material } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -62,8 +62,11 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
   const [tab, setTab] = useState<Tab>("materials");
   // 素材库 Tab：素材多选导入
   const [mats, setMats] = useState<Material[] | null>(null);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folderId, setFolderId] = useState("all");
   const [matV, setMatV] = useState(0);
   const [pickedIds, setPickedIds] = useState<string[]>([]); // 数组保持点选顺序
+  const pickAnchorRef = useRef<string | null>(null);
   const [matQuery, setMatQuery] = useState(""); // 素材搜索（name + prompt 本地过滤）
   // 上传 Tab：多文件逐个分发
   const [fps, setFps] = useState(8);
@@ -92,6 +95,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
           setMatV(Date.now());
         })
         .catch((e) => notify(t("msg.load_materials_failed_msg", { msg: (e as Error).message })));
+      api.listFolders("material").then(setFolders).catch((e) => console.error(e));
     }
   }, [tab, mats]);
 
@@ -102,17 +106,61 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
   const resetProgress = workflow.reset;
 
   // ---- 素材库 Tab ----
-  const togglePick = (id: string) => {
-    setPickedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  // 搜索过滤：不影响已选（过滤掉的仍保留在 pickedIds）
+  // 目录 + 搜索过滤：不影响已选（隐藏的素材仍保留在 pickedIds）
   const q = matQuery.trim().toLowerCase();
   const filteredMats = (mats ?? []).filter((m) => {
+    if (folderId === "ungrouped" ? m.folder_id !== null : folderId !== "all" && m.folder_id !== folderId) return false;
     if (!q) return true;
     const prompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : "";
     return m.name.toLowerCase().includes(q) || prompt.toLowerCase().includes(q);
   });
+  const folderOptions = useMemo(() => {
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    const pathOf = (folder: Folder) => {
+      const names = [folder.name];
+      const seen = new Set([folder.id]);
+      let parentId = folder.parent_id;
+      while (parentId && !seen.has(parentId)) {
+        seen.add(parentId);
+        const parent = byId.get(parentId);
+        if (!parent) break;
+        names.unshift(parent.name);
+        parentId = parent.parent_id;
+      }
+      return names.join(" / ");
+    };
+    return [
+      { value: "all", label: t("msg.all") },
+      { value: "ungrouped", label: t("msg.ungrouped") },
+      ...folders.map((folder) => ({ value: folder.id, label: pathOf(folder) })),
+    ];
+  }, [folders, t]);
+  const visibleIds = filteredMats.map((m) => m.id);
+  const allVisiblePicked = visibleIds.length > 0 && visibleIds.every((id) => pickedIds.includes(id));
+
+  const togglePick = (id: string, range: boolean) => {
+    const anchor = pickAnchorRef.current;
+    if (range && anchor) {
+      const from = visibleIds.indexOf(anchor);
+      const to = visibleIds.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from];
+        const rangeIds = visibleIds.slice(lo, hi + 1);
+        setPickedIds((prev) => [...prev, ...rangeIds.filter((rangeId) => !prev.includes(rangeId))]);
+        pickAnchorRef.current = id;
+        return;
+      }
+    }
+    setPickedIds((prev) => (prev.includes(id) ? prev.filter((pickedId) => pickedId !== id) : [...prev, id]));
+    pickAnchorRef.current = id;
+  };
+
+  const toggleVisible = () => {
+    const visible = new Set(visibleIds);
+    setPickedIds((prev) =>
+      allVisiblePicked ? prev.filter((id) => !visible.has(id)) : [...prev, ...visibleIds.filter((id) => !prev.includes(id))]
+    );
+  };
 
   const submitPick = async () => {
     if (pickedIds.length === 0 || submitting) return;
@@ -234,17 +282,28 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
               </div>
             ) : (
               <>
-                <div className="mat-search">
-                  <Search size={14} />
-                  <input
-                    className="px-input"
-                    placeholder={t("msg.search_name_prompt")}
-                    value={matQuery}
-                    onChange={(e) => setMatQuery(e.target.value)}
+                <div className="mat-filter-row">
+                  <div className="mat-search">
+                    <Search size={14} />
+                    <input
+                      className="px-input"
+                      placeholder={t("msg.search_name_prompt")}
+                      value={matQuery}
+                      onChange={(e) => setMatQuery(e.target.value)}
+                    />
+                  </div>
+                  <PxSelect
+                    className="mat-folder-filter"
+                    value={folderId}
+                    options={folderOptions}
+                    onChange={setFolderId}
                   />
+                  <button type="button" className="px-btn" disabled={visibleIds.length === 0} onClick={toggleVisible}>
+                    {allVisiblePicked ? t("msg.deselect_current_results") : t("msg.select_current_results")}
+                  </button>
                 </div>
                 {filteredMats.length === 0 ? (
-                  <div className="empty">{t("msg.no_matching_materials")}</div>
+                  <div className="empty">{t(q ? "msg.no_matching_materials" : "msg.no_materials_in_this_folder")}</div>
                 ) : (
                 <div className="mat-pick-grid">
                   {filteredMats.map((m) => {
@@ -254,7 +313,7 @@ export default function ImportModal({ projectId, axisId, trackId, startStepId, t
                         key={m.id}
                         className={`mat-pick ${picked ? "on" : ""}`}
                         title={m.name}
-                        onClick={() => togglePick(m.id)}
+                        onClick={(event) => togglePick(m.id, event.shiftKey)}
                       >
                         <img src={materialImageUrl(m.id, matV, "processed", 256)} alt="" draggable={false} loading="lazy" decoding="async" />
                         <span className={`mat-dot ${m.status}`} title={m.status === "matted" ? t("msg.matted_431ee1") : t("msg.original")} />

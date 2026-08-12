@@ -2620,14 +2620,37 @@ input[type="range"] {
 }
 
 /* ===== 素材搜索框（导入弹窗素材库 Tab） ===== */
+.mat-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .mat-search {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--text-muted);
+  flex: 1;
 }
 .mat-search .px-input {
   flex: 1;
+}
+.mat-folder-filter {
+  width: min(240px, 28vw);
+}
+
+@media (max-width: 720px) {
+  .mat-filter-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .mat-search {
+    flex-basis: 100%;
+  }
+  .mat-folder-filter {
+    flex: 1;
+    width: auto;
+  }
 }
 
 /* ===== 多文件上传列表 ===== */

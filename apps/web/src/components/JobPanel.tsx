@@ -90,12 +90,13 @@ const JobItem = memo(function JobItem({
 
 /**
  * 右侧常驻任务队列面板：初始接管进行中的任务，之后靠 WS job_* 事件驱动（3s 批量轮询兜底断连恢复期）。
+ * 进入素材库时重新拉取任务列表，对齐离开期间可能漏掉的任务状态。
  * 完成/取消短暂停留后消失；失败常驻可手动关闭。排队/运行中可取消。
  *
  * 性能：state 为 Record<id, Job>，WS 事件按 payload 局部 patch（不再为每条事件多发一次 GET）；
  * 行渲染走 memo 化 JobItem，未变化的行跳过 reconcile。
  */
-export default function JobPanel() {
+export default function JobPanel({ syncOnEnter = false }: { syncOnEnter?: boolean }) {
   const t = useT();
   const [jobs, setJobs] = useState<Record<string, Job>>({});
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
@@ -248,16 +249,37 @@ export default function JobPanel() {
     [t, upsertJob]
   );
 
-  // 初始接管进行中任务；WS 主驱动（直接用 payload 局部 patch，不再每条事件多发一次 GET）
+  /** 与服务端任务列表对账：刷新已展示任务，并接管期间漏掉的进行中任务 */
+  const syncJobs = useCallback(async () => {
+    const before = jobsRef.current;
+    const list = await api.listJobs();
+    const active = list.filter(isActive).slice(0, MAX_ITEMS);
+    setJobs((prev) => {
+      const next = { ...prev };
+      for (const job of list) {
+        // 请求期间若 WS 已更新该任务，以较新的实时状态为准。
+        if (next[job.id] && prev[job.id] === before[job.id]) next[job.id] = job;
+      }
+      for (const job of active) {
+        if (!next[job.id]) next[job.id] = job;
+      }
+      return next;
+    });
+    for (const job of list) {
+      if (isTransient(job)) scheduleDismiss(job.id);
+    }
+  }, [scheduleDismiss]);
+
+  // 应用启动时接管一次；之后每次从其他页面进入素材库都重新对账。
+  const didInitialSync = useRef(false);
   useEffect(() => {
-    api
-      .listJobs()
-      .then((list) => {
-        const map: Record<string, Job> = {};
-        for (const j of list.filter(isActive).slice(0, MAX_ITEMS)) map[j.id] = j;
-        setJobs((prev) => ({ ...map, ...prev }));
-      })
-      .catch(() => {});
+    if (didInitialSync.current && !syncOnEnter) return;
+    didInitialSync.current = true;
+    void syncJobs().catch(() => {});
+  }, [syncJobs, syncOnEnter]);
+
+  // WS 主驱动（直接用 payload 局部 patch，不再每条事件多发一次 GET）
+  useEffect(() => {
     const unsub = wsClient.subscribe((msg) => {
       if (!msg.type.startsWith("job_")) return;
       const p = (msg.payload ?? {}) as Record<string, unknown>;
