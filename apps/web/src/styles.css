@@ -1997,6 +1997,22 @@ input[type="range"] {
   pointer-events: none;
 }
 
+/* 宽屏低视口下固定头部、选帧区和提交栏，仅让工作区滚动，避免内容越界遮挡。 */
+@media (min-width: 1021px) {
+  .ve-modal {
+    height: calc(100vh - 32px);
+  }
+  .ve-head,
+  .ve-selection,
+  .ve-footer {
+    flex-shrink: 0;
+  }
+  .ve-workspace {
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+}
+
 /* 生成尺寸选择 + 比例预览 */
 .size-picker-row {
   display: flex;

@@ -7,6 +7,8 @@ import {
   ACTION_VIDEO_MAX_ACTIONS,
   buildActionSheetPrompt,
   buildActionVideoPrompt,
+  buildCharacterDirectionSheetPrompt,
+  CHARACTER_DIRECTION_PRESETS,
   suggestActionSheetGrid,
   type ActionPresetId,
 } from "@framebaker/shared";
@@ -24,6 +26,7 @@ import SizePicker from "./SizePicker";
 interface Props {
   material: Material;
   v: number;
+  initialPreset?: "actions" | "directions";
   onClose: () => void;
   onToast: (msg: string) => void;
 }
@@ -45,21 +48,24 @@ function resolveFrames(seq: SeqItem[]) {
  * - 图片：引用图 + 有序帧序列 → 一次拼图表 → 网格切分
  * - 视频：点选动作注入提示词 → 文生视频素材 → 素材详情单独抽帧
  */
-export default function ActionGenModal({ material: m, v, onClose, onToast }: Props) {
+export default function ActionGenModal({ material: m, v, initialPreset = "actions", onClose, onToast }: Props) {
   const t = useT();
   useModalEscClose(onClose);
   const slot = m.processed_path ? "processed" : "raw";
   const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
+  const directionSuffix = "_8directions_4x2";
+  const directionSheetName = `${base.slice(0, 48 - directionSuffix.length)}${directionSuffix}`;
   const characterPrompt = typeof m.metadata.prompt === "string" ? m.metadata.prompt : null;
 
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image");
+  const [directionMode, setDirectionMode] = useState(initialPreset === "directions");
   // 图片：默认走路×4；视频：默认只注入「走路」一次
   const [seq, setSeq] = useState<SeqItem[]>(() =>
     Array.from({ length: 4 }, () => ({ key: nextKey(), id: "walk" as ActionPresetId }))
   );
   const [cols, setCols] = useState(4);
-  const [rows, setRows] = useState(1);
-  const [gridTouched, setGridTouched] = useState(false);
+  const [rows, setRows] = useState(initialPreset === "directions" ? 2 : 1);
+  const [gridTouched, setGridTouched] = useState(initialPreset === "directions");
   const [extra, setExtra] = useState("");
   const [autoMatting, setAutoMatting] = useState(true);
   const [providerId, setProviderId] = useState("");
@@ -74,11 +80,11 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const sameAction = frames.length > 0 && frames.every((f) => f.id === frames[0]!.id);
 
   useEffect(() => {
-    if (isVideo || gridTouched) return;
+    if (isVideo || directionMode || gridTouched) return;
     const g = suggestActionSheetGrid(frames.length || 1);
     setCols(g.cols);
     setRows(g.rows);
-  }, [frames.length, gridTouched, isVideo]);
+  }, [directionMode, frames.length, gridTouched, isVideo]);
 
   const switchMediaKind = (next: "image" | "video") => {
     if (next === mediaKind) return;
@@ -86,6 +92,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
     setModel("");
     setSize("");
     setGridTouched(false);
+    setDirectionMode(false);
     // 视频只需注入动作，不必重复走路×4；切回图片恢复拼图默认
     if (next === "video") {
       const first = seq[0]?.id ?? ("walk" as ActionPresetId);
@@ -107,6 +114,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
 
   /** 视频：点选即注入（单动作替换）；图片：追加一帧 */
   const injectAction = (id: ActionPresetId) => {
+    setDirectionMode(false);
     if (isVideo) {
       setSeq([{ key: nextKey(), id }]);
       return;
@@ -118,14 +126,25 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
   const fillAction = (id: ActionPresetId, n: number) => {
     const count = Math.max(1, Math.min(ACTION_SHEET_MAX_FRAMES, n));
     setSeq(Array.from({ length: count }, () => ({ key: nextKey(), id })));
+    setDirectionMode(false);
     setGridTouched(false);
+  };
+
+  const useDirectionSheet = () => {
+    setMediaKind("image");
+    setDirectionMode(true);
+    setCols(4);
+    setRows(2);
+    setGridTouched(true);
+    setModel("");
+    setSize("");
   };
 
   const removeAt = (key: string) => setSeq((prev) => prev.filter((s) => s.key !== key));
 
   const submit = async () => {
-    if (frames.length === 0 || submitting) return;
-    if (!isVideo && cols * rows < frames.length) {
+    if ((!directionMode && frames.length === 0) || submitting) return;
+    if (!directionMode && !isVideo && cols * rows < frames.length) {
       notify(
         t("msg.grid_cols_rows_has_cells_cells_n_selected_frames", {
           cols,
@@ -149,7 +168,22 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         : `seq${frames.length}`;
 
     try {
-      if (isVideo) {
+      if (directionMode) {
+        await api.generateMaterial({
+          prompt: buildCharacterDirectionSheetPrompt({
+            characterPrompt,
+            extra: extra.trim(),
+          }),
+          count: 1,
+          autoMatting,
+          name: directionSheetName,
+          referenceMaterialId: m.id,
+          folderId: m.folder_id,
+          ...sel,
+          ...(size ? { size } : {}),
+        });
+        onToast(t("msg.queued_character_eight_view_sheet"));
+      } else if (isVideo) {
         await api.generateMaterial({
           prompt: buildActionVideoPrompt({
             actions: frames.slice(0, ACTION_VIDEO_MAX_ACTIONS),
@@ -208,7 +242,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         onClick={(e) => e.stopPropagation()}
       >
         <div className="form-inline">
-          <h2 style={{ flex: 1 }}>{t("msg.multi_action_generate")}</h2>
+          <h2 style={{ flex: 1 }}>{directionMode ? t("msg.character_eight_view_generate") : t("msg.multi_action_generate")}</h2>
           <IconBtn onClick={onClose} title={t("common.close")}>
             <X size={16} />
           </IconBtn>
@@ -227,7 +261,12 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         </div>
 
         <div className="hint">
-          {isVideo
+          {directionMode
+            ? t("msg.character_eight_view_hint", {
+                name: m.name,
+                slot: slot === "processed" ? t("msg.matted") : t("msg.original"),
+              })
+            : isVideo
             ? t("msg.inject_actions_with_ref_bailian_i2v_r2v_best_saves_video")
             : t("msg.ref_name_slot_append_continuous_frames_same_action_repea", {
                 name: m.name,
@@ -247,7 +286,13 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
           </div>
           <div className="ag-actions-col">
             <div className="ag-actions">
-              {ACTION_PRESETS.map((a) => {
+              {directionMode
+                ? CHARACTER_DIRECTION_PRESETS.map((direction, index) => (
+                    <span key={direction.id} className="ag-chip on">
+                      {index + 1}. {t(direction.label)}
+                    </span>
+                  ))
+                : ACTION_PRESETS.map((a) => {
                 const active = isVideo && seq[0]?.id === a.id;
                 return (
                   <button
@@ -287,6 +332,9 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 <button type="button" className="px-btn mini" disabled={submitting || seq.length === 0} onClick={() => setSeq([])}>
                   {t("common.clear")}
                 </button>
+                <button type="button" className={`px-btn mini${directionMode ? " accent-cyan" : ""}`} disabled={submitting} onClick={useDirectionSheet}>
+                  {t("msg.character_eight_view")}
+                </button>
               </div>
             )}
           </div>
@@ -294,7 +342,9 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
 
         <div className="form-row">
           <label>
-            {isVideo
+            {directionMode
+              ? t("msg.eight_view_order")
+              : isVideo
               ? t("msg.injected_action_click_a_chip_above_to_change")
               : t("msg.frame_sequence_n_max_click_to_remove_order_timeline", {
                   n: seq.length,
@@ -302,7 +352,14 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 })}
           </label>
           <div className="ag-seq">
-            {seq.length === 0 ? (
+            {directionMode ? (
+              CHARACTER_DIRECTION_PRESETS.map((direction, index) => (
+                <span key={direction.id} className="ag-seq-chip" style={{ cursor: "default" }}>
+                  <span className="ag-seq-i">{index + 1}</span>
+                  {t(direction.label)}
+                </span>
+              ))
+            ) : seq.length === 0 ? (
               <span className="hint">
                 {isVideo ? t("msg.click_an_action_above_to_inject_into_the_prompt") : t("msg.click_actions_above_to_append_frames_repeat_the_same_act")}
               </span>
@@ -339,12 +396,18 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
         </div>
 
         <div className="form-row">
-          <label>{isVideo ? t("msg.extra_desc_optional_appended_to_video_prompt") : t("msg.extra_desc_optional_appended_to_sheet_prompt")}</label>
+          <label>
+            {directionMode
+              ? t("msg.extra_desc_optional_appended_to_eight_view_prompt")
+              : isVideo
+                ? t("msg.extra_desc_optional_appended_to_video_prompt")
+                : t("msg.extra_desc_optional_appended_to_sheet_prompt")}
+          </label>
           <input
             className="px-input"
             value={extra}
             disabled={submitting}
-            placeholder={t("msg.e_g_holding_a_sword_facing_right_pixel_art")}
+            placeholder={directionMode ? t("msg.e_g_neutral_pose_keep_weapon_and_cape") : t("msg.e_g_holding_a_sword_facing_right_pixel_art")}
             onChange={(e) => setExtra(e.target.value)}
           />
         </div>
@@ -362,7 +425,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                   min={1}
                   max={8}
                   value={cols}
-                  disabled={submitting}
+                  disabled={submitting || directionMode}
                   onChange={(e) => {
                     setGridTouched(true);
                     setCols(Math.max(1, Math.min(8, Number(e.target.value) || 1)));
@@ -377,7 +440,7 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                   min={1}
                   max={8}
                   value={rows}
-                  disabled={submitting}
+                  disabled={submitting || directionMode}
                   onChange={(e) => {
                     setGridTouched(true);
                     setRows(Math.max(1, Math.min(8, Number(e.target.value) || 1)));
@@ -385,17 +448,19 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
                 />
               </label>
               <span className="hint" style={{ flex: 1 }}>
-                {t("msg.layout_cols_rows_cells_cells_n_continuous_frames_l_r_t_b", {
-                  cols,
-                  rows,
-                  cells: cols * rows,
-                  n: frames.length,
-                })}
+                {directionMode
+                  ? t("msg.eight_view_fixed_grid")
+                  : t("msg.layout_cols_rows_cells_cells_n_continuous_frames_l_r_t_b", {
+                      cols,
+                      rows,
+                      cells: cols * rows,
+                      n: frames.length,
+                    })}
               </span>
             </div>
             <div className="ag-grid-preview" style={{ ["--ag-cols" as string]: cols }}>
               {Array.from({ length: cols * rows }, (_, i) => {
-                const a = frames[i];
+                const a = directionMode ? CHARACTER_DIRECTION_PRESETS[i] : frames[i];
                 return (
                   <div key={i} className={`ag-cell ${a ? "filled" : "empty"}`}>
                     {a ? `${i + 1}.${t(a.label)}` : "·"}
@@ -423,13 +488,15 @@ export default function ActionGenModal({ material: m, v, onClose, onToast }: Pro
             type="button"
             whileTap={{ scale: 0.95 }}
             className="px-btn accent"
-            disabled={frames.length === 0 || submitting}
+            disabled={(!directionMode && frames.length === 0) || submitting}
             onClick={() => void submit()}
           >
             <PersonStanding size={14} />{" "}
             {submitting
               ? t("common.submitting")
-              : isVideo
+              : directionMode
+                ? t("msg.generate_character_eight_view_sheet")
+                : isVideo
                 ? t("msg.generate_action_video_action", {
                     action: t(frames[0]?.label ?? ""),
                   })

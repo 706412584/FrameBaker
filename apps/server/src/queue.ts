@@ -51,6 +51,21 @@ export function createJob(projectId: string, type: JobType, payload: JobPayload)
   return id;
 }
 
+/** 图片批量生成拆成独立任务，由全局队列统一控制并发；视频仍只创建一个任务。 */
+export function createGenerationJobs(projectId: string, generate: GeneratePayload): string[] {
+  const count = generate.mediaKind === "video" ? 1 : generate.count;
+  return Array.from({ length: count }, (_, batchIndex) =>
+    createJob(projectId, "generate_frames", {
+      generate: {
+        ...generate,
+        count: 1,
+        batchCount: count,
+        batchIndex,
+      },
+    })
+  );
+}
+
 /**
  * 取消任务：queued 直接出队；running 触发 AbortSignal。
  * 返回 false 表示不存在或已结束不可取消。

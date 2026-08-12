@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
-import { createJob } from "../queue";
+import { createGenerationJobs, createJob } from "../queue";
 import { checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 
 export const importApi = new Elysia({ prefix: "/api" })
@@ -62,21 +62,19 @@ export const importApi = new Elysia({ prefix: "/api" })
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
-      const jobId = createJob(body.projectId, "generate_frames", {
-        generate: {
-          prompt: body.prompt,
-          count: body.count,
-          autoMatting: body.autoMatting ?? false,
-          target: { kind: "project", projectId: body.projectId },
-          referencePaths: ref.referencePaths,
-          providerId: body.providerId,
-          model: body.model,
-          size: body.size,
-          mediaKind: body.mediaKind,
-          fps: body.fps,
-        },
+      const jobIds = createGenerationJobs(body.projectId, {
+        prompt: body.prompt,
+        count: body.count,
+        autoMatting: body.autoMatting ?? false,
+        target: { kind: "project", projectId: body.projectId },
+        referencePaths: ref.referencePaths,
+        providerId: body.providerId,
+        model: body.model,
+        size: body.size,
+        mediaKind: body.mediaKind,
+        fps: body.fps,
       });
-      return { jobId };
+      return { jobId: jobIds[0], jobIds };
     },
     {
       body: t.Object({

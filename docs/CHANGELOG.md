@@ -4,6 +4,18 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+### Changed
+
+- Split multi-image generation requests into independently scheduled jobs under the global queue concurrency limit, return all IDs through `jobIds` while preserving `jobId`, and refresh an open material library as each generated material completes.
+
+### Added
+
+- Added quick character eight-view generation from an image material: a reference-locked 4×2 turnaround sheet with a fixed front-to-left direction order and automatic 4×2 defaults when opening grid split.
+
+### Fixed
+
+- Prevented the video frame picker workspace from overlapping its selection and submit areas on short desktop viewports, and made the `M` capture shortcut work after focusing timeline and button controls.
+
 ## [0.3.0] - 2026-08-12
 
 ### Added

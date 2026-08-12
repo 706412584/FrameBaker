@@ -20,6 +20,11 @@ interface Props {
 
 const clampCell = (n: number) => Math.max(1, Math.min(8, Math.floor(n) || 1));
 
+function gridFromMaterialName(name: string): { cols: number; rows: number } {
+  const match = /_(\d+)x(\d+)$/.exec(name.trim());
+  return match ? { cols: clampCell(Number(match[1])), rows: clampCell(Number(match[2])) } : { cols: 2, rows: 2 };
+}
+
 function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
   let { x, y, w, h } = r;
   w = Math.max(1, Math.min(Math.round(w), imgW));
@@ -37,8 +42,9 @@ function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
  */
 export default function GridSplitModal({ material: m, v, onClose, onDone, onToast }: Props) {
   const slot = m.processed_path ? "processed" : "raw";
-  const [rows, setRows] = useState(2);
-  const [cols, setCols] = useState(2);
+  const initialGrid = gridFromMaterialName(m.name);
+  const [rows, setRows] = useState(initialGrid.rows);
+  const [cols, setCols] = useState(initialGrid.cols);
   const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);

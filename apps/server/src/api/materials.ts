@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { MaterialRow } from "@framebaker/shared";
 import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
-import { createJob, createMattingJob } from "../queue";
+import { createGenerationJobs, createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
 import { checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
@@ -193,23 +193,21 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
-      const jobId = createJob("", "generate_frames", {
-        generate: {
-          prompt: body.prompt,
-          count: body.count,
-          autoMatting: body.autoMatting ?? false,
-          target: { kind: "materials" },
-          name: body.name,
-          referencePaths: ref.referencePaths,
-          providerId: body.providerId,
-          model: body.model,
-          size: body.size,
-          mediaKind: body.mediaKind,
-          fps: body.fps,
-          folderId: body.folderId ?? null,
-        },
+      const jobIds = createGenerationJobs("", {
+        prompt: body.prompt,
+        count: body.count,
+        autoMatting: body.autoMatting ?? false,
+        target: { kind: "materials" },
+        name: body.name,
+        referencePaths: ref.referencePaths,
+        providerId: body.providerId,
+        model: body.model,
+        size: body.size,
+        mediaKind: body.mediaKind,
+        fps: body.fps,
+        folderId: body.folderId ?? null,
       });
-      return { jobId };
+      return { jobId: jobIds[0], jobIds };
     },
     {
       body: t.Object({

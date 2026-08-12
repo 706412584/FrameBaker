@@ -286,6 +286,12 @@ export default function VideoExtractModal({ material: m, v, onClose, onToast }: 
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // M 是弹窗级取帧快捷键：拖动时间轴或点击按钮后控件仍有焦点，也必须生效。
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        addMarkAt(videoRef.current?.currentTime ?? 0);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, button, [contenteditable]")) return;
       if (event.code === "Space") {
@@ -297,9 +303,6 @@ export default function VideoExtractModal({ material: m, v, onClose, onToast }: 
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         seekBy(FRAME_STEP);
-      } else if (event.key.toLowerCase() === "m") {
-        event.preventDefault();
-        addMarkAt(videoRef.current?.currentTime ?? 0);
       }
     };
     window.addEventListener("keydown", onKeyDown);

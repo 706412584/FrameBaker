@@ -149,7 +149,7 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 // Request
 { "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-image", "size": "1328*1328", "references": [{ "kind": "material", "id": "…" }, { "kind": "frame", "id": "…" }], "mediaKind": "image" }
 // Response
-{ "jobId": "…" }
+{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }
 ```
 
 Provider resolution: if `providerId` is passed, looks up by id (not found → 400); default uses the first fully configured provider (settings page can configure multiple coexisting providers, types: `cli` / `api` (OpenAI-compatible) / `dashscope` (DashScope native) / `gemini` (banana) / `minimax`; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider as fallback). Optional `size` overrides the provider's `apiSize` at generation time (format varies by provider type: api e.g., `1024x1024`, dashscope e.g., `1328*1328`, gemini/minimax e.g., `16:9`; preset tiers in shared constant `GEN_SIZE_PRESETS`; CLI providers ignore size).
@@ -160,7 +160,7 @@ Provider resolution: if `providerId` is passed, looks up by id (not found → 40
 - **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); each reference is sent as an ordered `{inlineData: {mimeType,data}}` part before the text part; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`). The adapter searches every candidate/part for `inlineData.data` (and tolerates proxy `inline_data`), reports `promptFeedback.blockReason`, candidate `finishReason`, safety categories, model refusal text, and `responseId` when HTTP 200 contains no image, and retries once only for `NO_IMAGE`, `IMAGE_OTHER`, or a transient empty-candidate response.
 - **MiniMax provider**: `POST {apiBaseUrl}/v1/image_generation` (Bearer); reference image via `subject_reference` (subject feature preservation, one image limit, base64 dataURI); `apiSize` maps to `aspect_ratio` (e.g., `16:9`); `response_format=base64`, response takes `data.image_base64[0]`; `base_resp.status_code` non-0 = failure.
 
-Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16.
+Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16. In image mode, each requested output is queued as an independent job and runs under the global queue concurrency limit; `jobId` remains the first ID for compatibility and `jobIds` contains the full batch.
 
 - **Video mode**: `mediaKind: "video"` — only generates and saves a single video material (`raw.mp4`, no frame extraction; `count`/`fps` ignored). Only supported by CLI / DashScope / MiniMax. After completion, use `POST /api/materials/:id/extract` (fps or timestamps) to extract frames.
 
@@ -207,7 +207,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…" }` (provider resolution and multi-reference rules are the same as `/api/import/generate`). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }` (provider resolution, independent image jobs, and multi-reference rules are the same as `/api/import/generate`). Each completed material job broadcasts `materials_changed`, so an open material library refreshes incrementally. Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
 
 ### POST /api/materials/:id/extract
 
