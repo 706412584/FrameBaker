@@ -7,6 +7,7 @@ This document records features, changes, and bug fixes by release. Main releases
 ### Changed
 
 - Split multi-image generation requests into independently scheduled jobs under the global queue concurrency limit, return all IDs through `jobIds` while preserving `jobId`, and refresh an open material library as each generated material completes.
+- Changed all default action prompts to let idle, movement, attack, casting, hit, and defeat motions fit the referenced character's appearance, equipment, and abilities instead of assuming specific motions; explicit extra descriptions still specify the move.
 
 ### Added
 

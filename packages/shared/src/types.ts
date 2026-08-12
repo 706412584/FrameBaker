@@ -325,14 +325,14 @@ export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
  * prompt 为英文动作基调；完整文案由 buildActionSheetPrompt / buildActionVideoPrompt 组装。
  */
 export const ACTION_PRESETS = [
-  { id: "idle", label: "action.idle", prompt: "idle breathing" },
-  { id: "walk", label: "action.walk", prompt: "walk cycle" },
-  { id: "run", label: "action.run", prompt: "run cycle" },
-  { id: "jump", label: "action.jump", prompt: "jump arc" },
-  { id: "attack", label: "action.attack", prompt: "attack swing" },
-  { id: "cast", label: "action.cast", prompt: "spell cast" },
-  { id: "hurt", label: "action.hurt", prompt: "hit recoil" },
-  { id: "death", label: "action.death", prompt: "collapse / defeat" },
+  { id: "idle", label: "action.idle", prompt: "idle fitting the character" },
+  { id: "walk", label: "action.walk", prompt: "walk fitting the character" },
+  { id: "run", label: "action.run", prompt: "run fitting the character" },
+  { id: "jump", label: "action.jump", prompt: "jump fitting the character" },
+  { id: "attack", label: "action.attack", prompt: "attack fitting the character and equipment" },
+  { id: "cast", label: "action.cast", prompt: "cast fitting the character and abilities" },
+  { id: "hurt", label: "action.hurt", prompt: "hit reaction fitting the character" },
+  { id: "death", label: "action.death", prompt: "defeat fitting the character" },
 ] as const;
 export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
 

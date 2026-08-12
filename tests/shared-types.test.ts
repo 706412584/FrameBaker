@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ACTION_PRESETS,
   buildActionSheetPrompt,
   buildActionVideoPrompt,
   buildCharacterDirectionSheetPrompt,
@@ -40,6 +41,19 @@ describe("生成尺寸与 provider 规则", () => {
 });
 
 describe("动作生成 prompt", () => {
+  test("动作预设默认根据当前角色形象决定具体表现", () => {
+    expect(Object.fromEntries(ACTION_PRESETS.map((action) => [action.id, action.prompt]))).toEqual({
+      idle: "idle fitting the character",
+      walk: "walk fitting the character",
+      run: "run fitting the character",
+      jump: "jump fitting the character",
+      attack: "attack fitting the character and equipment",
+      cast: "cast fitting the character and abilities",
+      hurt: "hit reaction fitting the character",
+      death: "defeat fitting the character",
+    });
+  });
+
   test("帧数推荐网格会限制输入范围", () => {
     expect(suggestActionSheetGrid(-2)).toEqual({ cols: 1, rows: 1 });
     expect(suggestActionSheetGrid(4)).toEqual({ cols: 4, rows: 1 });
@@ -50,16 +64,16 @@ describe("动作生成 prompt", () => {
   test("同动作拼图保留循环语义、截断多余帧并说明空格", () => {
     const prompt = buildActionSheetPrompt({
       frames: [
-        { id: "idle", label: "待机", prompt: "idle breathing" },
-        { id: "idle", label: "待机", prompt: "idle breathing" },
-        { id: "idle", label: "待机", prompt: "idle breathing" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
       ],
       cols: 2,
       rows: 2,
       characterPrompt: "hero",
     });
 
-    expect(prompt).toContain("2×2 sprite sheet: 3-frame continuous idle breathing cycle");
+    expect(prompt).toContain("2×2 sprite sheet: 3-frame continuous idle fitting the character cycle");
     expect(prompt).toContain("last loops to first");
     expect(prompt).toContain("Blank last 1 panel(s).");
     expect(prompt).toContain("Char: hero");
