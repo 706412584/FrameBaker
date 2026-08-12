@@ -13,28 +13,37 @@ export interface ImageAnalysis {
   bounds: CropRect | null;
   opaqueRatio: number;
   significantComponents: number;
-  /** 16×16 的 RGBA 量化采样（每通道 0..15），用于识别缩放前后的重复部件。 */
   sample: number[];
 }
 
-export type SkeletalPartQualityIssueCode =
-  | "empty"
-  | "touches-edge"
-  | "fragmented"
-  | "duplicate"
-  | "mirrored-duplicate";
+export type SkeletalPartQualityIssueCode = "empty" | "touches-edge" | "fragmented" | "duplicate" | "mirrored-duplicate";
 
 export interface SkeletalPartQualityIssue {
   code: SkeletalPartQualityIssueCode;
   cells: number[];
 }
 
+export interface EditPoint {
+  x: number;
+  y: number;
+}
+
+export interface EraseStroke {
+  size: number;
+  points: EditPoint[];
+
+}
+
 /** worker 消息协议（Blob 走 structured clone，无需手动 transfer） */
 export interface ImageOpRequest {
   id: number;
-  op: "bounds" | "crop" | "analyze";
+
+  op: "bounds" | "crop" | "analyze" | "edit";
+
   blob: Blob;
   rect?: CropRect;
+  strokes?: EraseStroke[];
+  quarterTurns?: number;
 }
 
 export interface ImageOpResponse {

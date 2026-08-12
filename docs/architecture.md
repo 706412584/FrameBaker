@@ -33,7 +33,7 @@
 │   └─ /api/jobs(/:id)   Job list (panel initial load) / single query │
 │                                                                     │
 │  mcp/ (MCP server: POST /mcp JSON-RPC 2.0 Streamable HTTP)         │
-│       33 tools directly operating db/internal modules for AI agents │
+│       34 tools directly operating db/internal modules for AI agents │
 │                                                                     │
 │  provider.ts (multi-gen provider / matting config: settings > env)  │
 │  providerAdapter.ts (generation validation/execution adapter +      │
@@ -89,7 +89,7 @@ Root `scripts/version.ts` implements the `MAJOR.WEEK.BUG` main-release policy an
 - **Generation provider resolution** (`provider.ts`, reads settings table in real-time on each call): settings `genProviders` list models — CLI / OpenAI-compatible API / DashScope native / Gemini (banana) / MiniMax can coexist; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider (legacyTemplate path) as fallback. Generation requests select by `providerId` (default: first fully configured); `type=cli` uses structured argv assembly (`cliBin` + parameter name mappings `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`; empty name = positional arg or not sent); `type=api`/`dashscope`/`gemini`/`minimax` uses `jobs/generateApi.ts`:
   - api (OpenAI-compatible): no reference image `POST {base}/images/generations` (JSON); with reference image `POST {base}/images/edits` (multipart image+prompt, needs gpt-image series or similar edits-capable models); `data[0].b64_json` or `data[0].url` fetched, 120/180s timeout.
   - dashscope (DashScope native, wan2.7-image / qwen-image etc. not in compatible mode): `POST {base}/api/v1/services/aigc/multimodal-generation/generation`, messages content as `[{image: dataURI}?, {text}]` (reference image uploaded as base64), synchronous response `output.choices[0].message.content[*].image` URL downloaded; `apiSize` supports `2K`/`1K`/`4K` or `width*height`; `apiBaseUrl` normalized via `normalizeDashscopeBaseUrl` stripping `/compatible-mode/v1` and `/api/v1` (Token Plan default `https://token-plan.cn-beijing.maas.aliyuncs.com`, Key `sk-sp-`).
-  - gemini (banana / nano-banana): `POST {base}/v1beta/models/{model}:generateContent` (x-goog-api-key), parts `[{text}, {inlineData}?]`, response takes first `inlineData.data`; `apiSize` maps to `imageConfig.aspectRatio`.
+  - gemini (banana / nano-banana): `POST {base}/v1beta/models/{model}:generateContent` (x-goog-api-key), parts `[{text}, {inlineData}?]`; the dedicated response adapter scans all candidates, classifies prompt/output safety and text-only refusals from Gemini metadata, and retries one transient `NO_IMAGE`/`IMAGE_OTHER` result; `apiSize` maps to `imageConfig.aspectRatio`.
   - minimax: image `POST {base}/v1/image_generation` (Bearer), reference image via `subject_reference` (one image limit, subject feature preservation), `response_format=base64`, response takes `data.image_base64[0]`; `apiSize` maps to `aspect_ratio`.
   Model defaults to request `model`, then first item in provider's model list; neither available = job error. `GET /api/config` delivers `gen.providers` and `promptEnhancers` summary (no apiKey; providers carry `video` flag, mapping from shared constant `PROVIDER_VIDEO_SUPPORT`).
 - **Video generation** (`generateFrames` with `mediaKind="video"`, only cli/dashscope/minimax): only generates and saves `materials/{id}/raw.mp4` (no frame extraction); extraction via `POST /api/materials/:id/extract` (`fps` full-range or `timestamps` point-extract, single job) → `extract_frames`. CLI/DashScope/MiniMax video protocols as above; polling 5s interval, 10-minute timeout. **In image mode, CLI output detected as video also stored as video material**.
@@ -110,7 +110,7 @@ Root `scripts/version.ts` implements the `MAJOR.WEEK.BUG` main-release policy an
 AI client → POST /mcp { jsonrpc, method: "initialize" }
   → server returns protocolVersion/capabilities/serverInfo + Mcp-Session-Id
   → client sends notifications/initialized
-  → tools/list returns 33 tools
+  → tools/list returns 34 tools
   → tools/call { name, arguments } → direct db ops → returns { content: [{ type:"text", text:JSON }] }
 ```
 
@@ -193,6 +193,8 @@ Database tables (`apps/server/src/db.ts`, created on startup with CREATE TABLE I
 
 - `projects(id, name, folder_id, created_at)`
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
+- Canonical animation model: `animation_axes(project_id, idx, fps)` → `animation_tracks(axis_id, idx, visible, locked, is_primary)` plus shared `animation_steps(axis_id, idx, duration)`; `frames.track_id + step_id` is a unique composited cell coordinate. Legacy `frames.idx/duration` remain synchronized mirrors.
+- Startup migration is transactional/idempotent: every historical or empty project gets `Default` (8 fps) / `Main`; historical frames become one deterministic step each ordered by `idx,id`, preserving frame IDs, files, transforms, order, and durations. `frames.is_asset` separates reusable left-panel assets from timeline instances. Dragging an asset creates an instance without consuming the source; timeline-to-timeline drag still moves or swaps cells.
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
 - `folders(id, kind, parent_id, name, sort, created_at)`: multi-level directories for materials/projects (kind=`material`|`project`)

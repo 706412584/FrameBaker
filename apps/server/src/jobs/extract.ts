@@ -6,6 +6,8 @@ import { createProviderAdapter } from "../providerAdapter";
 import { broadcast } from "../ws";
 import { JobCancelledError, runCmd } from "./run";
 import { createGeneratedArtifactCommitter, type ArtifactCommitResult } from "./generatedArtifacts";
+import { appendFramePool } from "../timeline";
+import { invalidateProjectUndo } from "../undo";
 
 /** 任务产出目标：项目帧 or 素材库 */
 type JobTarget = { kind: "project"; projectId: string } | { kind: "materials" };
@@ -51,10 +53,8 @@ export interface GeneratePayload {
   target: JobTarget;
   /** 素材命名基准（仅 materials 目标；缺省取 prompt 前 24 字符） */
   name?: string;
-  /** 引用图绝对路径（服务端按 id 解析，防注入） */
-  referencePath?: string;
-  /** 第二张动作参考图绝对路径（服务端按 id 解析，防注入） */
-  poseReferencePath?: string;
+  /** 引用图绝对路径（服务端按 id 解析，防注入，顺序与请求一致） */
+  referencePaths?: string[];
   /** 生成时选择的 provider id（缺省用第一个已配置 provider） */
   providerId?: string;
   /** 生成时单独指定的模型（api 必填其一；cli 填 {model} 占位符） */
@@ -71,7 +71,7 @@ export interface GeneratePayload {
   intent?: GenerationIntent;
   /** 骨骼角色生成链关联的角色部件集。 */
   characterPartSetId?: string;
-  /** 引用素材 id，仅用于产物谱系 metadata；实际执行只使用服务端解析后的 referencePath。 */
+  /** 引用素材 id，仅用于产物谱系 metadata；实际执行只使用服务端解析后的 referencePaths。 */
   referenceMaterialId?: string;
   /** 第一阶段完整角色成功后，由调度层创建的第二阶段生成任务。 */
   followUp?: { prompt: string; name?: string; autoMatting?: boolean };
@@ -87,8 +87,7 @@ export function buildGeneratedFollowUp(source: GeneratePayload, referenceMateria
     autoMatting: source.followUp.autoMatting ?? source.autoMatting,
     mediaKind: "image",
     referenceMaterialId,
-    referencePath,
-    poseReferencePath: undefined,
+    referencePaths: [referencePath],
     intent: "skeletal-decompose",
     followUp: undefined,
   };
@@ -215,25 +214,20 @@ export async function extractFrames(
   progress(`入库 ${files.length} 项`);
 
   if (p.target.kind === "project") {
-    const rawDir = join(STORAGE_ROOT, "projects", p.target.projectId, "raw");
+    const projectId = p.target.projectId;
+    const rawDir = join(STORAGE_ROOT, "projects", projectId, "raw");
     mkdirSync(rawDir, { recursive: true });
     mkdirSync(join(STORAGE_ROOT, "projects", p.target.projectId, "processed"), { recursive: true });
     const start = nextFrameNumber(rawDir);
-    const baseIdx = nextFrameIdx(p.target.projectId);
     const frameIds: string[] = [];
     const source = p.mediaType === "mp4" || p.mediaType === "gif" ? "extract" : p.mediaType;
+    // staging 已完整产出；同步落盘前使旧撤销链失效，防止旧快照删除新帧。
+    invalidateProjectUndo(projectId);
     files.forEach((file, i) => {
       const id = uid();
       const rawPath = `${rawDir}/frame_${String(start + i).padStart(4, "0")}.png`;
       renameSync(`${stageDir}/${file}`, rawPath);
-      db.query("INSERT INTO frames (id, project_id, idx, raw_path, status, source) VALUES (?, ?, ?, ?, ?, ?)").run(
-        id,
-        p.target.kind === "project" ? p.target.projectId : "",
-        baseIdx + i,
-        rawPath,
-        p.autoMatting ? "matting" : "ready",
-        source
-      );
+      appendFramePool(projectId,{id,raw_path:rawPath,status:p.autoMatting?"matting":"ready",source});
       frameIds.push(id);
     });
     cleanupStaging(stageDir, p.stagingFile);

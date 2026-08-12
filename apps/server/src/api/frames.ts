@@ -1,8 +1,10 @@
 import { Elysia, t } from "elysia";
 import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { db, getFrame, serializeFrame, STORAGE_ROOT, uid } from "../db";
+import { db, getFrame, nextFrameIdx, serializeFrame, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
+import { deleteFrameCell, ensureDefaultTimeline, reorderSteps, setStepDuration, syncAxis } from "../timeline";
+import { getThumbnailPath, parseThumbnailSize, serveMediaFile } from "../media";
 
 const patchSchema = t.Partial(
   t.Object({
@@ -26,10 +28,12 @@ function isPng(bytes: Uint8Array): boolean {
 const frameImageHandler = ({
   params,
   query,
+  request,
   status,
 }: {
   params: { id: string };
-  query: { type?: string };
+  query: { type?: string; size?: string };
+  request: Request;
   status: (code: number, msg: string) => unknown;
 }) => {
   const frame = getFrame(params.id);
@@ -37,15 +41,21 @@ const frameImageHandler = ({
   let path: string | null = query.type === "raw" ? frame.raw_path : frame.processed_path;
   if (!path || !existsSync(path)) path = frame.raw_path;
   if (!path || !existsSync(path)) return status(404, "图片文件不存在");
-  return new Response(Bun.file(path), {
-    headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
-  });
+  const size = parseThumbnailSize(query.size);
+  if (size) {
+    return getThumbnailPath(path, size).then((thumbnail) =>
+      serveMediaFile(thumbnail ?? path!, request, "image/png")
+    );
+  }
+  return serveMediaFile(path, request, "image/png");
 };
 
 export const framesApi = new Elysia({ prefix: "/api" })
   // 项目帧列表，按 idx 排序
   .get("/projects/:id/frames", ({ params }) => {
-    const rows = db.query("SELECT * FROM frames WHERE project_id = ? ORDER BY idx").all(params.id) as any[];
+    const { axis, track } = ensureDefaultTimeline(params.id);
+    const rows = db.query(`SELECT f.* FROM frames f JOIN animation_steps s ON s.id=f.step_id
+      WHERE f.project_id=? AND f.track_id=? AND s.axis_id=? ORDER BY s.idx,s.id`).all(params.id,track.id,axis.id) as any[];
     return { frames: rows.map(serializeFrame) };
   })
   // 帧图片流式返回，processed 缺失时回退 raw（.png 后缀别名：让 Pixi Assets 按扩展名命中 parser）
@@ -59,11 +69,15 @@ export const framesApi = new Elysia({ prefix: "/api" })
       if (!frame) return status(404, "帧不存在");
       const keys = Object.keys(body) as Array<keyof typeof body>;
       if (keys.length === 0) return status(400, "没有可更新的字段");
-      const setSql = keys.map((k) => `${k} = ?`).join(", ");
-      const values = keys.map((k) => (k === "tags" ? JSON.stringify(body[k]) : (body[k] as number)));
-      db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, params.id);
+      if (body.duration !== undefined && frame.step_id) setStepDuration(frame.step_id, body.duration);
+      const ownKeys = keys.filter((k) => k !== "duration" || !frame.step_id);
+      if (ownKeys.length) {
+        const setSql = ownKeys.map((k) => `${k} = ?`).join(", ");
+        const values = ownKeys.map((k) => (k === "tags" ? JSON.stringify(body[k]) : (body[k] as number)));
+        db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, params.id);
+      }
       const updated = getFrame(params.id)!;
-      broadcast("frame_updated", { id: params.id, projectId: frame.project_id });
+      broadcast("frame_updated", { id: params.id, projectId: frame.project_id, imageChanged: false });
       return { frame: serializeFrame(updated) };
     },
     { body: patchSchema }
@@ -88,7 +102,7 @@ export const framesApi = new Elysia({ prefix: "/api" })
       ) {
         unlinkSync(frame.processed_path);
       }
-      broadcast("frame_updated", { id: frame.id, projectId: frame.project_id });
+      broadcast("frame_updated", { id: frame.id, projectId: frame.project_id, imageChanged: true });
       return { frame: serializeFrame(getFrame(frame.id)!) };
     },
     { body: t.Object({ file: t.File() }) }
@@ -98,10 +112,10 @@ export const framesApi = new Elysia({ prefix: "/api" })
     const frame = getFrame(params.id);
     if (!frame) return status(404, "帧不存在");
     for (const p of [frame.raw_path, frame.processed_path]) {
-      if (p && existsSync(p)) unlinkSync(p);
+      const shared = p ? db.query("SELECT 1 FROM frames WHERE id<>? AND (raw_path=? OR processed_path=?) LIMIT 1").get(frame.id, p, p) : null;
+      if (p && !shared && existsSync(p)) unlinkSync(p);
     }
-    db.query("DELETE FROM frames WHERE id = ?").run(params.id);
-    db.query("UPDATE frames SET idx = idx - 1 WHERE project_id = ? AND idx > ?").run(frame.project_id, frame.idx);
+    deleteFrameCell(params.id);
     broadcast("frames_changed", { projectId: frame.project_id });
     return { ok: true };
   })
@@ -112,12 +126,28 @@ export const framesApi = new Elysia({ prefix: "/api" })
       const frame = getFrame(params.id);
       if (!frame) return status(404, "帧不存在");
       const count = Math.min(Math.max(parseInt(query.count ?? "1", 10) || 1, 1), 16);
-      // 为副本腾出 idx 位置
-      db.query("UPDATE frames SET idx = idx + ? WHERE project_id = ? AND idx > ?").run(count, frame.project_id, frame.idx);
       const rawDir = join(STORAGE_ROOT, "projects", frame.project_id, "raw");
       const procDir = join(STORAGE_ROOT, "projects", frame.project_id, "processed");
       mkdirSync(rawDir, { recursive: true });
       mkdirSync(procDir, { recursive: true });
+      // 待编排帧的副本继续留在左侧帧池。
+      if (!frame.step_id || !frame.track_id) {
+        for (let i = 0; i < count; i++) {
+          const nid = uid();
+          const rawPath = frame.raw_path && existsSync(frame.raw_path) ? `${rawDir}/dup_${nid}.png` : frame.raw_path;
+          if (rawPath && frame.raw_path && rawPath !== frame.raw_path) copyFileSync(frame.raw_path, rawPath);
+          const procPath = frame.processed_path && existsSync(frame.processed_path) ? `${procDir}/${nid}.png` : frame.processed_path;
+          if (procPath && frame.processed_path && procPath !== frame.processed_path) copyFileSync(frame.processed_path, procPath);
+          db.query(`INSERT INTO frames (id,project_id,idx,raw_path,processed_path,status,duration,is_keyframe,offset_x,offset_y,scale,rotation,opacity,tags,source,metadata)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(nid,frame.project_id,nextFrameIdx(frame.project_id),rawPath,procPath,frame.status,frame.duration,frame.is_keyframe,frame.offset_x,frame.offset_y,frame.scale,frame.rotation,frame.opacity,frame.tags,"duplicate",frame.metadata);
+        }
+        broadcast("frames_changed", { projectId: frame.project_id });
+        return { ok: true, count };
+      }
+      // 为时间轴副本腾出共享步骤位置。
+      const sourceStep = db.query("SELECT * FROM animation_steps WHERE id=?").get(frame.step_id) as any;
+      const tail=db.query("SELECT id,idx FROM animation_steps WHERE axis_id=? AND idx>? ORDER BY idx DESC").all(sourceStep.axis_id,sourceStep.idx) as Array<{id:string;idx:number}>;
+      db.transaction(() => { tail.forEach(s=>db.query("UPDATE animation_steps SET idx=? WHERE id=?").run(-s.idx-1,s.id)); tail.forEach(s=>db.query("UPDATE animation_steps SET idx=? WHERE id=?").run(s.idx+count,s.id)); })();
       for (let i = 1; i <= count; i++) {
         const nid = uid();
         let rawPath = frame.raw_path;
@@ -131,13 +161,17 @@ export const framesApi = new Elysia({ prefix: "/api" })
           procPath = `${procDir}/${nid}.png`;
           copyFileSync(frame.processed_path, procPath);
         }
+        const stepId=uid();
+        db.query("INSERT INTO animation_steps (id,axis_id,idx,duration) VALUES (?,?,?,?)").run(stepId,sourceStep.axis_id,sourceStep.idx+i,sourceStep.duration);
         db.query(
-          `INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe,
+          `INSERT INTO frames (id, project_id, track_id, step_id, idx, raw_path, processed_path, status, duration, is_keyframe,
              offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?)`
         ).run(
           nid,
           frame.project_id,
+          frame.track_id,
+          stepId,
           frame.idx + i,
           rawPath,
           procPath,
@@ -153,6 +187,7 @@ export const framesApi = new Elysia({ prefix: "/api" })
           frame.metadata
         );
       }
+      syncAxis(sourceStep.axis_id);
       broadcast("frames_changed", { projectId: frame.project_id });
       return { ok: true, count };
     },
@@ -162,15 +197,15 @@ export const framesApi = new Elysia({ prefix: "/api" })
   .post(
     "/projects/:id/reorder",
     ({ params, body, status }) => {
-      const rows = db.query("SELECT id FROM frames WHERE project_id = ?").all(params.id) as Array<{ id: string }>;
+      const { axis, track }=ensureDefaultTimeline(params.id);
+      const rows = db.query(`SELECT f.id,f.step_id FROM frames f JOIN animation_steps s ON s.id=f.step_id
+        WHERE f.project_id=? AND f.track_id=? AND s.axis_id=? ORDER BY s.idx`).all(params.id,track.id,axis.id) as Array<{ id: string;step_id:string }>;
       const set = new Set(rows.map((r) => r.id));
-      if (body.frameIds.length !== set.size || !body.frameIds.every((id) => set.has(id))) {
-        return status(400, "frameIds 必须恰好包含项目的全部帧");
+      const stepCount=(db.query("SELECT COUNT(*) n FROM animation_steps WHERE axis_id=?").get(axis.id) as any).n;
+      if (rows.length!==stepCount || body.frameIds.length !== set.size || new Set(body.frameIds).size!==body.frameIds.length || !body.frameIds.every((id) => set.has(id))) {
+        return status(409, "仅支持主轨每步骤恰好一个单元格的旧式时间轴换序");
       }
-      const stmt = db.query("UPDATE frames SET idx = ? WHERE id = ?");
-      db.transaction((ids: string[]) => {
-        ids.forEach((id, i) => stmt.run(i, id));
-      })(body.frameIds);
+      const byId=new Map(rows.map(r=>[r.id,r.step_id])); reorderSteps(axis.id,body.frameIds.map(id=>byId.get(id)!));
       broadcast("frames_reordered", { projectId: params.id });
       return { ok: true };
     },

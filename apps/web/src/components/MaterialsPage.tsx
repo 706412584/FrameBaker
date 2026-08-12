@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Pencil, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -19,8 +19,72 @@ import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import IconBtn from "./IconBtn";
+import { useMaterialEditor } from "./MaterialEditor";
 
 const isMac = /macintosh|mac os/i.test(navigator.userAgent);
+
+/**
+ * 素材卡片 —— memo：仅当自身 props 变化（选中态翻转 / 该素材图版本变化 / 素材对象变化）时才重渲染，
+ * 避免父组件任何 state 变化都全网格 reconcile。去掉了昂贵的 motion `layout`（大量节点下测量+动画是主要开销）。
+ */
+const MaterialCard = memo(function MaterialCard({
+  material: m,
+  selected,
+  imgV,
+  onClick,
+  onContextMenu,
+  onToggle,
+  onDragStart,
+}: {
+  material: Material;
+  selected: boolean;
+  imgV?: number;
+  onClick: (e: React.MouseEvent, id: string) => void;
+  onContextMenu: (e: React.MouseEvent, id: string) => void;
+  onToggle: (id: string) => void;
+  onDragStart: (id: string, e: React.DragEvent) => void;
+}) {
+  const t = useT();
+  const theme = useTheme();
+  return (
+    <motion.div
+      className={`project-card mat-card ${selected ? "selected" : ""}`}
+      whileHover={{ y: -4 }}
+      whileTap={{ scale: 0.985 }}
+      draggable
+      onDragStart={(e) => onDragStart(m.id, e as unknown as React.DragEvent)}
+      onClick={(e) => onClick(e, m.id)}
+      onContextMenu={(e) => onContextMenu(e, m.id)}
+    >
+      <div className="thumb">
+        {m.kind === "video" ? (
+          <video src={materialFileUrl(m.id, imgV, "raw")} muted playsInline preload="metadata" draggable={false} />
+        ) : (
+          <img src={materialImageUrl(m.id, imgV, "processed", 320)} alt="" draggable={false} loading="lazy" decoding="async" />
+        )}
+        <span
+          className={`mat-check ${selected ? "on" : ""}`}
+          title={t("msg.select_70b208")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(m.id);
+          }}
+        >
+          {selected && <Check size={12} />}
+        </span>
+        {m.kind === "video" && <span className="mat-badge-video">{t("msg.video")}</span>}
+        {m.status === "matted" && <span className="mat-badge-matted">{t("msg.matted_431ee1")}</span>}
+        <span className="mat-src" style={{ background: themedSourceColor(SOURCE_COLORS[m.source] ?? "#888", theme) }}>
+          {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}
+        </span>
+      </div>
+      <div className="info">
+        <div className="name">{m.name}</div>
+        <div className="meta">{new Date(m.created_at).toLocaleString(getLocale())}</div>
+      </div>
+    </motion.div>
+  );
+});
 
 export default function MaterialsPage() {
   const t = useT();
@@ -39,9 +103,12 @@ export default function MaterialsPage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; materialId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [v, setV] = useState(0);
+  /** 按素材 id 的缩略图版本：仅在对应素材图变化时 bump（替代全局 v 的全量破缓存，避免一变全变） */
+  const [imgV, setImgV] = useState<Record<string, number>>({});
   const [zoom, setZoom] = useFileZoom();
   const theme = useTheme();
   const cfg = useServerConfig();
+  const openMaterialEditor = useMaterialEditor();
 
   const loadFolders = useCallback(async () => {
     try {
@@ -66,21 +133,50 @@ export default function MaterialsPage() {
     }
   }, []);
 
+  const editMaterial = useCallback(
+    (material: Material) => {
+      if (material.kind === "video") return;
+      openMaterialEditor({ id: material.id, name: material.name, v: imgV[material.id] ?? v, onSaved: load });
+    },
+    [imgV, load, openMaterialEditor, v]
+  );
+
+  // 连续 WS 事件合并成一次 load（批量抠图/导入会密集发 material_updated/materials_changed）
+  const loadTimer = useRef<number | null>(null);
+  const loadDebounced = useCallback(() => {
+    if (loadTimer.current != null) window.clearTimeout(loadTimer.current);
+    loadTimer.current = window.setTimeout(() => {
+      loadTimer.current = null;
+      void load();
+    }, 250);
+  }, [load]);
+
   useEffect(() => {
     void load();
     void loadFolders();
     const unsub = wsClient.subscribe((msg) => {
-      if (["material_updated", "materials_changed", "job_done"].includes(msg.type)) {
-        void load();
-        setV((x) => x + 1);
+      if (msg.type === "material_updated") {
+        // 单素材图变化（抠图/替换/裁剪完成）：仅刷新该素材缩略图，元数据 debounce 拉取
+        const p = msg.payload as { id?: string } | undefined;
+        if (p?.id) setImgV((prev) => ({ ...prev, [p.id as string]: (prev[p.id as string] ?? 0) + 1 }));
+        // 全局版本只供当前详情/抽帧弹窗破缓存，素材卡片使用上面的按 id 版本。
+        setV((current) => current + 1);
+        loadDebounced();
+      } else if (msg.type === "materials_changed") {
+        // 增删/导入/移动：结构变化需重拉，但不影响已有素材的图片缓存（不动 imgV）
+        loadDebounced();
       }
       if (msg.type === "folders_changed") {
         const p = msg.payload as { kind?: string } | undefined;
         if (!p?.kind || p.kind === "material") void loadFolders();
       }
     });
-    return unsub;
-  }, [load, loadFolders]);
+    return () => {
+      unsub();
+      if (loadTimer.current !== null) window.clearTimeout(loadTimer.current);
+      loadTimer.current = null;
+    };
+  }, [load, loadFolders, loadDebounced]);
 
   const visible = useMemo(() => {
     if (folderSel === "all") return materials;
@@ -88,11 +184,19 @@ export default function MaterialsPage() {
     return materials.filter((m) => m.folder_id === folderSel);
   }, [materials, folderSel]);
 
+  // 持有「会变但回调只读」的值，避免回调依赖它们而频繁重建（保证 MaterialCard memo 生效）
+  const selRef = useRef(selectedIds);
+  selRef.current = selectedIds;
+  const anchorRef = useRef(anchorId);
+  anchorRef.current = anchorId;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   const currentFolderId = folderSel !== "all" && folderSel !== "ungrouped" ? folderSel : null;
 
   const toast = (msg: string) => notify(msg, "info");
 
-  const toggleOne = (id: string) => {
+  const toggleOne = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -100,35 +204,48 @@ export default function MaterialsPage() {
       return next;
     });
     setAnchorId(id);
-  };
+  }, []);
 
-  const onCardClick = (e: React.MouseEvent, id: string) => {
-    const ctrl = e.metaKey || e.ctrlKey;
-    if (e.shiftKey && anchorId) {
-      const a = visible.findIndex((m) => m.id === anchorId);
-      const b = visible.findIndex((m) => m.id === id);
-      if (a >= 0 && b >= 0) {
-        const [lo, hi] = a <= b ? [a, b] : [b, a];
-        setSelectedIds(new Set(visible.slice(lo, hi + 1).map((m) => m.id)));
+  const onCardClick = useCallback(
+    (e: React.MouseEvent, id: string) => {
+      const vis = visibleRef.current;
+      const anchor = anchorRef.current;
+      const ctrl = e.metaKey || e.ctrlKey;
+      if (e.shiftKey && anchor) {
+        const a = vis.findIndex((m) => m.id === anchor);
+        const b = vis.findIndex((m) => m.id === id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a <= b ? [a, b] : [b, a];
+          setSelectedIds(new Set(vis.slice(lo, hi + 1).map((m) => m.id)));
+          return;
+        }
+      }
+      if (ctrl) {
+        toggleOne(id);
         return;
       }
-    }
-    if (ctrl) {
-      toggleOne(id);
-      return;
-    }
-    setAnchorId(id);
-    setDetailId(id);
-  };
+      setAnchorId(id);
+      setDetailId(id);
+    },
+    [toggleOne]
+  );
 
-  const onCardContextMenu = (e: React.MouseEvent, id: string) => {
+  const onCardContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!(selectedIds.size >= 2 && selectedIds.has(id))) {
+    const sel = selRef.current;
+    if (!(sel.size >= 2 && sel.has(id))) {
       setSelectedIds(new Set());
     }
     setCtxMenu({ x: e.clientX, y: e.clientY, materialId: id });
-  };
+  }, []);
+
+  const handleDragStart = useCallback((id: string, e: React.DragEvent) => {
+    const sel = selRef.current;
+    const ids = sel.has(id) ? [...sel] : [id];
+    e.dataTransfer.setData("application/x-framebaker-ids", JSON.stringify(ids));
+    e.dataTransfer.effectAllowed = "move";
+  }, []);
 
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -298,7 +415,11 @@ export default function MaterialsPage() {
           failed++;
         }
       }
-      setV((x) => x + 1);
+      setImgV((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = (next[id] ?? 0) + 1;
+        return next;
+      });
       await load();
       toast(
         t("msg.auto_trimmed_ok_skipped_skipped_failed_failed", { ok, skipped, failed })
@@ -369,6 +490,11 @@ export default function MaterialsPage() {
                   },
                 ] satisfies CtxMenuItem[])
               : ([
+                  {
+                    label: t("materialEdit.action"),
+                    icon: <Pencil size={13} />,
+                    onClick: () => editMaterial(ctxMat),
+                  },
                   {
                     label: t("msg.import_to_project"),
                     icon: <Send size={13} />,
@@ -509,54 +635,16 @@ export default function MaterialsPage() {
           ) : (
             <div className="file-grid" style={{ ["--tile-min" as string]: `${zoom}px` }}>
               {visible.map((m) => (
-                <motion.div
+                <MaterialCard
                   key={m.id}
-                  className={`project-card mat-card ${selectedIds.has(m.id) ? "selected" : ""}`}
-                  whileHover={{ y: -4 }}
-                  whileTap={{ scale: 0.985 }}
-                  layout
-                  draggable
-                  onDragStart={(e) => {
-                    const ids = selectedIds.has(m.id) ? [...selectedIds] : [m.id];
-                    (e as unknown as React.DragEvent).dataTransfer.setData(
-                      "application/x-framebaker-ids",
-                      JSON.stringify(ids)
-                    );
-                    (e as unknown as React.DragEvent).dataTransfer.effectAllowed = "move";
-                  }}
-                  onClick={(e) => onCardClick(e, m.id)}
-                  onContextMenu={(e) => onCardContextMenu(e, m.id)}
-                >
-                  <div className="thumb">
-                    {m.kind === "video" ? (
-                      <video src={materialFileUrl(m.id, v, "raw")} muted playsInline preload="metadata" draggable={false} />
-                    ) : (
-                      <img src={materialImageUrl(m.id, v)} alt="" draggable={false} loading="lazy" />
-                    )}
-                    <span
-                      className={`mat-check ${selectedIds.has(m.id) ? "on" : ""}`}
-                      title={t("msg.select_70b208")}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleOne(m.id);
-                      }}
-                    >
-                      {selectedIds.has(m.id) && <Check size={12} />}
-                    </span>
-                    {m.kind === "video" && <span className="mat-badge-video">{t("msg.video")}</span>}
-                    {m.status === "matted" && <span className="mat-badge-matted">{t("msg.matted_431ee1")}</span>}
-                    <span
-                      className="mat-src"
-                      style={{ background: themedSourceColor(SOURCE_COLORS[m.source] ?? "#888", theme) }}
-                    >
-                      {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}
-                    </span>
-                  </div>
-                  <div className="info">
-                    <div className="name">{m.name}</div>
-                    <div className="meta">{new Date(m.created_at).toLocaleString(getLocale())}</div>
-                  </div>
-                </motion.div>
+                  material={m}
+                  selected={selectedIds.has(m.id)}
+                  imgV={imgV[m.id]}
+                  onClick={onCardClick}
+                  onContextMenu={onCardContextMenu}
+                  onToggle={toggleOne}
+                  onDragStart={handleDragStart}
+                />
               ))}
             </div>
           )}
@@ -574,6 +662,11 @@ export default function MaterialsPage() {
               >
                 <span className="batch-count">{t("msg.count_materials_selected", { count: selectedIds.size })}</span>
                 <span className="tb-sep" />
+                {selectedLayerMat && (
+                  <IconBtn title={t("materialEdit.action")} disabled={busy} onClick={() => editMaterial(selectedLayerMat)}>
+                    <Pencil size={14} />
+                  </IconBtn>
+                )}
                 <IconBtn className="danger" title={t("msg.batch_delete")} disabled={busy} onClick={() => void requestBatchDelete()}>
                   <Trash2 size={14} />
                 </IconBtn>

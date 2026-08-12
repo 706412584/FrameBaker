@@ -4,6 +4,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { broadcast } from "../ws";
+import { ensureDefaultTimeline } from "../timeline";
+import { invalidateProjectUndo } from "../undo";
 
 function isProjectKind(value: string): value is ProjectKind {
   return (PROJECT_KINDS as readonly string[]).includes(value);
@@ -15,8 +17,11 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     const rows = db
       .query(
         `SELECT p.*,
-          (SELECT COUNT(*) FROM frames f WHERE f.project_id = p.id) AS frame_count,
-          (SELECT f.id FROM frames f WHERE f.project_id = p.id ORDER BY f.idx LIMIT 1) AS first_frame_id
+          (SELECT COUNT(*) FROM frames f WHERE f.project_id=p.id) AS frame_count,
+          COALESCE(
+            (SELECT f.id FROM frames f JOIN animation_tracks t ON t.id=f.track_id JOIN animation_steps s ON s.id=f.step_id JOIN animation_axes a ON a.id=t.axis_id WHERE a.project_id=p.id AND a.idx=0 AND t.is_primary=1 ORDER BY s.idx LIMIT 1),
+            (SELECT f.id FROM frames f WHERE f.project_id=p.id AND f.track_id IS NULL AND f.step_id IS NULL ORDER BY f.idx,f.id LIMIT 1)
+          ) AS first_frame_id
          FROM projects p ORDER BY p.created_at DESC`
       )
       .all();
@@ -43,6 +48,7 @@ export const projectsApi = new Elysia({ prefix: "/api" })
         folderId,
         Date.now()
       );
+      ensureDefaultTimeline(id);
       mkdirSync(join(STORAGE_ROOT, "projects", id, "raw"), { recursive: true });
       mkdirSync(join(STORAGE_ROOT, "projects", id, "processed"), { recursive: true });
       return { id, name, kind, folder_id: folderId };
@@ -95,7 +101,8 @@ export const projectsApi = new Elysia({ prefix: "/api" })
   .delete("/projects/:id", ({ params, status }) => {
     const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
     if (!row) return status(404, "项目不存在");
-    db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);
+    invalidateProjectUndo(params.id);
+    db.transaction(()=>{db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_axes WHERE project_id=?").run(params.id);})();
     db.query("DELETE FROM jobs WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM skeletal_projects WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM projects WHERE id = ?").run(params.id);

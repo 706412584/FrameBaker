@@ -147,7 +147,8 @@ export default function FolderTree({
   const onDragOverRow = (e: React.DragEvent, key: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDropTarget(key);
+    // 函数式更新：值未变时返回旧值触发 React bailout，避免 dragover 高频重渲染
+    setDropTarget((prev) => (prev === key ? prev : key));
   };
 
   const onDropRow = async (e: React.DragEvent, folderId: string | null) => {

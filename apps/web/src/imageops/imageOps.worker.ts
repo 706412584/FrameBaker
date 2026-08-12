@@ -1,6 +1,8 @@
 // 图像处理 worker：解码 / 透明边扫描 / 剪裁编码都在 worker 线程，避免阻塞 UI
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
-import { computeImageAnalysis, computeOpaqueBounds, type ImageOpRequest, type ImageOpResponse } from "./ops";
+
+import { computeImageAnalysis, computeOpaqueBounds, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
+
 
 declare function postMessage(message: ImageOpResponse): void;
 
@@ -20,8 +22,47 @@ async function cropFromBitmap(bitmap: ImageBitmap, rect: { x: number; y: number;
   return canvas.convertToBlob({ type: "image/png" });
 }
 
+function eraseStrokes(ctx: OffscreenCanvasRenderingContext2D, strokes: EraseStroke[]) {
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const stroke of strokes) {
+    const first = stroke.points[0];
+    if (!first) continue;
+    ctx.lineWidth = stroke.size;
+    if (stroke.points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(first.x, first.y, stroke.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
+    ctx.beginPath();
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quarterTurns: number) {
+  const source = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const sourceCtx = source.getContext("2d")!;
+  sourceCtx.drawImage(bitmap, 0, 0);
+  eraseStrokes(sourceCtx, strokes);
+
+  const turns = ((quarterTurns % 4) + 4) % 4;
+  const output = new OffscreenCanvas(turns % 2 ? bitmap.height : bitmap.width, turns % 2 ? bitmap.width : bitmap.height);
+  const ctx = output.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(output.width / 2, output.height / 2);
+  ctx.rotate(turns * Math.PI / 2);
+  ctx.drawImage(source, -bitmap.width / 2, -bitmap.height / 2);
+  return output.convertToBlob({ type: "image/png" });
+}
+
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
@@ -32,12 +73,17 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
       if (!rect) throw new Error("crop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);
       postMessage({ id, ok: true, blob: out });
-    } else {
+    } else if (op === "analyze") {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(bitmap, 0, 0);
       const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
       postMessage({ id, ok: true, analysis: computeImageAnalysis(imageData.data, imageData.width, imageData.height) });
+    } else {
+
+      const out = await editFromBitmap(bitmap, strokes ?? [], quarterTurns ?? 0);
+      postMessage({ id, ok: true, blob: out });
+
     }
   } catch (err) {
     postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) });

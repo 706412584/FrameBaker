@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CheckCircle2, Clock, ListTodo, Square, X, XCircle } from "lucide-react";
 import { api, wsClient, type Job } from "../api";
@@ -21,15 +21,89 @@ const NAV_H = 60; // 顶部导航栏高度，拖拽下限需避开以免头部�
 const isActive = (j: Job) => j.status === "queued" || j.status === "running";
 const isTransient = (j: Job) => j.status === "done" || j.status === "cancelled";
 
+/** 单条任务行 —— memo：仅当本条 job 变化时才重渲染，避免每次进度心跳全量 reconcile */
+const JobItem = memo(function JobItem({
+  job,
+  cancelling,
+  onCancel,
+  onDismiss,
+}: {
+  job: Job;
+  cancelling: boolean;
+  onCancel: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const t = useT();
+  return (
+    <motion.div
+      className={`job-item ${job.status}`}
+      initial={{ opacity: 0, x: 24 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 24 }}
+    >
+      <div className="row">
+        {job.status === "done" ? (
+          <CheckCircle2 size={13} className="ok" />
+        ) : job.status === "error" ? (
+          <XCircle size={13} className="err" />
+        ) : job.status === "cancelled" ? (
+          <Square size={13} className="wait" />
+        ) : (
+          <Clock size={13} className="wait" />
+        )}
+        <span className="kind">{t(TYPE_LABEL[job.type] ?? job.type)}</span>
+        <span className="prog" title={job.error ?? job.progress ?? undefined}>
+          {job.status === "done"
+            ? t("msg.done")
+            : job.status === "error"
+              ? t("msg.failed")
+              : job.status === "cancelled"
+                ? t("msg.cancelled")
+                : (job.progress ?? (job.status === "queued" ? t("msg.queued") : t("msg.processing")))}
+        </span>
+        {isActive(job) && (
+          <button
+            type="button"
+            className="dismiss"
+            title={t("msg.cancel_job")}
+            disabled={cancelling}
+            onClick={() => onCancel(job.id)}
+          >
+            <Square size={11} />
+          </button>
+        )}
+        {(job.status === "done" || job.status === "error" || job.status === "cancelled") && (
+          <button type="button" className="dismiss" title={t("msg.dismiss")} onClick={() => onDismiss(job.id)}>
+            <X size={12} />
+          </button>
+        )}
+      </div>
+      <div
+        className={`px-progress ${job.status === "done" ? "done" : ""} ${job.status === "error" ? "error" : ""} ${job.status === "cancelled" ? "error" : ""}`}
+      >
+        <div className="bar" />
+      </div>
+      {job.status === "error" && job.error && <div className="job-error-text">{job.error}</div>}
+    </motion.div>
+  );
+});
+
 /**
- * 右侧常驻任务队列面板：初始接管进行中的任务，之后靠 WS job_* 事件驱动（3s 轮询兜底断连恢复期）。
+ * 右侧常驻任务队列面板：初始接管进行中的任务，之后靠 WS job_* 事件驱动（3s 批量轮询兜底断连恢复期）。
  * 完成/取消短暂停留后消失；失败常驻可手动关闭。排队/运行中可取消。
+ *
+ * 性能：state 为 Record<id, Job>，WS 事件按 payload 局部 patch（不再为每条事件多发一次 GET）；
+ * 行渲染走 memo 化 JobItem，未变化的行跳过 reconcile。
  */
 export default function JobPanel() {
   const t = useT();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<Record<string, Job>>({});
   const [cancelling, setCancelling] = useState<Set<string>>(new Set());
   const timers = useRef(new Map<string, number>());
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+  const cancellingRef = useRef(cancelling);
+  cancellingRef.current = cancelling;
 
   // —— 拖拽移动面板 ——
   // pos 为 null 时沿用 CSS 默认（右上角）；拖拽后存 left/top 并持久化
@@ -99,89 +173,177 @@ export default function JobPanel() {
     };
   }, [dragging]);
 
-  const dismiss = (id: string) => {
+  /** 安排完成/取消行的自动消失计时 */
+  const scheduleDismiss = useCallback((id: string) => {
+    if (timers.current.has(id)) return;
+    timers.current.set(
+      id,
+      window.setTimeout(() => {
+        timers.current.delete(id);
+        setJobs((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }, DONE_TTL)
+    );
+  }, []);
+
+  /** 写入/覆盖单条 job（来自初始加载、轮询、job_queued） */
+  const upsertJob = useCallback(
+    (job: Job) => {
+      setJobs((prev) => ({ ...prev, [job.id]: job }));
+      if (isTransient(job)) scheduleDismiss(job.id);
+    },
+    [scheduleDismiss]
+  );
+
+  /** 局部 patch 单条 job（来自 WS 进度/状态事件）；未知 id 主动拉取，覆盖初始加载与 WS 的竞态 */
+  const patchJob = useCallback((id: string, patch: Partial<Job>) => {
+    if (!jobsRef.current[id]) {
+      void api.getJob(id).then(upsertJob).catch(() => {});
+      return;
+    }
+    setJobs((prev) => {
+      const cur = prev[id];
+      if (!cur) return prev;
+      return { ...prev, [id]: { ...cur, ...patch } };
+    });
+    if (patch.status && isTransient({ ...({} as Job), status: patch.status })) scheduleDismiss(id);
+  }, [scheduleDismiss, upsertJob]);
+
+  const dismiss = useCallback((id: string) => {
     const timer = timers.current.get(id);
     if (timer) {
       clearTimeout(timer);
       timers.current.delete(id);
     }
-    setJobs((prev) => prev.filter((j) => j.id !== id));
-  };
-
-  const upsert = (job: Job) => {
     setJobs((prev) => {
-      const next = prev.some((j) => j.id === job.id)
-        ? prev.map((j) => (j.id === job.id ? job : j))
-        : [job, ...prev];
-      return next.slice(0, MAX_ITEMS);
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
-    if (isTransient(job) && !timers.current.has(job.id)) {
-      timers.current.set(
-        job.id,
-        window.setTimeout(() => {
-          timers.current.delete(job.id);
-          setJobs((prev) => prev.filter((j) => j.id !== job.id));
-        }, DONE_TTL)
-      );
-    }
-  };
+  }, []);
 
-  const fetchOne = (id: string) =>
-    api
-      .getJob(id)
-      .then(upsert)
-      .catch(() => dismiss(id));
+  const cancel = useCallback(
+    async (id: string) => {
+      if (cancellingRef.current.has(id)) return;
+      if (!(await askConfirm(t("msg.cancel_this_job_running_commands_will_be_aborted")))) return;
+      setCancelling((prev) => new Set(prev).add(id));
+      try {
+        await api.cancelJob(id);
+        // cancel 后 fetch 确认最终态（取消是异步 abort，需等服务端落库）
+        const job = await api.getJob(id);
+        upsertJob(job);
+      } catch (e) {
+        notify(t("msg.cancel_failed_msg", { msg: (e as Error).message }));
+      } finally {
+        setCancelling((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    },
+    [t, upsertJob]
+  );
 
-  const cancel = async (id: string) => {
-    if (cancelling.has(id)) return;
-    if (!(await askConfirm(t("msg.cancel_this_job_running_commands_will_be_aborted")))) return;
-    setCancelling((prev) => new Set(prev).add(id));
-    try {
-      await api.cancelJob(id);
-      await fetchOne(id);
-    } catch (e) {
-      notify(t("msg.cancel_failed_msg", { msg: (e as Error).message }));
-    } finally {
-      setCancelling((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    }
-  };
-
+  // 初始接管进行中任务；WS 主驱动（直接用 payload 局部 patch，不再每条事件多发一次 GET）
   useEffect(() => {
     api
       .listJobs()
-      .then((list) => setJobs(list.filter(isActive).slice(0, MAX_ITEMS)))
+      .then((list) => {
+        const map: Record<string, Job> = {};
+        for (const j of list.filter(isActive).slice(0, MAX_ITEMS)) map[j.id] = j;
+        setJobs((prev) => ({ ...map, ...prev }));
+      })
       .catch(() => {});
     const unsub = wsClient.subscribe((msg) => {
-      const p = msg.payload as { id?: string } | undefined;
-      if (msg.type.startsWith("job_") && p?.id) void fetchOne(p.id);
+      if (!msg.type.startsWith("job_")) return;
+      const p = (msg.payload ?? {}) as Record<string, unknown>;
+      const id = p.id as string | undefined;
+      if (!id) return;
+      switch (msg.type) {
+        case "job_queued":
+          upsertJob({
+            id,
+            project_id: (p.projectId as string) ?? "",
+            type: (p.type as Job["type"]) ?? "matting",
+            status: "queued",
+            progress: null,
+            error: null,
+            created_at: Date.now(),
+          });
+          break;
+        case "job_running":
+          patchJob(id, { status: "running", progress: "开始处理" });
+          break;
+        case "job_progress":
+          patchJob(id, { progress: (p.progress as string) ?? null });
+          break;
+        case "job_done":
+          patchJob(id, { status: "done", progress: "完成", error: null });
+          break;
+        case "job_error":
+          patchJob(id, { status: "error", error: (p.error as string) ?? null });
+          break;
+        case "job_cancelled":
+          patchJob(id, { status: "cancelled", progress: "已取消" });
+          break;
+      }
     });
     const timerMap = timers.current;
     return () => {
       unsub();
       timerMap.forEach((timer) => clearTimeout(timer));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [patchJob, upsertJob]);
 
-  const activeKey = jobs
+  // 3s 批量轮询兜底（断连恢复期补齐）：跟踪当前 active id，并接收其最终状态
+  const activeKey = Object.values(jobs)
     .filter(isActive)
     .map((j) => j.id)
+    .sort()
     .join(",");
   useEffect(() => {
     if (!activeKey) return;
     const timer = window.setInterval(() => {
-      activeKey.split(",").forEach((id) => void fetchOne(id));
+      api
+        .listJobs()
+        .then((list) => {
+          const activeIds = new Set(activeKey.split(","));
+          const updates = list.filter((job) => activeIds.has(job.id));
+          for (const job of updates) {
+            if (isTransient(job)) scheduleDismiss(job.id);
+          }
+          setJobs((prev) => {
+            const next: Record<string, Job> = { ...prev };
+            for (const j of updates) {
+              next[j.id] = j;
+            }
+            return next;
+          });
+        })
+        .catch(() => {
+          /* 断连等，忽略；下个 tick 重试 */
+        });
     }, 3000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey]);
+  }, [activeKey, scheduleDismiss]);
 
-  if (jobs.length === 0) return null;
-  const activeCount = jobs.filter(isActive).length;
+  // 渲染顺序：进行中前置 → 其余按创建时间倒序；截断 MAX_ITEMS
+  const ordered = Object.values(jobs)
+    .sort((a, b) => {
+      const ai = isActive(a) ? 0 : 1;
+      const bi = isActive(b) ? 0 : 1;
+      if (ai !== bi) return ai - bi;
+      return b.created_at - a.created_at;
+    })
+    .slice(0, MAX_ITEMS);
+
+  if (ordered.length === 0) return null;
+  const activeCount = ordered.filter(isActive).length;
 
   return (
     <div
@@ -205,58 +367,14 @@ export default function JobPanel() {
         </span>
       </div>
       <AnimatePresence initial={false}>
-        {jobs.map((j) => (
-          <motion.div
+        {ordered.map((j) => (
+          <JobItem
             key={j.id}
-            className={`job-item ${j.status}`}
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 24 }}
-          >
-            <div className="row">
-              {j.status === "done" ? (
-                <CheckCircle2 size={13} className="ok" />
-              ) : j.status === "error" ? (
-                <XCircle size={13} className="err" />
-              ) : j.status === "cancelled" ? (
-                <Square size={13} className="wait" />
-              ) : (
-                <Clock size={13} className="wait" />
-              )}
-              <span className="kind">{t(TYPE_LABEL[j.type] ?? j.type)}</span>
-              <span className="prog" title={j.error ?? j.progress ?? undefined}>
-                {j.status === "done"
-                  ? t("msg.done")
-                  : j.status === "error"
-                    ? t("msg.failed")
-                    : j.status === "cancelled"
-                      ? t("msg.cancelled")
-                      : (j.progress ?? (j.status === "queued" ? t("msg.queued") : t("msg.processing")))}
-              </span>
-              {isActive(j) && (
-                <button
-                  type="button"
-                  className="dismiss"
-                  title={t("msg.cancel_job")}
-                  disabled={cancelling.has(j.id)}
-                  onClick={() => void cancel(j.id)}
-                >
-                  <Square size={11} />
-                </button>
-              )}
-              {(j.status === "done" || j.status === "error" || j.status === "cancelled") && (
-                <button type="button" className="dismiss" title={t("msg.dismiss")} onClick={() => dismiss(j.id)}>
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            <div
-              className={`px-progress ${j.status === "done" ? "done" : ""} ${j.status === "error" ? "error" : ""} ${j.status === "cancelled" ? "error" : ""}`}
-            >
-              <div className="bar" />
-            </div>
-            {j.status === "error" && j.error && <div className="job-error-text">{j.error}</div>}
-          </motion.div>
+            job={j}
+            cancelling={cancelling.has(j.id)}
+            onCancel={cancel}
+            onDismiss={dismiss}
+          />
         ))}
       </AnimatePresence>
     </div>

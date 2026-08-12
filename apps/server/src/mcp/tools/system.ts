@@ -7,6 +7,7 @@ import { getMattingInfo } from "../../jobs/matting";
 import { getGenProviders, getImageLayerSettings, imageLayerConfigured, providerConfigured, getPromptEnhancers, enhancerConfigured } from "../../provider";
 import { isModelCached, runDoctor } from "../../doctor";
 import { enhancePrompt } from "../../enhance";
+import { getQueueConcurrency } from "../../queue";
 import { ok, err } from "../helpers";
 
 export function register(server: McpServer) {
@@ -50,6 +51,7 @@ export function register(server: McpServer) {
         promptEnhancers: getPromptEnhancers()
           .filter(enhancerConfigured)
           .map((e) => ({ id: e.id, name: e.name, model: e.model })),
+        queueConcurrency: getQueueConcurrency(),
       });
     }
   );
@@ -108,7 +110,7 @@ export function register(server: McpServer) {
     {
       title: "Update Setting",
       description:
-        "Update a single server setting. Allowed keys: layout, theme, lang, genProviders, matting, promptEnhancers. The value must match the expected type for each key.",
+        "Update a single server setting. Allowed keys: layout, theme, lang, genProviders, matting, imageLayers, promptEnhancers, queueConcurrency. The value must match the expected type for each key.",
       inputSchema: z.object({
         key: z.enum(SETTING_KEYS as unknown as [string, ...string[]]).describe("Setting key"),
         value: z.any().describe("Setting value (type depends on key)"),
@@ -139,12 +141,13 @@ export function register(server: McpServer) {
           .optional(),
         enhancerId: z.string().describe("Enhancer UUID (omit to use first configured)").optional(),
         mediaKind: z.enum(["image", "video"]).describe("Target media kind").optional(),
+        referenceImageCount: z.number().int().min(0).max(10).describe("Number of ordered reference images selected for generation").optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
     },
-    async ({ prompt, style, enhancerId, mediaKind }) => {
+    async ({ prompt, style, enhancerId, mediaKind, referenceImageCount }) => {
       try {
-        const result = await enhancePrompt({ enhancerId, prompt, style, mediaKind });
+        const result = await enhancePrompt({ enhancerId, prompt, style, mediaKind, referenceImageCount });
         return ok(result);
       } catch (e) {
         return err((e as Error).message);

@@ -52,7 +52,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [reference, setReference] = useState<ReferenceSelection | null>(null);
+  const [references, setReferences] = useState<ReferenceSelection[]>([]);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">("frame");
@@ -63,7 +63,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = useServerConfig();
-  const providerSelection = resolveProviderSelection(cfg?.gen.providers ?? [], providerId, model, { videoOnly: mediaKind === "video", preferI2v: mediaKind === "video" && !!reference });
+  const providerSelection = resolveProviderSelection(cfg?.gen.providers ?? [], providerId, model, { videoOnly: mediaKind === "video", preferI2v: mediaKind === "video" && references.length > 0 });
   const hasProvider = !!providerSelection.providerId;
   const workflow = useImportWorkflow(onDone);
   const { items, finished, submitting, setSubmitting, updateItem, okCount, errCount } = workflow;
@@ -102,13 +102,13 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
 
   // 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示
   const submitGenerate = async () => {
-    if (submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && !reference)))) return;
+    if (submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))) return;
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
       const sel = resolveProviderSelection(providers, providerId, model, {
         videoOnly: mediaKind === "video",
-        preferI2v: mediaKind === "video" && !!reference,
+        preferI2v: mediaKind === "video" && references.length > 0,
       });
       const target = generationLine === "skeletal"
         ? partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId)
@@ -136,8 +136,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
-        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(references.length ? { references } : {}),
       });
       notify(
         generationLine === "skeletal" && skeletalMode === "parts"
@@ -161,7 +160,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
       const made = await api.createCharacterPartSet({
         name: partSetName.trim(),
         source: skeletalMode === "decompose" ? "decomposed" : "generated",
-        referenceMaterialId: reference?.kind === "material" ? reference.id : null,
+        referenceMaterialId: references.find((item) => item.kind === "material")?.id ?? null,
         members: [],
       });
       setPartSets((items) => [made, ...items]);
@@ -326,9 +325,11 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             </div>}
             <PromptEnhancer
               mediaKind={mediaKind}
+              referenceImageCount={references.length}
               intent={generationLine === "skeletal" ? (skeletalMode === "decompose" ? "skeletal-decompose" : "skeletal-character") : undefined}
               label={generationLine === "skeletal" ? t(skeletalMode === "decompose" ? "skeletal.generate.extraPrompt" : "skeletal.generate.characterPrompt") : t("msg.prompt")}
               placeholder={generationLine === "skeletal" ? t(skeletalMode === "decompose" ? "skeletal.generate.extraPromptPlaceholder" : "skeletal.generate.characterPromptPlaceholder") : mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_cloaked_slime_idle_breathing")}
+
               value={prompt}
               onChange={setPrompt}
             />
@@ -341,13 +342,15 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             {mediaKind === "video" && (
               <div className="hint">{t("msg.saves_video_only_open_the_material_later_and_extract_fra")}</div>
             )}
+
             {(generationLine === "frame" || skeletalMode === "decompose") && <ReferencePicker
-              value={reference}
-              onChange={setReference}
+              value={references}
+              onChange={setReferences}
               showFrames={false}
-              label={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceRequired") : undefined}
-              description={generationLine === "skeletal" && skeletalMode === "decompose" ? t("skeletal.generate.referenceDescription") : undefined}
+              label={generationLine === "skeletal" ? t("skeletal.generate.referenceRequired") : undefined}
+              description={generationLine === "skeletal" ? t("skeletal.generate.referenceDescription") : undefined}
             />}
+
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
@@ -360,7 +363,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
-              preferI2v={mediaKind === "video" && !!reference}
+              preferI2v={mediaKind === "video" && references.length > 0}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}
@@ -379,7 +382,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 className="px-btn accent"
-                disabled={!hasProvider || submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && !reference)))}
+                disabled={!hasProvider || submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))}
                 onClick={submitGenerate}
               >
                 <Sparkles size={14} /> {t(generationLine === "skeletal" && skeletalMode === "parts" ? "skeletal.generate.startSequence" : "msg.start_generate")}

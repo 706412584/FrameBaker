@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Package, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
+import { Check, Package, Pencil, Scissors, Search, Sparkles, Upload, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { useServerConfig } from "../config";
@@ -19,11 +19,16 @@ import PromptEnhancer from "./PromptEnhancer";
 import ProviderModelPicker, { resolveProviderSelection } from "./ProviderModelPicker";
 import SizePicker from "./SizePicker";
 import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
+import { useMaterialEditor } from "./MaterialEditor";
 
 type Tab = "materials" | "upload" | "cli";
 
 interface Props {
   projectId: string;
+  axisId?: string;
+  trackId?: string;
+  startStepId?: string;
+  targetIsPrimary?: boolean;
   onClose: () => void;
   onDone: () => void;
 }
@@ -50,8 +55,9 @@ function stateIcon(s: FileState): string {
   }
 }
 
-export default function ImportModal({ projectId, onClose, onDone }: Props) {
+export default function ImportModal({ projectId, axisId, trackId, startStepId, targetIsPrimary = true, onClose, onDone }: Props) {
   const t = useT();
+  const openMaterialEditor = useMaterialEditor();
   useModalEscClose(onClose);
   const [tab, setTab] = useState<Tab>("materials");
   // 素材库 Tab：素材多选导入
@@ -66,7 +72,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [reference, setReference] = useState<ReferenceSelection | null>(null);
+  const [references, setReferences] = useState<ReferenceSelection[]>([]);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
@@ -112,7 +118,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
     if (pickedIds.length === 0 || submitting) return;
     setSubmitting(true);
     try {
-      await api.batchImportMaterials(pickedIds, projectId);
+      await api.batchImportMaterials(pickedIds, projectId, axisId && trackId ? { axisId, trackId, ...(startStepId ? { startStepId } : {}) } : undefined);
       onDone(); // 刷新帧列表（WS 也会广播 frames_changed）
       onClose();
     } catch (e) {
@@ -152,7 +158,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
       const sel = resolveProviderSelection(providers, providerId, model, {
         videoOnly: mediaKind === "video",
-        preferI2v: mediaKind === "video" && !!reference,
+        preferI2v: mediaKind === "video" && references.length > 0,
       });
       await api.generate({
         projectId,
@@ -162,8 +168,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
         ...sel,
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
-        ...(reference?.kind === "material" ? { referenceMaterialId: reference.id } : {}),
-        ...(reference?.kind === "frame" ? { referenceFrameId: reference.id } : {}),
+        ...(references.length ? { references } : {}),
       });
       notify(
         mediaKind === "video"
@@ -213,6 +218,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             <Sparkles size={14} /> {t("msg.generate")}
           </button>
         </div>
+        {!targetIsPrimary && tab !== "materials" && <div className="up-summary">{t("timeline.asyncImportPrimaryHint")}</div>}
 
         {tab === "materials" && (
           <>
@@ -250,7 +256,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
                         title={m.name}
                         onClick={() => togglePick(m.id)}
                       >
-                        <img src={materialImageUrl(m.id, matV)} alt="" draggable={false} />
+                        <img src={materialImageUrl(m.id, matV, "processed", 256)} alt="" draggable={false} loading="lazy" decoding="async" />
                         <span className={`mat-dot ${m.status}`} title={m.status === "matted" ? t("msg.matted_431ee1") : t("msg.original")} />
                         <span
                           className="mat-src"
@@ -259,6 +265,26 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
                           {t(SOURCE_LABEL_KEYS[m.source] ?? m.source)}
                         </span>
                         <span className={`mat-check ${picked ? "on" : ""}`}>{picked && <Check size={12} />}</span>
+                        {m.kind !== "video" && (
+                          <IconBtn
+                            className="mat-pick-edit"
+                            title={t("materialEdit.action")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openMaterialEditor({
+                                id: m.id,
+                                name: m.name,
+                                v: matV,
+                                onSaved: () => {
+                                  setMatV(Date.now());
+                                  void api.listMaterials().then(setMats);
+                                },
+                              });
+                            }}
+                          >
+                            <Pencil size={12} />
+                          </IconBtn>
+                        )}
                       </div>
                     );
                   })}
@@ -396,6 +422,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             </div>
             <PromptEnhancer
               mediaKind={mediaKind}
+              referenceImageCount={references.length}
               label={t("msg.prompt")}
               placeholder={mediaKind === "video" ? t("msg.e_g_pixel_knight_running_right_looping") : t("msg.e_g_knight_with_sword_walk_cycle_right")}
               value={prompt}
@@ -409,7 +436,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
             ) : (
               <div className="hint">{t("msg.video_goes_to_materials_first_extract_frames_there_then")}</div>
             )}
-            <ReferencePicker value={reference} onChange={setReference} showFrames projectId={projectId} />
+            <ReferencePicker value={references} onChange={setReferences} showFrames projectId={projectId} />
             {mediaKind === "video" && (
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
@@ -419,7 +446,7 @@ export default function ImportModal({ projectId, onClose, onDone }: Props) {
               onProviderChange={setProviderId}
               onModelChange={setModel}
               videoOnly={mediaKind === "video"}
-              preferI2v={mediaKind === "video" && !!reference}
+              preferI2v={mediaKind === "video" && references.length > 0}
             />
             {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
             {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}

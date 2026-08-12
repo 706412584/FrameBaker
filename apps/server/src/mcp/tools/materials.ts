@@ -10,6 +10,7 @@ import { createJob, createMattingJob } from "../../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/extract";
 import { getImageLayerSettings, imageLayerConfigured } from "../../provider";
 import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
+import { invalidateProjectUndo } from "../../undo";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -179,7 +180,7 @@ export function register(server: McpServer) {
     {
       title: "Import Material to Project",
       description:
-        "Import a material as project frame(s), appending to the end of the project's frame list. Copies raw and processed slots separately. Video materials must be extracted first. count 1-16, default 1.",
+        "Import a material as unassigned project frame(s) in the frame pool, ready to be placed on the timeline. Copies raw and processed slots separately. Video materials must be extracted first. count 1-16, default 1.",
       inputSchema: z.object({
         materialId: z.string().describe("Source material UUID"),
         projectId: z.string().describe("Target project UUID"),
@@ -195,6 +196,7 @@ export function register(server: McpServer) {
       const count = Math.min(Math.max(rawCount ?? 1, 1), 16);
       try {
         const frameIds: string[] = [];
+        invalidateProjectUndo(projectId);
         for (let i = 0; i < count; i++) frameIds.push(importMaterialToProject(m, projectId));
         broadcast("frames_changed", { projectId });
         return ok({ ok: true, count, frameIds });
@@ -209,7 +211,7 @@ export function register(server: McpServer) {
     {
       title: "Batch Import Materials",
       description:
-        "Batch import multiple materials to a project as frames. Materials are sorted by frame number in their names (natural sort). Each material becomes 1 frame. Returns count of imported frames.",
+        "Batch import multiple materials to a project's unassigned frame pool. Materials are sorted by frame number in their names (natural sort). Each material becomes 1 frame. Returns count of imported frames.",
       inputSchema: z.object({
         ids: z.array(z.string()).describe("Material UUIDs to import"),
         projectId: z.string().describe("Target project UUID"),
@@ -224,6 +226,7 @@ export function register(server: McpServer) {
         const materials = sortMaterialsByFrameNumber(
           ids.map((id) => getMaterial(id)).filter((m): m is MaterialRow => m !== null)
         );
+        invalidateProjectUndo(projectId);
         for (const m of materials) {
           importMaterialToProject(m, projectId);
           count++;

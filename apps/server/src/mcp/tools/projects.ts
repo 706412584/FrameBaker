@@ -5,6 +5,8 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { db, uid, STORAGE_ROOT } from "../../db";
 import { broadcast } from "../../ws";
 import { ok, err } from "../helpers";
+import { ensureDefaultTimeline } from "../../timeline";
+import { invalidateProjectUndo } from "../../undo";
 
 export function register(server: McpServer) {
   server.registerTool(
@@ -78,6 +80,7 @@ export function register(server: McpServer) {
         finalFolderId,
         Date.now()
       );
+      ensureDefaultTimeline(id);
       mkdirSync(join(STORAGE_ROOT, "projects", id, "raw"), { recursive: true });
       mkdirSync(join(STORAGE_ROOT, "projects", id, "processed"), { recursive: true });
       return ok({ id, name: finalName, folder_id: finalFolderId });
@@ -130,7 +133,8 @@ export function register(server: McpServer) {
     async ({ projectId }) => {
       const row = db.query("SELECT id FROM projects WHERE id = ?").get(projectId);
       if (!row) return err("项目不存在");
-      db.query("DELETE FROM frames WHERE project_id = ?").run(projectId);
+      invalidateProjectUndo(projectId);
+      db.transaction(()=>{db.query("DELETE FROM frames WHERE project_id=?").run(projectId);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_axes WHERE project_id=?").run(projectId);})();
       db.query("DELETE FROM jobs WHERE project_id = ?").run(projectId);
       db.query("DELETE FROM projects WHERE id = ?").run(projectId);
       rmSync(join(STORAGE_ROOT, "projects", projectId), { recursive: true, force: true });

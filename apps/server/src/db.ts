@@ -45,6 +45,19 @@ CREATE TABLE IF NOT EXISTS frames (
 );
 CREATE INDEX IF NOT EXISTS idx_frames_project ON frames(project_id, idx);
 
+CREATE TABLE IF NOT EXISTS animation_axes (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL,
+  idx INTEGER NOT NULL, fps INTEGER NOT NULL DEFAULT 8, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS animation_tracks (
+  id TEXT PRIMARY KEY, axis_id TEXT NOT NULL, name TEXT NOT NULL, idx INTEGER NOT NULL,
+  visible INTEGER NOT NULL DEFAULT 1, locked INTEGER NOT NULL DEFAULT 0, is_primary INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS animation_steps (
+  id TEXT PRIMARY KEY, axis_id TEXT NOT NULL, idx INTEGER NOT NULL, duration INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -177,6 +190,46 @@ function ensureColumn(table: string, column: string, decl: string) {
 ensureColumn("projects", "folder_id", "TEXT");
 ensureColumn("projects", "kind", "TEXT NOT NULL DEFAULT 'frame'");
 ensureColumn("materials", "folder_id", "TEXT");
+ensureColumn("frames", "track_id", "TEXT");
+ensureColumn("frames", "step_id", "TEXT");
+ensureColumn("frames", "is_asset", "INTEGER NOT NULL DEFAULT 1");
+
+// v1：把旧项目无损投影到“默认轴 / 主轨 / 共享步骤”。确定性顺序为 idx,id。
+db.transaction(() => {
+  const projects = db.query("SELECT id, created_at FROM projects ORDER BY id").all() as Array<{ id: string; created_at: number }>;
+  for (const project of projects) {
+    let axis = db.query("SELECT id FROM animation_axes WHERE project_id = ? ORDER BY idx, id LIMIT 1").get(project.id) as { id: string } | null;
+    if (!axis) {
+      axis = { id: crypto.randomUUID() };
+      db.query("INSERT INTO animation_axes (id, project_id, name, idx, fps, created_at) VALUES (?, ?, 'Default', 0, 8, ?)").run(axis.id, project.id, project.created_at);
+    }
+    let track = db.query("SELECT id FROM animation_tracks WHERE axis_id = ? ORDER BY is_primary DESC, idx, id LIMIT 1").get(axis.id) as { id: string } | null;
+    if (!track) {
+      track = { id: crypto.randomUUID() };
+      db.query("INSERT INTO animation_tracks (id, axis_id, name, idx, visible, locked, is_primary) VALUES (?, ?, 'Main', 0, 1, 0, 1)").run(track.id, axis.id);
+    }
+    db.query("UPDATE animation_tracks SET is_primary = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE axis_id = ?").run(track.id, axis.id);
+    const legacyPending = !db.query("SELECT 1 FROM schema_migrations WHERE version=1").get();
+    const frames = legacyPending
+      ? db.query("SELECT id, duration FROM frames WHERE project_id = ? AND (track_id IS NULL OR step_id IS NULL) ORDER BY idx, id").all(project.id) as Array<{ id: string; duration: number }>
+      : [];
+    let next = (db.query("SELECT COALESCE(MAX(idx), -1) + 1 next FROM animation_steps WHERE axis_id = ?").get(axis.id) as { next: number }).next;
+    for (const frame of frames) {
+      const stepId = crypto.randomUUID();
+      db.query("INSERT INTO animation_steps (id, axis_id, idx, duration) VALUES (?, ?, ?, ?)").run(stepId, axis.id, next++, frame.duration);
+      db.query("UPDATE frames SET track_id = ?, step_id = ?, idx = ? WHERE id = ?").run(track.id, stepId, next - 1, frame.id);
+    }
+  }
+  db.query("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)").run(Date.now());
+})();
+db.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS uq_axes_coord ON animation_axes(project_id, idx);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tracks_coord ON animation_tracks(axis_id, idx);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_steps_coord ON animation_steps(axis_id, idx);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_frame_cell ON frames(track_id, step_id) WHERE track_id IS NOT NULL AND step_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_frames_track_step ON frames(track_id, step_id);
+CREATE INDEX IF NOT EXISTS idx_axes_project ON animation_axes(project_id, idx);
+`);
 
 // 固定安装并升级最早六组动作；先完成全部表/列迁移，保证依赖资产和骨骼项目可事务化重映射。
 ensureBuiltinAnimationAssets(db);

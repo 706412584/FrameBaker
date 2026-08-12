@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { MotionConfig } from "motion/react";
 import ProjectList from "./components/ProjectList";
-import Editor from "./components/Editor";
 import MaterialsPage from "./components/MaterialsPage";
 import MotionsPage from "./components/MotionsPage";
 import SettingsPage from "./components/SettingsPage";
@@ -9,8 +8,13 @@ import SkeletalProjectEditor from "./components/SkeletalProjectEditor";
 import TopNav from "./components/TopNav";
 import AppModals from "./components/AppModals";
 import JobPanel from "./components/JobPanel";
+import { MaterialEditorProvider } from "./components/MaterialEditor";
 import { api, wsClient, type Project } from "./api";
+import { hasPixi, loadPixi } from "./pixiLoader";
 import { useT } from "./i18n";
+
+const Editor = lazy(() => import("./components/Editor"));
+
 
 type View =
   | { page: "home" }
@@ -27,10 +31,13 @@ function viewFromLocation(): View {
   return m ? { page: "editor", projectId: m[1] } : { page: "home" };
 }
 
+
 function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary, onOpenFrameProject }: { projectId: string; onBack: () => void; onEditActionLibrary: () => void; onOpenFrameProject: (id: string) => void }) {
   const t = useT();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
+  const [ready, setReady] = useState(hasPixi);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -40,11 +47,31 @@ function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary, onOpenFram
     return () => { active = false; };
   }, [projectId]);
 
+  useEffect(() => {
+    if (!project || project.kind === "skeletal" || ready) return;
+    let alive = true;
+    loadPixi()
+      .then(() => alive && setReady(true))
+      .catch((error) => {
+        console.error(error);
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [project, ready]);
+
   if (error) return <div className="project-route-state"><p>{t("project.loadFailed", { msg: error })}</p><button type="button" className="px-btn" onClick={onBack}>{t("msg.back_to_projects")}</button></div>;
   if (!project) return <div className="project-route-state">{t("project.loading")}</div>;
-  return project.kind === "skeletal"
-    ? <SkeletalProjectEditor project={project} onBack={onBack} onEditActionLibrary={onEditActionLibrary} onOpenFrameProject={onOpenFrameProject} />
-    : <Editor projectId={projectId} onBack={onBack} />;
+  if (project.kind === "skeletal") return <SkeletalProjectEditor project={project} onBack={onBack} onEditActionLibrary={onEditActionLibrary} onOpenFrameProject={onOpenFrameProject} />;
+  if (failed) return <div className="page-loading">{t("msg.editor_engine_load_failed")}</div>;
+  if (!ready) return <div className="page-loading">{t("msg.loading_editor")}</div>;
+  return (
+    <Suspense fallback={<div className="page-loading">{t("msg.loading_editor")}</div>}>
+      <Editor projectId={projectId} onBack={onBack} />
+    </Suspense>
+  );
+
 }
 
 export default function App() {
@@ -89,18 +116,20 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <TopNav current={view.page === "editor" ? "home" : view.page} onNav={(p) => nav({ page: p })} />
-      <div className={`app-view${view.page === "editor" ? " editor-view" : ""}`}>
+
+      <MaterialEditorProvider>
+        {view.page !== "editor" && <TopNav current={view.page} onNav={(p) => nav({ page: p })} />}
         {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
         {view.page === "materials" && <MaterialsPage />}
         {view.page === "motions" && <MotionsPage onOpenMaterials={() => nav({ page: "materials" })} onOpenProjects={() => nav({ page: "home" })} />}
         {view.page === "settings" && <SettingsPage />}
         {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} onEditActionLibrary={() => nav({ page: "motions" })} onOpenFrameProject={(projectId) => nav({ page: "editor", projectId })} />}
-      </div>
-      {/* 右侧常驻任务队列面板（有任务时才显示） */}
-      <JobPanel />
-      {/* 全局通知条 + 确认弹窗（notice.ts） */}
-      <AppModals />
+        {/* 右侧常驻任务队列面板（有任务时才显示） */}
+        <JobPanel />
+        {/* 全局通知条 + 确认弹窗（notice.ts） */}
+        <AppModals />
+      </MaterialEditorProvider>
+
     </MotionConfig>
   );
 }

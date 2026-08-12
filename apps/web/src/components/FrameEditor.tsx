@@ -11,11 +11,15 @@ const { Application, Assets, Container, Graphics, Sprite, Texture } = (
 
 interface Props {
   frame: Frame | null;
+  composite: Frame[];
+  editable: boolean;
   prev: Frame | null;
   next: Frame | null;
   v: number;
   /** 受控缩放（工具栏在 Editor 层，25%–400%） */
   zoom: number;
+  /** 点击“适应窗口”时递增，强制按当前合成内容和最新画布尺寸重新居中缩放。 */
+  fitRequest: number;
   /** 受控洋葱皮开关 */
   onion: boolean;
   /** 受控网格开关 */
@@ -34,13 +38,17 @@ interface PixiCtx {
   main: Pixi.Sprite;
   prevS: Pixi.Sprite;
   nextS: Pixi.Sprite;
+  compositeLayer: Pixi.Container;
+  spriteFrames: Map<Pixi.Sprite, Frame>;
 }
 
 /** PixiJS 帧画布：拖拽改 offset、洋葱皮、网格、受控缩放（工具栏见 CanvasToolbar）；playing 时在画布内播放 */
-export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGrid, playing, onPatch, onCanvasBlank }: Props) {
+export default function FrameEditor({ frame, composite, editable, prev, next, v, zoom, fitRequest, onion, showGrid, playing, onPatch, onCanvasBlank }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const pixi = useRef<PixiCtx | null>(null);
   const [ready, setReady] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [panning, setPanning] = useState(false);
   const theme = useTheme();
   const t = useT();
 
@@ -55,6 +63,10 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   onCanvasBlankRef.current = onCanvasBlank;
   const playingRef = useRef(playing);
   playingRef.current = playing;
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
+  const spaceHeldRef = useRef(false);
+  const panOffsetRef = useRef({ x: 0, y: 0 });
 
   // 适配缩放（fit-to-view）：让帧完整收进可视画布区域——只缩小不放大
   // （小图 100% 保持 1:1 像素；大图收进画布，底部不再被裁掉）
@@ -63,14 +75,21 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   const updateFit = useCallback(() => {
     const p = pixi.current;
     if (!p) return;
-    const f = frameRef.current;
-    const tex = p.main.texture;
-    if (!f || !tex || tex === Texture.EMPTY || tex.width === 0 || tex.height === 0) {
+    const availableHeight = Math.max(1, p.app.screen.height);
+    p.viewport.position.set(p.app.screen.width / 2 + panOffsetRef.current.x, availableHeight / 2 + panOffsetRef.current.y);
+    const bounds = [...p.spriteFrames.entries()]
+      .filter(([sprite]) => sprite.visible && sprite.parent === p.compositeLayer && sprite.texture !== Texture.EMPTY)
+      .map(([sprite, currentFrame]) => transformedFrameBounds(sprite.texture.width, sprite.texture.height, currentFrame));
+    if (bounds.length === 0) {
       setFitScale(1);
       return;
     }
-    const bounds = transformedFrameBounds(tex.width, tex.height, f);
-    setFitScale(fitScaleForBounds(bounds, p.app.screen.width, p.app.screen.height));
+    setFitScale(fitScaleForBounds({
+      left: Math.min(...bounds.map((item) => item.left)),
+      right: Math.max(...bounds.map((item) => item.right)),
+      top: Math.min(...bounds.map((item) => item.top)),
+      bottom: Math.max(...bounds.map((item) => item.bottom)),
+    }, p.app.screen.width, availableHeight, 0.75));
   }, []);
   const updateFitRef = useRef(updateFit);
   updateFitRef.current = updateFit;
@@ -95,6 +114,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       const prevS = new Sprite();
       const nextS = new Sprite();
       const main = new Sprite();
+      const compositeLayer = new Container();
       for (const s of [prevS, nextS, main]) {
         s.anchor.set(0.5);
         s.visible = false;
@@ -105,12 +125,12 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       nextS.alpha = 0.2; // 洋葱皮：后一帧蓝色
       prevS.eventMode = "none";
       nextS.eventMode = "none";
-      viewport.addChild(grid, prevS, nextS, main);
+      compositeLayer.addChild(main);
+      viewport.addChild(grid, prevS, nextS, compositeLayer);
 
       // viewport 定位到可视画布中心，并随 resize 保持（resizeTo 由 ResizeObserver 驱动，布局分隔条拖动也会触发）
       // 同步重算适配缩放
       const center = () => {
-        viewport.position.set(app.screen.width / 2, app.screen.height / 2);
         app.stage.hitArea = app.screen;
         updateFitRef.current();
       };
@@ -120,24 +140,44 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
 
       // 当前帧拖拽 → 松手 PATCH offset
       let drag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
+      let panDrag: { startX: number; startY: number; baseX: number; baseY: number } | null = null;
       main.eventMode = "static";
       main.cursor = "grab";
       main.on("pointerdown", (e: Pixi.FederatedPointerEvent) => {
-        if (playingRef.current) return; // 播放中禁用拖拽
+        if (spaceHeldRef.current || playingRef.current || !editableRef.current) return; // 空格平移、播放中或锁定轨禁用帧拖拽
         const p = viewport.toLocal(e.global);
         drag = { startX: p.x, startY: p.y, baseX: main.x, baseY: main.y };
         main.cursor = "grabbing";
       });
       // 点击画布空白（未命中当前帧精灵）→ 清空多选
       app.stage.on("pointerdown", (e: Pixi.FederatedPointerEvent) => {
+        if (spaceHeldRef.current) {
+          panDrag = { startX: e.global.x, startY: e.global.y, baseX: panOffsetRef.current.x, baseY: panOffsetRef.current.y };
+          setPanning(true);
+          return;
+        }
         if (e.target !== main) onCanvasBlankRef.current();
       });
       app.stage.on("pointermove", (e: Pixi.FederatedPointerEvent) => {
+        if (panDrag && !spaceHeldRef.current) {
+          panDrag = null;
+          setPanning(false);
+          return;
+        }
+        if (panDrag) {
+          panOffsetRef.current = { x: panDrag.baseX + e.global.x - panDrag.startX, y: panDrag.baseY + e.global.y - panDrag.startY };
+          viewport.position.set(app.screen.width / 2 + panOffsetRef.current.x, app.screen.height / 2 + panOffsetRef.current.y);
+          return;
+        }
         if (!drag) return;
         const p = viewport.toLocal(e.global);
         main.position.set(drag.baseX + (p.x - drag.startX), drag.baseY + (p.y - drag.startY));
       });
       const endDrag = () => {
+        if (panDrag) {
+          panDrag = null;
+          setPanning(false);
+        }
         if (!drag) return;
         drag = null;
         main.cursor = "grab";
@@ -152,7 +192,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       app.stage.on("pointerup", endDrag);
       app.stage.on("pointerupoutside", endDrag);
 
-      pixi.current = { app, viewport, grid, main, prevS, nextS };
+      pixi.current = { app, viewport, grid, main, prevS, nextS, compositeLayer, spriteFrames: new Map() };
       setReady(true);
     })().catch((e) => console.error("Pixi 初始化失败:", e));
 
@@ -164,6 +204,23 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       }
       setReady(false);
     };
+  }, []);
+
+  // 空格临时切换抓手工具；输入框内保留正常输入空格的行为。
+  useEffect(() => {
+    const isTyping = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    const release = () => { spaceHeldRef.current = false; setSpaceHeld(false); setPanning(false); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || isTyping(e.target)) return;
+      e.preventDefault();
+      spaceHeldRef.current = true;
+      setSpaceHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.code === "Space") release(); };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", release);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("blur", release); };
   }, []);
 
   // ---- 加载/切换帧贴图 ----
@@ -182,6 +239,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
     const loadInto = async (sprite: Pixi.Sprite, f: Frame | null, isMain: boolean) => {
       if (!f) {
         sprite.visible = false;
+        if (isMain) p.spriteFrames.delete(sprite);
         return;
       }
       try {
@@ -191,6 +249,7 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
         tex.source.scaleMode = "nearest"; // 像素风：最近邻缩放
         sprite.texture = tex;
         applyTransform(sprite, f, isMain);
+        if (isMain) p.spriteFrames.set(sprite, f);
         sprite.visible = isMain ? true : onionRef.current;
       } catch {
         sprite.visible = false;
@@ -208,6 +267,32 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
       dead = true;
     };
   }, [frame, prev, next, v, ready, updateFit]);
+
+  // 当前步骤的其余可见轨道按 z 顺序合成；选中帧仍由 main 承担交互。
+  useEffect(() => {
+    const p = pixi.current; if (!p || !ready) return;
+    let dead = false;
+    p.compositeLayer.children.filter((child) => child !== p.main).forEach((child) => {
+      p.compositeLayer.removeChild(child);
+      p.spriteFrames.delete(child as Pixi.Sprite);
+      child.destroy();
+    });
+    const others = composite.filter((f) => f.id !== frame?.id);
+    Promise.all(others.map(async (f) => {
+      try {
+        const tex: Pixi.Texture = await Assets.load(frameImageUrl(f.id, v));
+        if (dead) return null;
+        tex.source.scaleMode = "nearest";
+        const s = new Sprite(tex); s.anchor.set(0.5); s.position.set(f.offset_x,f.offset_y); s.scale.set(f.scale); s.rotation=f.rotation; s.alpha=f.opacity; s.eventMode="none";
+        p.spriteFrames.set(s, f);
+        return s;
+      } catch {
+        // 删除/替换帧时旧合成请求可能晚到 404；该帧直接跳过，等待最新 timeline 重绘。
+        return null;
+      }
+    })).then((sprites) => { if (dead) return; let oi=0; for(const f of composite){if(f.id===frame?.id)p.compositeLayer.addChild(p.main);else {const s=sprites[oi++];if(s)p.compositeLayer.addChild(s);}} updateFit(); });
+    return () => { dead = true; };
+  }, [composite, frame?.id, ready, updateFit, v]);
 
   // ---- 帧属性变化时同步主精灵变换（拖拽中 frame 不变，不干扰）----
   useEffect(() => {
@@ -232,6 +317,20 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   useEffect(() => {
     pixi.current?.viewport.scale.set(zoom * fitScale);
   }, [zoom, fitScale, ready]);
+
+  // 手动“适应窗口”：分隔条改变可视区域后，重新居中并按合成包围盒留出安全边距。
+  useEffect(() => {
+    const p = pixi.current;
+    if (!p) return;
+    panOffsetRef.current = { x: 0, y: 0 };
+    updateFit();
+  }, [fitRequest, ready, updateFit]);
+
+  // 进入/退出播放立即重新适配；播放中的每次切帧还会在合成贴图加载后再次自动适配。
+  useEffect(() => {
+    if (!ready) return;
+    updateFit();
+  }, [playing, ready, updateFit]);
 
   // ---- 主题切换：画布背景跟随 CSS 变量 ----
   useEffect(() => {
@@ -259,8 +358,9 @@ export default function FrameEditor({ frame, prev, next, v, zoom, onion, showGri
   }, [showGrid, playing, ready, theme]);
 
   return (
-    <div className="pixi-wrap" ref={wrapRef}>
-      {!frame && <div className="canvas-empty">{t("msg.no_frames_yet_click_import_materials_top_right")}</div>}
+    <div className={`pixi-wrap ${spaceHeld ? "space-pan" : ""} ${panning ? "panning" : ""}`} ref={wrapRef}>
+      {!frame && composite.length === 0 && <div className="canvas-empty">{t("msg.no_frames_yet_click_import_materials_top_right")}</div>}
+      <div className="canvas-pan-hint"><kbd>Space</kbd><span>{t("canvas.panHint")}</span></div>
     </div>
   );
 }

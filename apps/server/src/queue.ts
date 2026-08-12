@@ -2,6 +2,7 @@ import type { JobType } from "@framebaker/shared";
 import { db, uid } from "./db";
 import { broadcast } from "./ws";
 import { buildGeneratedFollowUp, extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
+import { getSettingJson } from "./provider";
 import { matte } from "./jobs/matting";
 import { JobCancelledError } from "./jobs/run";
 import { splitImageLayers, type ImageLayersPayload } from "./jobs/imageLayers";
@@ -18,7 +19,19 @@ const payloads = new Map<string, JobPayload>();
 const controllers = new Map<string, AbortController>();
 const waiting: string[] = [];
 let running = 0;
-const CONCURRENCY = 2;
+
+/**
+ * 任务队列并发数：settings.queueConcurrency 优先（clamp 1~16），env FRAMEBAKER_QUEUE_CONCURRENCY 兜底，默认 2。
+ * 每次实时读取，设置页改动即时生效（pump 频率低，单次轻量 DB 查询开销可忽略）。
+ */
+export function getQueueConcurrency(): number {
+  const clamp = (n: number) => Math.max(1, Math.min(16, Math.floor(n)));
+  const saved = getSettingJson<number>("queueConcurrency");
+  if (typeof saved === "number" && saved >= 1) return clamp(saved);
+  const env = Number(process.env.FRAMEBAKER_QUEUE_CONCURRENCY);
+  if (Number.isFinite(env) && env >= 1) return clamp(env);
+  return 2;
+}
 
 // 启动时把上次进程遗留的 queued/running 任务标记为中断（负载随内存丢失，不可能再继续）
 db.query("UPDATE jobs SET status = 'error', error = '服务重启，任务中断' WHERE status IN ('queued', 'running')").run();
@@ -109,7 +122,7 @@ function enqueueGeneratedFollowUp(source: GeneratePayload, referenceMaterialId: 
 }
 
 function pump() {
-  while (running < CONCURRENCY && waiting.length > 0) {
+  while (running < getQueueConcurrency() && waiting.length > 0) {
     const id = waiting.shift()!;
     // 可能已被取消但尚未移出（竞态兜底）
     const row = db.query("SELECT status FROM jobs WHERE id = ?").get(id) as { status: string } | null;
@@ -146,8 +159,12 @@ async function runJob(id: string) {
   controllers.set(id, ac);
   const signal = ac.signal;
   let generatedReferenceId: string | undefined;
+  // 相同 progress 文本去重（如视频轮询每 5s 的重复心跳），避免无谓 DB 写 + 全局广播
+  let lastProgress = "";
   const report = (p: string) => {
     if (signal.aborted) return;
+    if (p === lastProgress) return;
+    lastProgress = p;
     setJob(id, "running", p);
     broadcast("job_progress", { id, projectId: job.project_id, progress: p });
   };

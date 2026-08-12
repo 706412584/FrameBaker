@@ -4,6 +4,7 @@ import { mkdirSync, copyFileSync } from "node:fs";
 import type { FolderKind } from "@framebaker/shared";
 import { db, uid, STORAGE_ROOT, nextFrameIdx } from "../db";
 import type { MaterialRow } from "@framebaker/shared";
+import { appendFramePool } from "../timeline";
 
 export function ok(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -84,9 +85,10 @@ export function sortMaterialsByFrameNumber(materials: MaterialRow[]): MaterialRo
 }
 
 export function importMaterialToProject(m: MaterialRow, projectId: string): string {
-  const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
-  if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
-  if (/\.(mp4|mov|webm|avi)$/i.test(rawSrc)) {
+  const processedSrc = m.processed_path && existsSync(m.processed_path) ? m.processed_path : null;
+  const inputSrc = processedSrc ?? (m.raw_path && existsSync(m.raw_path) ? m.raw_path : null);
+  if (!inputSrc) throw new Error(`素材文件缺失: ${m.id}`);
+  if (/\.(mp4|mov|webm|avi)$/i.test(inputSrc)) {
     throw new Error(`「${m.name}」是视频素材，请先抽帧再导入项目`);
   }
   const frameId = uid();
@@ -95,11 +97,11 @@ export function importMaterialToProject(m: MaterialRow, projectId: string): stri
   mkdirSync(rawDir, { recursive: true });
   mkdirSync(procDir, { recursive: true });
   const rawPath = join(rawDir, `mat_${frameId}.png`);
-  copyFileSync(rawSrc, rawPath);
+  copyFileSync(inputSrc, rawPath);
   let procPath: string | null = null;
-  if (m.processed_path && existsSync(m.processed_path)) {
+  if (processedSrc) {
     procPath = join(procDir, `${frameId}.png`);
-    copyFileSync(m.processed_path, procPath);
+    copyFileSync(processedSrc, procPath);
   }
   let metadata: Record<string, unknown> = { fromMaterial: m.id };
   try {
@@ -107,8 +109,6 @@ export function importMaterialToProject(m: MaterialRow, projectId: string): stri
   } catch {
     /* ignore */
   }
-  db.query(
-    "INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?)"
-  ).run(frameId, projectId, nextFrameIdx(projectId), rawPath, procPath, m.source, JSON.stringify(metadata));
+  appendFramePool(projectId,{id:frameId,raw_path:rawPath,processed_path:procPath,status:"ready",source:m.source,metadata:JSON.stringify(metadata)});
   return frameId;
 }

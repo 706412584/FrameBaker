@@ -4,7 +4,7 @@
 
 Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI generation), cut out backgrounds with the built-in rembg matting engine, review results in the materials library, then edit frames on a PixiJS onion-skin canvas, arrange the timeline, preview playback, and export a spritesheet.
 
-> 🚧 **In progress:** support for multi-axis frame animation and skeletal-animation binding is under active development.
+> ✅ **Multi-axis / multi-track MVP:** animation variants, compositing tracks, shared steps, composite preview and export are available. Skeletal-animation binding remains in development.
 
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
@@ -65,7 +65,7 @@ Scene layering reconstructs a flat image as independently editable, hideable, an
 - **Cassette Futurism themes** — dark "Magnetic Night" / light "Beige Terminal"; follows system preference until you pick one (tri-state toggle)
 - **Live sync** — WebSocket broadcasts for job progress and frame/material changes
 - **Adjustable layout** — drag the split dividers to resize the frame list and timeline (persisted)
-- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint (`POST /mcp`, Streamable HTTP) exposing 33 tools for AI assistants (Claude Desktop, Cursor, Windsurf) to manage projects, frames, materials, generation, matting, jobs, and settings programmatically
+- **MCP server** — built-in [Model Context Protocol](https://modelcontextprotocol.io) endpoint (`POST /mcp`, Streamable HTTP) exposing 34 tools for AI assistants (Claude Desktop, Cursor, Windsurf) to manage projects, frames, materials, generation, matting, jobs, and settings programmatically
 
 ## System Requirements
 
@@ -206,7 +206,7 @@ Start the server (`bun dev` or `bun start`), then configure your AI client:
 
 **Windsurf** (`~/.codeium/windsurf/mcp_config.json`): `{ "mcpServers": { "framebaker": { "serverUrl": "http://localhost:3000/mcp" } } }`
 
-The server exposes **33 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
+The server exposes **34 tools** covering projects, frames, materials, generation, matting, folders, jobs, and system config. See [docs/api.md](docs/api.md) for the full tool list and examples.
 
 ## License
 
@@ -223,3 +223,41 @@ The UI font is **Fusion Pixel 12px** (`apps/web/public/fonts/`), licensed under 
 ## Known Limitations
 
 Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays are ignored; single-image imports are stored byte-for-byte (PNG recommended); spritesheet export does no trimming; no authentication — local use only. See the [roadmap](docs/roadmap.md) for planned improvements.
+
+<!-- latest-changelog:start -->
+## Latest Changes
+
+### [0.3.0](docs/CHANGELOG.md#030---2026-08-12) · 2026-08-12
+
+#### Added
+
+- Added ordered multi-reference image selection (up to 10 mixed materials/project frames) across the web UI, REST API, MCP tools, queue, and provider adapters. OpenAI-compatible edits, DashScope, Gemini, DashScope r2v, and structured CLI providers now submit all references while single-image protocols reject unsupported combinations explicitly.
+- Added an in-context model compatibility tip when multiple references are selected, and wrap asynchronous provider failures with actionable guidance while preserving the original provider error.
+- Refined prompt enhancement with explicit subject/action/composition/style/continuity structure, conservative detail completion, prompt-injection-resistant input handling, and separate image/video guidance.
+- Added a visual-prompt few-shot example plus automatic correction retry, preventing short descriptions such as character names from being returned as encyclopedia answers or clarification questions.
+- Made prompt-enhancement examples follow the selected style and image/video mode, and clear stale comparisons when the style or enhancer changes.
+- Pass the selected reference-image count into prompt enhancement so it can switch between text-to-generation, single-reference editing, and ordered Image 1…N multi-reference instructions.
+- Added project-level Cmd/Ctrl+Z for successful frame and timeline edits, with per-project serialization, database-only snapshots for lightweight edits, file snapshots only when project images change, failure-safe restore, and a 50-entry history limit.
+
+#### Changed
+
+- Added cached server-side frame/material thumbnails, conditional image responses with ETag and immutable versioned caching, lazy thumbnail loading, and editor-only Pixi loading through a locally hosted gzip bundle.
+- Reduced timeline and live-update work by using indexed frame lookup maps and coalescing WebSocket-driven refreshes.
+- Stage asynchronous generation and matting outputs before committing them to project storage; completed background jobs and MCP project mutations invalidate older undo history so stale snapshots cannot remove newer artifacts.
+
+#### Fixed
+
+- Preserve the actual JPEG, WebP, GIF, or PNG MIME type when reference images are sent to generation providers instead of declaring every source as PNG.
+
+### [0.2.6](docs/CHANGELOG.md#026---2026-08-11) · 2026-08-11
+
+#### Changed
+
+- Automated the marker-delimited README “Latest Changes” sections from the two newest bilingual changelog releases during version bumps, and made version checks detect stale generated summaries.
+
+#### Fixed
+
+- Hardened the dedicated Gemini image provider adapter to scan all candidates, diagnose prompt/output safety blocks and text-only refusals, include response IDs, tolerate proxy response casing, and retry one transient no-image result instead of reporting every HTTP 200 without `inlineData` as the same schema error.
+
+[View the complete changelog →](docs/CHANGELOG.md)
+<!-- latest-changelog:end -->

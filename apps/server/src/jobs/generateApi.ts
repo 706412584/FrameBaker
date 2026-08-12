@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, extname } from "node:path";
 import type { GenProvider } from "@framebaker/shared";
 type RuntimeProvider = GenProvider & { apiSize: string };
 import { normalizeDashscopeBaseUrl } from "@framebaker/shared";
@@ -11,6 +11,20 @@ interface ImagesResponse {
 
 /** MiniMax 图像 prompt 上限（官方 invalid params: length must be less than 1500） */
 const MINIMAX_PROMPT_MAX = 1499;
+
+function imageMimeType(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg": return "image/jpeg";
+    case ".webp": return "image/webp";
+    case ".gif": return "image/gif";
+    default: return "image/png";
+  }
+}
+
+function imageDataUri(path: string): string {
+  return `data:${imageMimeType(path)};base64,${readFileSync(path).toString("base64")}`;
+}
 
 function clampMinimaxPrompt(prompt: string): string {
   if (prompt.length <= MINIMAX_PROMPT_MAX) return prompt;
@@ -64,8 +78,7 @@ async function generateViaOpenAI(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
-  poseReferencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -73,14 +86,11 @@ async function generateViaOpenAI(
   const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
 
   let res: Response;
-  if (referencePath) {
+  if (referencePaths.length) {
     const form = new FormData();
-    const appearance = new File([readFileSync(referencePath)], basename(referencePath), { type: "image/png" });
-    if (poseReferencePath) {
-      form.append("image[]", appearance);
-      form.append("image[]", new File([readFileSync(poseReferencePath)], basename(poseReferencePath), { type: "image/png" }));
-    } else {
-      form.append("image", appearance);
+    const field = referencePaths.length === 1 ? "image" : "image[]";
+    for (const referencePath of referencePaths) {
+      form.append(field, new File([readFileSync(referencePath)], basename(referencePath), { type: imageMimeType(referencePath) }));
     }
     form.append("prompt", prompt);
     form.append("model", model);
@@ -125,21 +135,15 @@ async function generateViaDashscope(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
-  poseReferencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
   const base = normalizeDashscopeBaseUrl(cfg.apiBaseUrl);
   const content: Array<Record<string, string>> = [];
-  if (referencePath) {
-    const b64 = readFileSync(referencePath).toString("base64");
-    content.push({ image: `data:image/png;base64,${b64}` });
-  }
-  if (poseReferencePath) {
-    const b64 = readFileSync(poseReferencePath).toString("base64");
-    content.push({ image: `data:image/png;base64,${b64}` });
+  for (const referencePath of referencePaths) {
+    content.push({ image: imageDataUri(referencePath) });
   }
   content.push({ text: prompt });
   const parameters: Record<string, unknown> = { n: 1, watermark: false };
@@ -168,62 +172,159 @@ async function generateViaDashscope(
   await downloadFile(imageUrl, outPath, signal);
 }
 
+interface GeminiPart {
+  text?: string;
+  inlineData?: { mimeType?: string; data?: string };
+  /** 部分 Gemini 兼容代理未转换 REST snake_case，兼容读取但官方请求仍使用 inlineData。 */
+  inline_data?: { mime_type?: string; data?: string };
+}
+
+interface GeminiCandidate {
+  content?: { parts?: GeminiPart[] };
+  finishReason?: string;
+  finishMessage?: string;
+  safetyRatings?: Array<{ category?: string; blocked?: boolean }>;
+}
+
 interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
-  error?: { message?: string };
+  candidates?: GeminiCandidate[];
+  promptFeedback?: {
+    blockReason?: string;
+    blockReasonMessage?: string;
+    safetyRatings?: Array<{ category?: string; blocked?: boolean }>;
+  };
+  error?: { message?: string; status?: string; code?: number };
+  responseId?: string;
+}
+
+const GEMINI_RETRYABLE_FINISH_REASONS = new Set(["NO_IMAGE", "IMAGE_OTHER"]);
+
+function geminiImageData(json: GeminiResponse): string | null {
+  for (const candidate of json.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      const data = part.inlineData?.data ?? part.inline_data?.data;
+      if (data?.trim()) return data.replace(/^data:image\/[^;]+;base64,/, "");
+    }
+  }
+  return null;
+}
+
+function geminiFailure(json: GeminiResponse, retried: boolean): { message: string; retryable: boolean } {
+  if (json.error?.message) {
+    return {
+      message: `Gemini 错误${json.error.status ? ` ${json.error.status}` : ""}: ${json.error.message}`,
+      retryable: false,
+    };
+  }
+  const blockReason = json.promptFeedback?.blockReason;
+  if (blockReason) {
+    const detail = json.promptFeedback?.blockReasonMessage?.trim();
+    return {
+      message: `Gemini 提示词被拦截（blockReason=${blockReason}）${detail ? `: ${detail}` : "，请调整提示词或引用图"}`,
+      retryable: false,
+    };
+  }
+
+  const candidates = json.candidates ?? [];
+  const reasons = [...new Set(candidates.map((candidate) => candidate.finishReason).filter((value): value is string => Boolean(value)))];
+  const finishMessages = candidates.map((candidate) => candidate.finishMessage?.trim()).filter((value): value is string => Boolean(value));
+  const modelText = candidates
+    .flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .slice(0, 300);
+  const blockedCategories = [...new Set(
+    candidates
+      .flatMap((candidate) => candidate.safetyRatings ?? [])
+      .filter((rating) => rating.blocked)
+      .map((rating) => rating.category)
+      .filter((value): value is string => Boolean(value))
+  )];
+  const retryable = reasons.length === 0 || reasons.every((reason) => GEMINI_RETRYABLE_FINISH_REASONS.has(reason));
+  const details = [
+    reasons.length ? `finishReason=${reasons.join(",")}` : candidates.length ? "候选未说明结束原因" : "未返回 candidates",
+    finishMessages.length ? finishMessages.join("；") : "",
+    blockedCategories.length ? `安全类别=${blockedCategories.join(",")}` : "",
+    modelText ? `模型返回文本：${modelText}` : "",
+    json.responseId ? `responseId=${json.responseId}` : "",
+  ].filter(Boolean);
+  return {
+    message: `Gemini 未生成图片${retried ? "（已自动重试 1 次）" : ""}: ${details.join("；")}`,
+    retryable,
+  };
+}
+
+async function waitGeminiRetry(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new JobCancelledError();
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new JobCancelledError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, 600);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
  * Gemini 图像生成（banana / nano-banana，gemini-2.5-flash-image 等）：
  * POST {base}/v1beta/models/{model}:generateContent（x-goog-api-key 头）
  * parts = [{text}, {inlineData: base64 引用图}?]；generationConfig.responseModalities=["TEXT","IMAGE"]
- * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应取 candidates[0].content.parts 首个 inlineData.data
+ * apiSize 映射 imageConfig.aspectRatio（如 16:9）；响应遍历全部 candidates/parts 取 inlineData.data。
+ * Gemini 的 HTTP 200 仍可能是 promptFeedback 拦截、图片安全过滤、NO_IMAGE 或文本拒绝；分类显示原因，
+ * 仅对 NO_IMAGE / IMAGE_OTHER / 无候选的暂时性空响应自动重试一次。
  */
 async function generateViaGemini(
   cfg: RuntimeProvider,
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
-  poseReferencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
   // 有引用图时图在前、文在后，利于图像编辑/角色一致性（无引用则仅 text）
   const parts: Array<Record<string, unknown>> = [];
-  if (referencePath) {
+  for (const referencePath of referencePaths) {
     parts.push({
-      inlineData: { mimeType: "image/png", data: readFileSync(referencePath).toString("base64") },
-    });
-  }
-  if (poseReferencePath) {
-    parts.push({
-      inlineData: { mimeType: "image/png", data: readFileSync(poseReferencePath).toString("base64") },
+      inlineData: { mimeType: imageMimeType(referencePath), data: readFileSync(referencePath).toString("base64") },
     });
   }
   parts.push({ text: prompt });
   const generationConfig: Record<string, unknown> = { responseModalities: ["TEXT", "IMAGE"] };
   if (cfg.apiSize.trim()) generationConfig.imageConfig = { aspectRatio: cfg.apiSize.trim() };
 
-  let res: Response;
-  try {
-    res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
-      body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
-      signal: fetchSignal(signal, 180_000),
-    });
-  } catch (e) {
-    throw new Error(`Gemini 请求失败: ${(e as Error).message}`);
-  }
-  if (!res.ok) throw await readError(res, "generateContent");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
+        body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
+        signal: fetchSignal(signal, 180_000),
+      });
+    } catch (e) {
+      if (signal?.aborted) throw new JobCancelledError();
+      throw new Error(`Gemini 请求失败: ${(e as Error).message}`);
+    }
+    if (!res.ok) throw await readError(res, "generateContent");
 
-  const json = (await res.json()) as GeminiResponse;
-  if (json.error?.message) throw new Error(`Gemini 错误: ${json.error.message}`);
-  const b64 = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
-  if (!b64) throw new Error("Gemini 响应缺少 candidates[0].content.parts[*].inlineData.data");
-  writeFileSync(outPath, Buffer.from(b64, "base64"));
+    const json = (await res.json()) as GeminiResponse;
+    const b64 = geminiImageData(json);
+    if (b64) {
+      writeFileSync(outPath, Buffer.from(b64, "base64"));
+      return;
+    }
+    const failure = geminiFailure(json, attempt > 0);
+    if (!failure.retryable || attempt > 0) throw new Error(failure.message);
+    await waitGeminiRetry(signal);
+  }
 }
 
 interface MinimaxResponse {
@@ -234,8 +335,8 @@ interface MinimaxResponse {
 
 /**
  * MiniMax 图像生成（image-01）：POST {base}/v1/image_generation（Bearer）
- * 引用图走 subject_reference（主体特征保持，每次限一张；base64 dataURI 上送）
- * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；优先解码 data.image_base64，兼容服务端返回 data.image_urls
+ * 引用图走 subject_reference（主体特征保持，协议限一张；base64 dataURI 上送）
+ * apiSize 映射 aspect_ratio（如 16:9，默认 1:1）；优先解码 base64，兼容服务端返回 URL
  * prompt 官方限制小于 1500 字符，超长截断
  */
 async function generateViaMinimax(
@@ -243,7 +344,7 @@ async function generateViaMinimax(
   prompt: string,
   model: string,
   outPath: string,
-  referencePath?: string,
+  referencePaths: string[] = [],
   signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
@@ -255,9 +356,9 @@ async function generateViaMinimax(
     response_format: "base64",
   };
   if (cfg.apiSize.trim()) body.aspect_ratio = cfg.apiSize.trim();
+  const referencePath = referencePaths[0];
   if (referencePath) {
-    const dataUri = `data:image/png;base64,${readFileSync(referencePath).toString("base64")}`;
-    body.subject_reference = [{ type: "character", image_file: dataUri }];
+    body.subject_reference = [{ type: "character", image_file: imageDataUri(referencePath) }];
   }
 
   let res: Response;
@@ -305,20 +406,27 @@ export async function generateViaApi(
   model: string,
   _index: number,
   outPath: string,
-  referencePath?: string,
+  referencePaths?: string[],
   sizeOverride?: string,
-  signal?: AbortSignal,
-  poseReferencePath?: string
+  signal?: AbortSignal
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
-  if (eff.type === "dashscope") return generateViaDashscope(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
-  if (eff.type === "gemini") return generateViaGemini(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
-  if (eff.type === "minimax") {
-    if (poseReferencePath) throw new Error("MiniMax 图片生成暂不支持独立动作参考图");
-    return generateViaMinimax(eff, prompt, model, outPath, referencePath, signal);
+  if (eff.type === "minimax" && (referencePaths?.length ?? 0) > 1)
+    throw new Error("MiniMax 图像协议最多支持 1 张引用图");
+  try {
+    if (eff.type === "dashscope") return await generateViaDashscope(eff, prompt, model, outPath, referencePaths, signal);
+    if (eff.type === "gemini") return await generateViaGemini(eff, prompt, model, outPath, referencePaths, signal);
+    if (eff.type === "minimax") return await generateViaMinimax(eff, prompt, model, outPath, referencePaths, signal);
+    return await generateViaOpenAI(eff, prompt, model, outPath, referencePaths, signal);
+  } catch (error) {
+    if (error instanceof JobCancelledError || signal?.aborted) throw error;
+    if ((referencePaths?.length ?? 0) > 1) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`多引用图生成失败：当前模型或 API 接口可能不支持 ${referencePaths!.length} 张引用图。请确认模型的多图输入能力，或减少为 1 张后重试。Provider 原始错误：${detail}`);
+    }
+    throw error;
   }
-  return generateViaOpenAI(eff, prompt, model, outPath, referencePath, poseReferencePath, signal);
 }
 
 // ===== 视频生成（异步任务制：创建 → 轮询 → 下载 mp4；仅 dashscope / minimax）=====
@@ -552,7 +660,7 @@ async function generateVideoViaDashscope(
   outPath: string,
   report: (s: string) => void,
   signal?: AbortSignal,
-  referencePath?: string
+  referencePaths: string[] = []
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   // Token Plan 可粘贴 …/compatible-mode/v1；归一到 host 根再拼原生路径
@@ -562,19 +670,22 @@ async function generateVideoViaDashscope(
   const isR2v = /r2v/i.test(model);
   const isHappyOrWanVideo = /happyhorse|wan\d/i.test(model) && /(t2v|i2v|r2v)/i.test(model);
 
-  if ((isI2v || isR2v) && !referencePath) {
+  if ((isI2v || isR2v) && referencePaths.length === 0) {
     throw new Error(`模型「${model}」需要引用图（${isI2v ? "首帧" : "参考图"}），请在生成时选择素材/帧作为引用`);
   }
+  if (isI2v && referencePaths.length > 1) throw new Error(`首帧视频模型「${model}」只能使用 1 张引用图`);
 
   let text = prompt;
   const input: Record<string, unknown> = {};
-  if (referencePath && (isI2v || isR2v)) {
-    const dataUri = `data:image/png;base64,${readFileSync(referencePath).toString("base64")}`;
+  if (referencePaths.length && (isI2v || isR2v)) {
     if (isI2v) {
-      input.media = [{ type: "first_frame", url: dataUri }];
+      input.media = [{ type: "first_frame", url: imageDataUri(referencePaths[0]!) }];
       if (text.trim()) input.prompt = text;
     } else {
-      input.media = [{ type: "reference_image", url: dataUri }];
+      input.media = referencePaths.map((referencePath) => ({
+        type: "reference_image",
+        url: imageDataUri(referencePath),
+      }));
       if (!/\[Image\s*1\]/i.test(text)) text = `Based on [Image 1], ${text}`;
       input.prompt = text;
     }
@@ -641,7 +752,7 @@ async function generateVideoViaDashscope(
 /**
  * API 视频生成统一入口（仅 dashscope / minimax，其余类型在前端已被过滤，这里兜底报错）。
  * 产出 mp4 到 outPath；耗时数分钟，进度经 report 写入 job.progress
- * referencePath：百炼 i2v/r2v 作首帧/参考图；其余忽略
+ * referencePaths：百炼 i2v 作单张首帧、r2v 作多张参考图；其余协议不接收
  * sizeOverride：生成弹窗选择的比例/分辨率，非空时覆盖 provider.apiSize
  */
 export async function generateVideoViaApi(
@@ -651,13 +762,13 @@ export async function generateVideoViaApi(
   outPath: string,
   report: (s: string) => void,
   signal?: AbortSignal,
-  referencePath?: string,
+  referencePaths?: string[],
   sizeOverride?: string
 ): Promise<void> {
   if (signal?.aborted) throw new JobCancelledError();
   const eff = sizeOverride?.trim() ? { ...cfg, apiSize: sizeOverride.trim() } : cfg;
   if (eff.type === "dashscope") {
-    return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePath);
+    return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePaths);
   }
   if (eff.type === "minimax") return generateVideoViaMinimax(eff, prompt, model, outPath, report, signal);
   throw new Error(`该 provider 类型（${eff.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);

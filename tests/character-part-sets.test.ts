@@ -112,7 +112,7 @@ describe("CharacterPartSet API", () => {
       count: 1,
       autoMatting: false,
       referenceMaterialId: materialId,
-      referencePath: "/safe/material/raw.png",
+      referencePaths: ["/safe/material/raw.png"],
       intent: "skeletal-decompose",
       characterPartSetId: setId,
     });

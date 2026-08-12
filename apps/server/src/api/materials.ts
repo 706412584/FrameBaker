@@ -6,9 +6,12 @@ import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
-import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePath } from "../providerAdapter";
+import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
 import { broadcast } from "../ws";
+import { appendFramePool, importFrameCellsToTarget, validateFrameImportTarget, type NewFrameCell } from "../timeline";
+import { getThumbnailPath, isImagePath, parseThumbnailSize, serveMediaFile } from "../media";
+import { beginProjectUndo } from "../undo";
 
 function baseName(filename: string): string {
   const n = filename.split("/").pop() ?? filename;
@@ -44,11 +47,18 @@ export function sortMaterialsByFrameNumber(materials: MaterialRow[]): MaterialRo
   );
 }
 
-/** 把素材的 raw / processed 槽位分别复制为项目帧追加到末尾，返回新帧 id */
+/** 把素材复制为项目帧追加到末尾；有抠图结果时两个槽位都以抠图图为准，返回新帧 id */
 function importMaterialToProject(m: MaterialRow, projectId: string): string {
-  const rawSrc = m.raw_path && existsSync(m.raw_path) ? m.raw_path : m.processed_path;
-  if (!rawSrc || !existsSync(rawSrc)) throw new Error(`素材文件缺失: ${m.id}`);
-  if (/\.(mp4|mov|webm|avi)$/i.test(rawSrc)) {
+  const cell = prepareMaterialFrame(m, projectId);
+  appendFramePool(projectId, cell);
+  return cell.id;
+}
+
+function prepareMaterialFrame(m: MaterialRow, projectId: string): NewFrameCell {
+  const processedSrc = m.processed_path && existsSync(m.processed_path) ? m.processed_path : null;
+  const inputSrc = processedSrc ?? (m.raw_path && existsSync(m.raw_path) ? m.raw_path : null);
+  if (!inputSrc) throw new Error(`素材文件缺失: ${m.id}`);
+  if (/\.(mp4|mov|webm|avi)$/i.test(inputSrc)) {
     throw new Error(`「${m.name}」是视频素材，请先抽帧再导入项目`);
   }
   const frameId = uid();
@@ -58,11 +68,11 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   mkdirSync(procDir, { recursive: true });
   // mat_ 前缀：不会被拆帧扫描的 frame_\d+ 规则命中
   const rawPath = join(rawDir, `mat_${frameId}.png`);
-  copyFileSync(rawSrc, rawPath);
+  copyFileSync(inputSrc, rawPath);
   let procPath: string | null = null;
-  if (m.processed_path && existsSync(m.processed_path)) {
+  if (processedSrc) {
     procPath = join(procDir, `${frameId}.png`);
-    copyFileSync(m.processed_path, procPath);
+    copyFileSync(processedSrc, procPath);
   }
   let metadata: Record<string, unknown> = { fromMaterial: m.id };
   try {
@@ -70,20 +80,19 @@ function importMaterialToProject(m: MaterialRow, projectId: string): string {
   } catch {
     /* ignore */
   }
-  db.query(
-    "INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, source, metadata) VALUES (?, ?, ?, ?, ?, 'ready', ?, ?)"
-  ).run(frameId, projectId, nextFrameIdx(projectId), rawPath, procPath, m.source, JSON.stringify(metadata));
-  return frameId;
+  return { id: frameId, raw_path: rawPath, processed_path: procPath, status: "ready", source: m.source, metadata: JSON.stringify(metadata) };
 }
 
 /** 素材图片/视频流式返回，processed 缺失回退 raw */
 const materialImageHandler = ({
   params,
   query,
+  request,
   status,
 }: {
   params: { id: string };
-  query: { type?: string; strict?: string };
+  query: { type?: string; strict?: string; size?: string };
+  request: Request;
   status: (code: number, msg: string) => unknown;
 }) => {
   const m = getMaterial(params.id);
@@ -100,9 +109,13 @@ const materialImageHandler = ({
       : lower.endsWith(".mov")
         ? "video/quicktime"
         : "image/png";
-  return new Response(Bun.file(path), {
-    headers: { "Content-Type": contentType, "Cache-Control": "no-store" },
-  });
+  const size = parseThumbnailSize(query.size);
+  if (size && contentType.startsWith("image/") && isImagePath(path)) {
+    return getThumbnailPath(path, size).then((thumbnail) =>
+      serveMediaFile(thumbnail ?? path!, request, "image/png")
+    );
+  }
+  return serveMediaFile(path, request, contentType);
 };
 
 export const materialsApi = new Elysia({ prefix: "/api" })
@@ -186,7 +199,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     "/materials/generate",
     ({ body, status }) => {
       // 引用图 id 解析 + 模板一致性前置校验（在创建 job 前就 400）
-      const ref = resolveReferencePath(body);
+      const ref = resolveReferencePaths(body);
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
@@ -197,8 +210,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           autoMatting: body.autoMatting ?? false,
           target: { kind: "materials" },
           name: body.name,
-          referencePath: ref.referencePath,
-          poseReferencePath: ref.poseReferencePath,
+          referencePaths: ref.referencePaths,
           providerId: body.providerId,
           model: body.model,
           size: body.size,
@@ -223,6 +235,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         referenceFrameId: t.Optional(t.String()),
         poseReferenceMaterialId: t.Optional(t.String()),
         poseReferenceFrameId: t.Optional(t.String()),
+        references: t.Optional(t.Array(t.Object({
+          kind: t.Union([t.Literal("material"), t.Literal("frame")]),
+          id: t.String(),
+        }), { maxItems: 10 })),
         providerId: t.Optional(t.String()),
         model: t.Optional(t.String()),
         size: t.Optional(t.String()),
@@ -427,7 +443,10 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         return status(500, (e as Error).message);
       }
     },
-    { body: t.Object({ projectId: t.String(), count: t.Optional(t.Integer()) }) }
+    {
+      body: t.Object({ projectId: t.String(), count: t.Optional(t.Integer()) }),
+      beforeHandle: ({ request, body }) => beginProjectUndo(request, body),
+    }
   )
   // 批量删除
   .post(
@@ -459,20 +478,23 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     ({ body, status }) => {
       const project = db.query("SELECT id FROM projects WHERE id = ?").get(body.projectId);
       if (!project) return status(404, "项目不存在");
-      let count = 0;
       try {
         const materials = sortMaterialsByFrameNumber(
           body.ids.map((id) => getMaterial(id)).filter((m): m is MaterialRow => m !== null)
         );
-        for (const m of materials) {
-          importMaterialToProject(m, body.projectId);
-          count++;
-        }
+        if (body.target) validateFrameImportTarget(body.projectId, materials.length, body.target);
+        const frameIds = body.target
+          ? importFrameCellsToTarget(body.projectId, materials.map((m) => prepareMaterialFrame(m, body.projectId)), body.target)
+          : materials.map((m) => importMaterialToProject(m, body.projectId));
+        broadcast("frames_changed", { projectId: body.projectId });
+        broadcast("timeline_changed", { projectId: body.projectId, axisId: body.target?.axisId });
+        return { ok: true, count: frameIds.length, frameIds };
       } catch (e) {
-        return status(500, (e as Error).message);
+        return status(400, (e as Error).message);
       }
-      broadcast("frames_changed", { projectId: body.projectId });
-      return { ok: true, count };
     },
-    { body: t.Object({ ids: t.Array(t.String()), projectId: t.String() }) }
+    {
+      body: t.Object({ ids: t.Array(t.String()), projectId: t.String(), target: t.Optional(t.Object({ axisId: t.String(), trackId: t.String(), startStepId: t.Optional(t.String()) })) }),
+      beforeHandle: ({ request, body }) => beginProjectUndo(request, body),
+    }
   );

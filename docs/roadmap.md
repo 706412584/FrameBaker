@@ -27,7 +27,7 @@
 - Material search: project import modal material library tab filters locally by material name / prompt (does not affect already selected)
 - AI video generation frame-by-frame extraction: generation modal "image / video" toggle — CLI output auto-detected by magic bytes and split into frames (any mode), DashScope and MiniMax video API async task polling → mp4 → ffmpeg fps extraction into library
 - Frame context menu: generic `ContextMenu` component (viewport edge collapse, Esc/outside click/scroll to close); frame list/timeline right-click — single frame menu (keyframe / duration ±1 / crop / duplicate / delete), right-click within multi-selection shows batch menu (reuses BatchBar handlers)
-- **MCP server**: built-in Model Context Protocol endpoint (`POST /mcp`, Streamable HTTP + JSON-RPC 2.0, protocol version `2024-11-05`), 33 tools covering projects / frames / materials / generation / matting / folders / jobs / system config; tools directly operate db and internal modules (zero HTTP self-call overhead); compatible with Claude Desktop / Claude Code / Cursor / Windsurf AI clients
+- **MCP server**: built-in Model Context Protocol endpoint (`POST /mcp`, Streamable HTTP + JSON-RPC 2.0, protocol version `2024-11-05`), 34 tools covering projects / frames / materials / generation / matting / folders / jobs / system config; tools directly operate db and internal modules (zero HTTP self-call overhead); compatible with Claude Desktop / Claude Code / Cursor / Windsurf AI clients
 
 ## M2 — Candidates (by priority)
 

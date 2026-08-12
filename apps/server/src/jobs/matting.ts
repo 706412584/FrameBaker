@@ -1,10 +1,11 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { MattingEngine } from "@framebaker/shared";
-import { db, getFrame, getMaterial, REPO_ROOT, STORAGE_ROOT } from "../db";
+import { db, getFrame, getMaterial, REPO_ROOT, STORAGE_ROOT, uid } from "../db";
 import { getMattingSettings } from "../provider";
 import { broadcast } from "../ws";
 import { JobCancelledError, runCmd } from "./run";
+import { invalidateProjectUndo } from "../undo";
 
 // ===== 抠图引擎探测（每次调用重新解析，设置页改动即时生效；解析顺序见下）=====
 
@@ -88,12 +89,31 @@ export async function matteFrame(frameId: string, signal?: AbortSignal): Promise
   if (!frame.raw_path) throw new Error(`帧缺少 raw 文件: ${frameId}`);
 
   const outPath = join(STORAGE_ROOT, "projects", frame.project_id, "processed", `${frameId}.png`);
-  mkdirSync(dirname(outPath), { recursive: true });
-  const warning = await runMatting(frame.raw_path, outPath, signal);
-
-  db.query("UPDATE frames SET status = 'ready', processed_path = ? WHERE id = ?").run(outPath, frameId);
-  broadcast("frame_updated", { id: frameId, projectId: frame.project_id });
-  return warning;
+  const stageDir = join(STORAGE_ROOT, "staging", `matte_${uid()}`);
+  const stagedPath = join(stageDir, "output.png");
+  const backupPath = join(stageDir, "previous.png");
+  mkdirSync(stageDir, { recursive: true });
+  try {
+    const warning = await runMatting(frame.raw_path, stagedPath, signal);
+    const current = getFrame(frameId);
+    if (!current) throw new Error(`帧已在抠图期间删除: ${frameId}`);
+    mkdirSync(dirname(outPath), { recursive: true });
+    invalidateProjectUndo(current.project_id);
+    const hadPrevious = existsSync(outPath);
+    if (hadPrevious) renameSync(outPath, backupPath);
+    try {
+      renameSync(stagedPath, outPath);
+      db.query("UPDATE frames SET status = 'ready', processed_path = ? WHERE id = ?").run(outPath, frameId);
+    } catch (error) {
+      rmSync(outPath, { force: true });
+      if (hadPrevious && existsSync(backupPath)) renameSync(backupPath, outPath);
+      throw error;
+    }
+    broadcast("frame_updated", { id: frameId, projectId: current.project_id, imageChanged: true });
+    return warning;
+  } finally {
+    rmSync(stageDir, { recursive: true, force: true });
+  }
 }
 
 /** 抠图：素材。返回警告文案（null = 真抠图） */

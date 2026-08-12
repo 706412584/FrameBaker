@@ -2,7 +2,7 @@ import * as z from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db } from "../../db";
 import { createJob } from "../../queue";
-import { checkVideoSupport, resolveReferencePath } from "../../providerAdapter";
+import { checkVideoSupport, resolveReferencePaths } from "../../providerAdapter";
 import { ok, err } from "../helpers";
 
 export function register(server: McpServer) {
@@ -11,7 +11,7 @@ export function register(server: McpServer) {
     {
       title: "Generate Frames",
       description:
-        "Generate frames for a project using an AI generation provider (CLI/API/DashScope/Gemini/MiniMax). Creates a job and returns jobId. Poll with get_job or listen for completion. Supports optional reference image (referenceMaterialId or referenceFrameId), provider selection, model, size, and video mode (mediaKind=video generates a video then auto-extracts frames).",
+        "Generate frames for a project using an AI generation provider (CLI/API/DashScope/Gemini/MiniMax). Creates a job and returns jobId. Poll with get_job or listen for completion. Supports up to 10 ordered reference images, provider selection, model, size, and video mode.",
       inputSchema: z.object({
         projectId: z.string().describe("Target project UUID"),
         prompt: z.string().describe("Generation prompt (English recommended)"),
@@ -24,11 +24,15 @@ export function register(server: McpServer) {
         fps: z.number().int().min(1).max(60).describe("Video extraction fps (video mode)").optional(),
         referenceMaterialId: z.string().describe("Reference material UUID for image-to-image").optional(),
         referenceFrameId: z.string().describe("Reference frame UUID for image-to-image").optional(),
+        references: z.array(z.object({
+          kind: z.enum(["material", "frame"]),
+          id: z.string(),
+        })).max(10).describe("Ordered reference images; do not combine with legacy single-reference fields").optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) => {
-      const { projectId, prompt, count, autoMatting, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId } = args;
+      const { projectId, prompt, count, autoMatting, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references } = args;
       const project = db.query("SELECT id FROM projects WHERE id = ?").get(projectId);
       if (!project) return err("项目不存在");
       const body = {
@@ -43,8 +47,9 @@ export function register(server: McpServer) {
         fps,
         referenceMaterialId,
         referenceFrameId,
+        references,
       };
-      const ref = resolveReferencePath(body);
+      const ref = resolveReferencePaths(body);
       if (ref.error) return err(ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return err(videoErr);
@@ -54,7 +59,7 @@ export function register(server: McpServer) {
           count: body.count,
           autoMatting: body.autoMatting,
           target: { kind: "project", projectId },
-          referencePath: ref.referencePath,
+          referencePaths: ref.referencePaths,
           providerId,
           model,
           size,
@@ -84,12 +89,16 @@ export function register(server: McpServer) {
         fps: z.number().int().min(1).max(60).describe("Video extraction fps").optional(),
         referenceMaterialId: z.string().describe("Reference material UUID").optional(),
         referenceFrameId: z.string().describe("Reference frame UUID").optional(),
+        references: z.array(z.object({
+          kind: z.enum(["material", "frame"]),
+          id: z.string(),
+        })).max(10).describe("Ordered reference images; do not combine with legacy single-reference fields").optional(),
         folderId: z.string().describe("Target folder UUID for generated materials").optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (args) => {
-      const { prompt, count, autoMatting, name, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, folderId } = args;
+      const { prompt, count, autoMatting, name, providerId, model, size, mediaKind, fps, referenceMaterialId, referenceFrameId, references, folderId } = args;
       const body = {
         prompt,
         count: count ?? 1,
@@ -102,9 +111,10 @@ export function register(server: McpServer) {
         fps,
         referenceMaterialId,
         referenceFrameId,
+        references,
         folderId: folderId ?? null,
       };
-      const ref = resolveReferencePath(body);
+      const ref = resolveReferencePaths(body);
       if (ref.error) return err(ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return err(videoErr);
@@ -115,7 +125,7 @@ export function register(server: McpServer) {
           autoMatting: body.autoMatting,
           target: { kind: "materials" },
           name,
-          referencePath: ref.referencePath,
+          referencePaths: ref.referencePaths,
           providerId,
           model,
           size,

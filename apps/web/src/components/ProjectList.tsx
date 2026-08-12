@@ -165,8 +165,9 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                   onClick={() => onOpen(p.id)}
                 >
                   <div className="thumb">
-                    <span className={`project-kind-badge ${p.kind}`}>{t(p.kind === "skeletal" ? "project.kind.skeletal" : "project.kind.frame")}</span>
-                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id)} alt="" draggable={false} /> : p.kind === "skeletal" ? <Bone size={40} /> : <Film size={40} />}
+
+                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id, undefined, 320)} alt="" draggable={false} loading="lazy" decoding="async" /> : <Film size={40} />}
+
                   </div>
                   <div className="info">
                     <div className="name">{p.name}</div>

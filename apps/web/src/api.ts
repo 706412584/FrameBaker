@@ -39,6 +39,11 @@ import type {
   SkeletalProjectDocument,
   SkeletalProjectDocumentResponse,
   WSMessage,
+
+  AnimationAxis,
+  AnimationTrack,
+  TimelineStep,
+  TimelineResponse,
   CharacterPartSet,
   CharacterPartSetResponse,
   CharacterPartSetsResponse,
@@ -47,7 +52,8 @@ import type {
   GenerationIntent,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
+export type { Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
+
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -64,7 +70,7 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-/** 生成请求体（引用图二选一，服务端按 id 解析路径防注入；providerId/model 生成时选择） */
+/** 生成请求体（引用图按 id 解析路径防注入；旧版单引用字段继续兼容） */
 interface GenerateBody {
   prompt: string;
   count: number;
@@ -73,8 +79,10 @@ interface GenerateBody {
   name?: string;
   referenceMaterialId?: string;
   referenceFrameId?: string;
-  poseReferenceMaterialId?: string;
-  poseReferenceFrameId?: string;
+
+  /** 有序引用图，最多 10 张；可混合素材与项目帧。 */
+  references?: Array<{ kind: "material" | "frame"; id: string }>;
+
   providerId?: string;
   model?: string;
   /** 生成尺寸（api 系覆盖 provider 默认；空 = 用 provider 配置） */
@@ -111,12 +119,30 @@ export const api = {
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),
   patchProject: (id: string, body: { name?: string; folderId?: string | null }) =>
     req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
-  getSkeletalProjectDocument: (id: string) =>
-    req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`).then((r) => r.document),
-  putSkeletalProjectDocument: (id: string, document: SkeletalProjectDocument) =>
-    req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`, { method: "PUT", ...json(document) }).then((r) => r.document),
+
+  undoProject: (id: string) => req<OkResponse>(`/api/projects/${id}/undo`, { method: "POST" }),
+  getSkeletalProjectDocument: (id: string) => req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`).then((r) => r.document),
+  putSkeletalProjectDocument: (id: string, document: SkeletalProjectDocument) => req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`, { method: "PUT", ...json(document) }).then((r) => r.document),
+
 
   getFrames: (projectId: string) => req<FramesResponse>(`/api/projects/${projectId}/frames`).then((r) => r.frames),
+  getTimeline: (projectId: string, axisId?: string) => req<TimelineResponse>(`/api/projects/${projectId}/timeline${axisId ? `?axisId=${encodeURIComponent(axisId)}` : ""}`),
+  createAxis: (projectId: string, body: { name: string; fps?: number }) => req<{ axis: AnimationAxis }>(`/api/projects/${projectId}/axes`, { method: "POST", ...json(body) }),
+  patchAxis: (id: string, body: { name?: string; fps?: number }) => req<{ axis: AnimationAxis }>(`/api/axes/${id}`, { method: "PATCH", ...json(body) }),
+  deleteAxis: (id: string) => req<OkResponse>(`/api/axes/${id}`, { method: "DELETE" }),
+  createTrack: (axisId: string, body: { name: string; visible?: number; locked?: number }) => req<{ track: AnimationTrack }>(`/api/axes/${axisId}/tracks`, { method: "POST", ...json(body) }),
+  patchTrack: (id: string, body: { name?: string; visible?: number; locked?: number }) => req<{ track: AnimationTrack }>(`/api/tracks/${id}`, { method: "PATCH", ...json(body) }),
+  deleteTrack: (id: string) => req<OkResponse>(`/api/tracks/${id}`, { method: "DELETE" }),
+  reorderTracks: (axisId: string, trackIds: string[]) => req<OkResponse>(`/api/axes/${axisId}/tracks/reorder`, { method: "POST", ...json({ trackIds }) }),
+  createStep: (axisId: string, duration = 1) => req<{ step: TimelineStep }>(`/api/axes/${axisId}/steps`, { method: "POST", ...json({ duration }) }),
+  patchStep: (id: string, body: { duration: number }) => req<{ step: TimelineStep }>(`/api/steps/${id}`, { method: "PATCH", ...json(body) }),
+  deleteStep: (id: string) => req<OkResponse>(`/api/steps/${id}`, { method: "DELETE" }),
+  reorderSteps: (axisId: string, stepIds: string[]) => req<OkResponse>(`/api/axes/${axisId}/steps/reorder`, { method: "POST", ...json({ stepIds }) }),
+  moveFrameCell: (id: string, trackId: string, stepId: string, swap = false, copy = false) => req<FrameResponse>(`/api/frames/${id}/placement`, { method: "PATCH", ...json({ trackId, stepId, swap, copy }) }),
+  clearFrameCell: (id: string) => req<OkResponse>(`/api/frames/${id}/placement`, { method: "DELETE" }),
+  /** 批量把资产帧 copy 到目标轨道（从 startStepId 起连续放置，占用帧推回池，不足新建 step） */
+  placeFramesBatch: (trackId: string, body: { startStepId?: string; frameIds: string[] }) =>
+    req<{ frameIds: string[] }>(`/api/tracks/${trackId}/place-frames`, { method: "POST", ...json(body) }),
   patchFrame: (id: string, patch: FramePatch) =>
     req<FrameResponse>(`/api/frames/${id}`, { method: "PATCH", ...json(patch) }),
   replaceFrame: (id: string, file: Blob) => {
@@ -142,8 +168,10 @@ export const api = {
     req<ProviderTestResponse>("/api/provider/test", { method: "POST", ...json(body) }),
   listProviderModels: (body: ProviderModelsRequest) =>
     req<ProviderModelsResponse>("/api/provider/models", { method: "POST", ...json(body) }),
-  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video", intent?: EnhancePromptIntent) =>
-    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind, intent }) }),
+
+  enhancePrompt: (enhancerId: string | undefined, prompt: string, style: string, mediaKind?: "image" | "video", referenceImageCount?: number, intent?: EnhancePromptIntent) =>
+    req<EnhancePromptResponse>("/api/enhance-prompt", { method: "POST", ...json({ enhancerId, prompt, style, mediaKind, referenceImageCount, intent }) }),
+
 
   // ---- 界面偏好设置（服务端持久化） ----
   getSettings: () => req<Record<string, unknown>>("/api/settings"),
@@ -183,8 +211,8 @@ export const api = {
     }),
   batchDeleteMaterials: (ids: string[]) =>
     req<OkResponse & { deleted: number }>("/api/materials/batch-delete", { method: "POST", ...json({ ids }) }),
-  batchImportMaterials: (ids: string[], projectId: string) =>
-    req<OkResponse & { count: number }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId }) }),
+  batchImportMaterials: (ids: string[], projectId: string, target?: { axisId: string; trackId: string; startStepId?: string }) =>
+    req<OkResponse & { count: number; frameIds?: string[] }>("/api/materials/batch-import", { method: "POST", ...json({ ids, projectId, target }) }),
 
   listCharacterPartSets: () => req<CharacterPartSetsResponse>("/api/character-part-sets").then((r) => r.characterPartSets),
   getCharacterPartSet: (id: string) => req<CharacterPartSetResponse>(`/api/character-part-sets/${id}`).then((r) => r.characterPartSet),
@@ -233,13 +261,15 @@ export const api = {
   deleteRasterSequence: (id: string) => req<OkResponse>(`/api/raster-sequences/${id}`, { method: "DELETE" }),
 };
 
-/** 帧图片 URL（.png 后缀：Pixi Assets 按扩展名命中 texture parser；v 变化可破缓存） */
-export const frameImageUrl = (id: string, v?: number) =>
-  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}`;
+/** 帧图片 URL；size 仅用于列表/时间轴缩略图，编辑画布不传 size 以保留原图。 */
+export const frameImageUrl = (id: string, v?: number, size?: number) =>
+  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}`;
 
-/** 素材图片 URL；type=raw 强制原图，默认 processed（缺失时服务端回退 raw） */
-export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed", strict = false) =>
-  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}${strict ? "&strict=1" : ""}`;
+
+/** 素材图片 URL；size 仅用于列表缩略图，详情/编辑不传 size。 */
+export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed", size?: number, strict = false) =>
+  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}${strict ? "&strict=1" : ""}`;
+
 
 /** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
 export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>

@@ -30,7 +30,7 @@
 │   └─ /api/jobs(/:id)   任务列表（面板初始加载）/ 单任务查询          │
 │                                                                     │
 │  mcp.ts（MCP 服务端：POST /mcp JSON-RPC 2.0 Streamable HTTP）      │
-│         33 个工具直接操作 db/内部模块，供 AI 助手调用               │
+│         34 个工具直接操作 db/内部模块，供 AI 助手调用               │
 │                                                                     │
 │  provider.ts（多生成 provider / 抠图配置解析：settings 优先 env 兜底）│
 │  providerAdapter.ts（生成校验/执行 adapter + provider 模型探测）      │
@@ -80,7 +80,7 @@
 - **生成 provider 解析**（`provider.ts`，每次调用实时读 settings 表）：settings `genProviders` 列表模型——CLI / OpenAI 兼容 API / 百炼 DashScope 原生 / Gemini（banana）/ MiniMax 可配多个共存，列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider（legacyTemplate 遗留模板路径）兜底。生成请求按 `providerId` 选择（缺省第一个配置齐备的）；`type=cli` 走结构化 argv 组装（`cliBin` + 参数名映射 `cliPromptArg`/`cliOutputArg`/`cliModelArg`/`cliReferenceArg`/`cliExtraArgs`，参数名留空=位置参数或不下发）；`type=api`/`dashscope`/`gemini`/`minimax` 走 `jobs/generateApi.ts`：
   - api（OpenAI 兼容）：无引用图 `POST {base}/images/generations`（JSON），有引用图 `POST {base}/images/edits`（multipart image+prompt，需 gpt-image 系列等支持 edits 的模型）；`data[0].b64_json` 或 `data[0].url` 取图，120/180s 超时。
   - dashscope（百炼原生，wan2.7-image / qwen-image 等不在兼容模式内）：`POST {base}/api/v1/services/aigc/multimodal-generation/generation`，messages content 为 `[{image: dataURI}?, {text}]`（引用图 base64 上送），同步返回 `output.choices[0].message.content[*].image` URL 后下载；`apiSize` 支持 `2K`/`1K`/`4K` 或 `宽*高`；`apiBaseUrl` 经 `normalizeDashscopeBaseUrl` 剥掉 `/compatible-mode/v1` 与 `/api/v1`（Token Plan 默认 `https://token-plan.cn-beijing.maas.aliyuncs.com`，Key `sk-sp-`）。
-  - gemini（banana / nano-banana）：`POST {base}/v1beta/models/{model}:generateContent`（x-goog-api-key），parts `[{text}, {inlineData}?]`，响应取首个 `inlineData.data`；`apiSize` 映射 `imageConfig.aspectRatio`。
+  - gemini（banana / nano-banana）：`POST {base}/v1beta/models/{model}:generateContent`（x-goog-api-key），parts `[{text}, {inlineData}?]`；专用响应适配器遍历全部候选，按 Gemini 元数据分类提示词/图片安全拦截与纯文本拒绝，并对暂时性 `NO_IMAGE`/`IMAGE_OTHER` 重试一次；`apiSize` 映射 `imageConfig.aspectRatio`。
   - minimax：图片 `POST {base}/v1/image_generation`（Bearer），引用图走 `subject_reference`（限一张，主体特征保持），`response_format=base64` 取 `data.image_base64[0]`；`apiSize` 映射 `aspect_ratio`。
   模型取请求 `model` 缺省列表第一项。`GET /api/config` 下发 `gen.providers` 与 `promptEnhancers` 摘要（不含 apiKey；providers 带 `video` 标记，映射见共享常量 `PROVIDER_VIDEO_SUPPORT`）。
 - **视频生成**（`generateFrames` 的 `mediaKind="video"`，仅 cli/dashscope/minimax）：只生成并保存 `materials/{id}/raw.mp4`（不抽帧）；抽帧走 `POST /api/materials/:id/extract`（`fps` 整段或 `timestamps` 定点，单 job）→ `extract_frames`。CLI/百炼/MiniMax 视频协议同前；轮询 5s 间隔、10 分钟超时。**图片模式下 CLI 产物若为视频同样存为视频素材**。
@@ -101,7 +101,7 @@
 AI 客户端 → POST /mcp { jsonrpc, method: "initialize" }
   → 服务端返回 protocolVersion/capabilities/serverInfo + Mcp-Session-Id
   → 客户端发 notifications/initialized
-  → tools/list 获取 33 个工具
+  → tools/list 获取 34 个工具
   → tools/call { name, arguments } → 直接 db 操作 → 返回 { content: [{ type:"text", text:JSON }] }
 ```
 
@@ -182,6 +182,8 @@ storage/
 
 - `projects(id, name, folder_id, created_at)`
 - `frames(id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe, offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)`
+- 规范动画模型：`animation_axes(project_id, idx, fps)` → `animation_tracks(axis_id, idx, visible, locked, is_primary)`，并共享 `animation_steps(axis_id, idx, duration)`；`frames.track_id + step_id` 是唯一合成单元格坐标。旧 `frames.idx/duration` 暂保持同步镜像。
+- 启动迁移具备事务性和幂等性：每个历史/空项目补齐 `Default`（8 fps）/`Main`；历史帧按 `idx,id` 确定性排序后各建一步，保留 ID、文件、变换、顺序和时长。`frames.is_asset` 区分左侧可复用帧资产与时间轴实例；从左侧拖放会创建实例且不消耗源资产，时间轴内部拖动仍执行移动或交换。
 - `jobs(id, project_id, type, status, progress, error, created_at)`
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
 - `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目多级目录（kind=`material`|`project`）
