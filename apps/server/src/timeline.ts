@@ -1,5 +1,5 @@
-import type { AnimationAxis, AnimationTrack, Frame, TimelineResponse, TimelineStep } from "@framebaker/shared";
-import { db, getFrame, nextFrameIdx, serializeFrame, uid } from "./db";
+import type { AnimationAxis, AnimationTrack, AttackEffectCellRow, Frame, TimelineResponse, TimelineStep } from "@framebaker/shared";
+import { db, getFrame, nextFrameIdx, serializeAttackEffect, serializeFrame, uid } from "./db";
 
 type Defaults = { axis: AnimationAxis; track: AnimationTrack };
 
@@ -32,9 +32,11 @@ export function getTimeline(projectId: string, axisId?: string): TimelineRespons
   const steps = db.query("SELECT * FROM animation_steps WHERE axis_id = ? ORDER BY idx, id").all(axis.id) as TimelineStep[];
   const frames = db.query(`SELECT f.* FROM frames f JOIN animation_tracks t ON t.id=f.track_id
     JOIN animation_steps s ON s.id=f.step_id WHERE t.axis_id=? AND s.axis_id=? ORDER BY s.idx,t.idx,f.id`).all(axis.id, axis.id) as any[];
+  const effects = db.query(`SELECT e.* FROM attack_effects e JOIN animation_tracks t ON t.id=e.track_id
+    JOIN animation_steps s ON s.id=e.step_id WHERE t.axis_id=? AND s.axis_id=? ORDER BY s.idx,t.idx,e.id`).all(axis.id, axis.id) as AttackEffectCellRow[];
   const poolFrames = db.query("SELECT * FROM frames WHERE project_id=? AND is_asset=1 AND track_id IS NULL AND step_id IS NULL ORDER BY idx,id").all(projectId) as any[];
   const assetFrames = db.query("SELECT * FROM frames WHERE project_id=? AND is_asset=1 ORDER BY idx,id").all(projectId) as any[];
-  return { axes, axis, tracks, steps, frames: frames.map(serializeFrame), poolFrames: poolFrames.map(serializeFrame), assetFrames: assetFrames.map(serializeFrame) };
+  return { axes, axis, tracks, steps, frames: frames.map(serializeFrame), effects: effects.map(serializeAttackEffect), poolFrames: poolFrames.map(serializeFrame), assetFrames: assetFrames.map(serializeFrame) };
 }
 
 /** 导入只进入待编排帧池；用户拖入时间轴后才绑定轨道和步骤。 */
@@ -119,7 +121,7 @@ export function setStepDuration(stepId: string, duration: number) {
 
 export function deleteFrameCell(frameId: string) {
   const frame = getFrame(frameId); if (!frame) return null;
-  db.transaction(() => { db.query("DELETE FROM frames WHERE id=?").run(frameId); if (frame.step_id) db.query("DELETE FROM animation_steps WHERE id=? AND NOT EXISTS (SELECT 1 FROM frames WHERE step_id=?)").run(frame.step_id, frame.step_id); })();
+  db.transaction(() => { db.query("DELETE FROM frames WHERE id=?").run(frameId); if (frame.step_id) db.query("DELETE FROM animation_steps WHERE id=? AND NOT EXISTS (SELECT 1 FROM frames WHERE step_id=?) AND NOT EXISTS (SELECT 1 FROM attack_effects WHERE step_id=?)").run(frame.step_id, frame.step_id, frame.step_id); })();
   const axis = frame.step_id ? db.query("SELECT axis_id FROM animation_steps WHERE id=?").get(frame.step_id) as { axis_id: string } | null : null;
   const fallback = frame.track_id ? db.query("SELECT axis_id FROM animation_tracks WHERE id=?").get(frame.track_id) as { axis_id: string } | null : null;
   if (axis || fallback) syncAxis((axis ?? fallback)!.axis_id);

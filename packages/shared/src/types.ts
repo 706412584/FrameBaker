@@ -591,14 +591,21 @@ export interface AttackEffectPoint {
   pressure: number;
 }
 
+export const ATTACK_EFFECT_BRUSHES = ["slash", "bristle", "dry", "spark", "echo"] as const;
+export type AttackEffectBrush = (typeof ATTACK_EFFECT_BRUSHES)[number];
+
 /** 单次落笔保留当时的颜色和笔宽，后续可继续叠加不同样式。 */
 export interface AttackEffectStroke {
   color: string;
   size: number;
   points: AttackEffectPoint[];
+  /** 旧数据缺省时按 slash 渲染。 */
+  brush?: AttackEffectBrush;
 }
 
-/** 每帧独立的矢量攻击特效；整体变换与角色帧变换互不影响。 */
+export type AttackEffectStyle = "flame" | "energy" | "ink";
+
+/** 时间轴单元格独立的矢量攻击特效；整体变换与角色图片变换互不影响。 */
 export interface AttackEffect {
   strokes: AttackEffectStroke[];
   offset_x: number;
@@ -606,6 +613,18 @@ export interface AttackEffect {
   scale: number;
   rotation: number;
   opacity: number;
+  /** 旧数据缺省时按 flame 渲染。 */
+  style?: AttackEffectStyle;
+}
+
+/** 独立占据时间轴轨道×步骤坐标的特效单元格，可与图片帧共存。 */
+export interface AttackEffectCell {
+  id: string;
+  project_id: string;
+  track_id: string;
+  step_id: string;
+  effect: AttackEffect;
+  created_at: number;
 }
 
 export interface Frame {
@@ -631,6 +650,7 @@ export interface Frame {
   tags: string[];
   source: FrameSource;
   metadata: Record<string, unknown>;
+  /** @deprecated 仅用于启动时迁移旧版帧级特效；新特效存入 AttackEffectCell。 */
   attack_effect: AttackEffect | null;
 }
 
@@ -666,10 +686,16 @@ export interface TimelineResponse {
   tracks: AnimationTrack[];
   steps: TimelineStep[];
   frames: Frame[];
+  /** 可存在于空图片单元格中的独立攻击特效。 */
+  effects: AttackEffectCell[];
   /** 尚未放入任何动画轴的待编排帧。 */
   poolFrames: Frame[];
   /** 项目左侧永久保留的可复用帧资产。 */
   assetFrames: Frame[];
+}
+
+export interface AttackEffectCellRow extends Omit<AttackEffectCell, "effect"> {
+  effect: string;
 }
 
 export interface Job {
@@ -726,7 +752,6 @@ export interface FramePatch {
   duration?: number;
   is_keyframe?: number;
   tags?: string[];
-  attack_effect?: AttackEffect | null;
 }
 
 export interface ProjectsResponse {

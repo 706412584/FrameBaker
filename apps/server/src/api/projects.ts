@@ -88,7 +88,7 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
     if (!row) return status(404, "项目不存在");
     invalidateProjectUndo(params.id);
-    db.transaction(()=>{db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_axes WHERE project_id=?").run(params.id);})();
+    db.transaction(()=>{db.query("DELETE FROM attack_effects WHERE project_id = ?").run(params.id);db.query("DELETE FROM frames WHERE project_id = ?").run(params.id);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(params.id);db.query("DELETE FROM animation_axes WHERE project_id=?").run(params.id);})();
     db.query("DELETE FROM jobs WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM projects WHERE id = ?").run(params.id);
     rmSync(join(STORAGE_ROOT, "projects", params.id), { recursive: true, force: true });

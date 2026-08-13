@@ -19,7 +19,7 @@ rmSync(pendingRoot, { recursive: true, force: true });
 mkdirSync(pendingRoot, { recursive: true });
 mkdirSync(restoreRoot, { recursive: true });
 
-type SnapshotTable = "animation_axes" | "animation_tracks" | "animation_steps" | "frames";
+type SnapshotTable = "animation_axes" | "animation_tracks" | "animation_steps" | "frames" | "attack_effects";
 type SnapshotTables = Record<SnapshotTable, Array<Record<string, unknown>>>;
 type ReleaseLock = () => void;
 
@@ -103,6 +103,7 @@ function captureTables(projectId: string): SnapshotTables {
     animation_tracks: db.query("SELECT * FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").all(projectId) as Array<Record<string, unknown>>,
     animation_steps: db.query("SELECT * FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").all(projectId) as Array<Record<string, unknown>>,
     frames: db.query("SELECT * FROM frames WHERE project_id=?").all(projectId) as Array<Record<string, unknown>>,
+    attack_effects: db.query("SELECT * FROM attack_effects WHERE project_id=?").all(projectId) as Array<Record<string, unknown>>,
   };
 }
 
@@ -112,11 +113,12 @@ function parseSnapshot(value: string): SnapshotTables {
 }
 
 function restoreTables(projectId: string, snapshot: SnapshotTables) {
+  db.query("DELETE FROM attack_effects WHERE project_id=?").run(projectId);
   db.query("DELETE FROM frames WHERE project_id=?").run(projectId);
   db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);
   db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);
   db.query("DELETE FROM animation_axes WHERE project_id=?").run(projectId);
-  for (const table of ["animation_axes", "animation_tracks", "animation_steps", "frames"] as const) {
+  for (const table of ["animation_axes", "animation_tracks", "animation_steps", "frames", "attack_effects"] as const) {
     for (const row of snapshot[table] ?? []) {
       const keys = Object.keys(row);
       db.query(`INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`).run(

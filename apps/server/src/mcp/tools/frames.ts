@@ -32,7 +32,7 @@ export function register(server: McpServer) {
     {
       title: "Update Frame",
       description:
-        "Update frame properties. All fields are optional—only provided fields are updated. Transform semantics: center anchor → offset (px) → rotation (rad) → scale → opacity. Also supports duration (1-600), is_keyframe (0/1), and tags (string[]).",
+        "Update frame image properties. All fields are optional—only provided fields are updated. Transform semantics: center anchor → offset (px) → rotation (rad) → scale → opacity. Use upsert_attack_effect for independent timeline-cell effects.",
       inputSchema: z.object({
         frameId: z.string().describe("Frame UUID"),
         offset_x: z.number().min(-100000).max(100000).describe("X offset in pixels").optional(),
@@ -161,8 +161,8 @@ export function register(server: McpServer) {
         }
         db.query(
           `INSERT INTO frames (id, project_id, idx, raw_path, processed_path, status, duration, is_keyframe,
-             offset_x, offset_y, scale, rotation, opacity, tags, source, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?)`
+             offset_x, offset_y, scale, rotation, opacity, tags, source, metadata, attack_effect)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'duplicate', ?, ?)`
         ).run(
           nid,
           frame.project_id,
@@ -178,7 +178,8 @@ export function register(server: McpServer) {
           frame.rotation,
           frame.opacity,
           frame.tags,
-          frame.metadata
+          frame.metadata,
+          frame.attack_effect
         );
       }
       broadcast("frames_changed", { projectId: frame.project_id });

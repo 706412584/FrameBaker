@@ -11,11 +11,15 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Added
 
+- Added independent track × step attack-effect cells—including empty image cells—with live composited tapered flame/energy/ink drawing, five deterministic slash/bristle/dry/spark/echo brush textures, an effect-only delete action, transform controls, cross-step copy/paste, playback, undo, and export baking across every animation axis.
+- Added explicit animation export choices for independent PNG sequences and a single sprite sheet that automatically wraps into rows within browser canvas limits, both with frame metadata JSON.
 - Added folder filtering, select-all for current results, and Shift range selection when importing materials into a project.
 - Added quick character eight-view generation from an image material: a reference-locked 3×3 turnaround sheet laid out as 3 / 2 / 3 views around an empty center cell; grid split defaults to 3×3 and skips that center cell.
 
 ### Fixed
 
+- Kept the canvas zoom and pan viewpoint stable while switching timeline steps or drawing effects; fitting now runs only on initial load, explicit fit, resize, or playback mode boundaries.
+- Made sprite-sheet exports scan shared opaque content bounds, use a compact row-major grid, and composite through per-cell canvases so large sheets no longer contain huge transparent gaps or dropped middle frames.
 - Refreshed the persistent job panel against server state whenever returning to the material library, recovering status updates missed while on another page.
 - Strengthened the character eight-view generation prompt so every occupied 3×3 cell explicitly requires a distinct full-body heading instead of allowing the reference orientation to be repeated.
 - Fixed grid split uploads failing validation because multipart JSON metadata was parsed into an object, and now surface the first per-cell upload error when every cell fails.

@@ -16,25 +16,6 @@ const patchSchema = t.Partial(
     duration: t.Integer({ minimum: 1, maximum: 600 }),
     is_keyframe: t.Integer({ minimum: 0, maximum: 1 }),
     tags: t.Array(t.String()),
-    attack_effect: t.Union([
-      t.Null(),
-      t.Object({
-        strokes: t.Array(t.Object({
-          color: t.String({ pattern: "^#[0-9a-fA-F]{6}$" }),
-          size: t.Number({ minimum: 1, maximum: 256 }),
-          points: t.Array(t.Object({
-            x: t.Number({ minimum: -100_000, maximum: 100_000 }),
-            y: t.Number({ minimum: -100_000, maximum: 100_000 }),
-            pressure: t.Number({ minimum: 0.1, maximum: 1 }),
-          }), { minItems: 1, maxItems: 4096 }),
-        }), { maxItems: 128 }),
-        offset_x: t.Number({ minimum: -100_000, maximum: 100_000 }),
-        offset_y: t.Number({ minimum: -100_000, maximum: 100_000 }),
-        scale: t.Number({ minimum: 0.1, maximum: 8 }),
-        rotation: t.Number({ minimum: -Math.PI, maximum: Math.PI }),
-        opacity: t.Number({ minimum: 0, maximum: 1 }),
-      }),
-    ]),
   })
 );
 
@@ -92,9 +73,7 @@ export const framesApi = new Elysia({ prefix: "/api" })
       const ownKeys = keys.filter((k) => k !== "duration" || !frame.step_id);
       if (ownKeys.length) {
         const setSql = ownKeys.map((k) => `${k} = ?`).join(", ");
-        const values = ownKeys.map((k) =>
-          k === "tags" || k === "attack_effect" ? JSON.stringify(body[k]) : (body[k] as number)
-        );
+        const values = ownKeys.map((k) => k === "tags" ? JSON.stringify(body[k]) : (body[k] as number));
         db.query(`UPDATE frames SET ${setSql} WHERE id = ?`).run(...values, params.id);
       }
       const updated = getFrame(params.id)!;

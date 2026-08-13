@@ -134,7 +134,7 @@ export function register(server: McpServer) {
       const row = db.query("SELECT id FROM projects WHERE id = ?").get(projectId);
       if (!row) return err("项目不存在");
       invalidateProjectUndo(projectId);
-      db.transaction(()=>{db.query("DELETE FROM frames WHERE project_id=?").run(projectId);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_axes WHERE project_id=?").run(projectId);})();
+      db.transaction(()=>{db.query("DELETE FROM attack_effects WHERE project_id=?").run(projectId);db.query("DELETE FROM frames WHERE project_id=?").run(projectId);db.query("DELETE FROM animation_steps WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_tracks WHERE axis_id IN (SELECT id FROM animation_axes WHERE project_id=?)").run(projectId);db.query("DELETE FROM animation_axes WHERE project_id=?").run(projectId);})();
       db.query("DELETE FROM jobs WHERE project_id = ?").run(projectId);
       db.query("DELETE FROM projects WHERE id = ?").run(projectId);
       rmSync(join(STORAGE_ROOT, "projects", projectId), { recursive: true, force: true });

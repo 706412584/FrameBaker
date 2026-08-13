@@ -75,7 +75,7 @@ PNG 图片流。`type=processed` 且无 processed 文件时回退 raw。可选�
 
 ### PATCH /api/frames/:id
 
-可更新字段（至少一个，全部可选）：`offset_x` / `offset_y`（-100000–100000）、`scale`（0.1–8）、`rotation`（弧度，-π–π）、`opacity`（0–1）、`duration`（int 1–600）、`is_keyframe`（0/1）、`tags`（string[]）。
+可更新字段（至少一个，全部可选）：`offset_x` / `offset_y`（-100000–100000）、`scale`（0.1–8）、`rotation`（弧度，-π–π）、`opacity`（0–1）、`duration`（int 1–600）、`is_keyframe`（0/1）及 `tags`（string[]）。攻击特效是独立时间轴单元格，使用下述专用接口，不再随图片帧 PATCH。
 
 ```json
 // 请求
@@ -100,13 +100,14 @@ multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器�
 
 ## 规范合成时间轴
 
-- `GET /api/projects/:id/timeline?axisId=`：返回项目全部动画轴，以及选中/默认轴、轨道、共享步骤、全部帧单元格、待编排 `poolFrames` 和左侧可复用 `assetFrames`。
+- `GET /api/projects/:id/timeline?axisId=`：返回项目全部动画轴，以及选中/默认轴、轨道、共享步骤、图片 `frames`、独立攻击特效 `effects`、待编排 `poolFrames` 和左侧可复用 `assetFrames`。
 - `POST /api/projects/:id/axes`（`name`、可选 `fps`）；`PATCH /api/axes/:id`；`DELETE /api/axes/:id`（保护唯一轴）。
 - `POST /api/axes/:id/tracks`；`PATCH|DELETE /api/tracks/:id`；`POST /api/axes/:id/tracks/reorder` 接收完整且不重复的 `trackIds`。主轨/唯一轨道不可删除。
 - `POST /api/axes/:id/steps`；`PATCH|DELETE /api/steps/:id`；`POST /api/axes/:id/steps/reorder` 接收完整且不重复的 `stepIds`。时长范围 1–600，并镜像到步骤内全部单元格。
 - `PATCH /api/frames/:id/placement` 请求 `{ "trackId", "stepId", "swap"?, "copy"? }`；时间轴内部移动沿用原帧，左侧组装使用 `copy: true` 创建实例，源资产始终留在左侧并可重复使用。`swap: true` 时目标已有帧会退回资产面板。
 - `DELETE /api/frames/:id/placement` 清空单个时间轴单元格但不删除可复用图片文件；资产帧退回资产面板，复制出的时间轴实例则丢弃。
 - `POST /api/tracks/:id/place-frames` 请求 `{ "frameIds": [...], "startStepId"? }`，把同项目帧资产依次复制到目标轨道的连续单元格。已有单元格帧退回资产面板，末尾步骤不足时原子追加；跨项目来源与非资产帧会在时间轴变更前被拒绝。
+- `PUT /api/tracks/:id/steps/:stepId/effect`：在任意轨道×步骤单元格创建或替换特效，即使该格没有图片也可使用。请求最多 128 条笔画；每笔保存 `#RRGGBB` 颜色、1–256 笔宽、可选且确定性渲染的纹理 `brush`（`slash`、`bristle`、`dry`、`spark`、`echo`，缺省为 `slash`）及最多 4096 个 `{x,y,pressure}` 点，以及独立位置/缩放/旋转/透明度和可选 `style`（`flame`、`energy`、`ink`）。同 URL 的 `DELETE` 只清除特效，不影响该格的人物图片。
 
 时间轴变更广播 `timeline_changed` 及 `projectId` 和相关 ID。删除单元格仅在步骤变空时裁剪步骤；旧复制会在源步骤后插入共享步骤；旧换序仅接受主轨“一步骤一单元格”的无歧义形态。
 
@@ -497,9 +498,11 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `update_project` | 更新项目名/文件夹 |
 | `delete_project` | 删除项目及其帧/任务/文件 |
 | `list_frames` | 列出项目全部帧 |
-| `update_frame` | 更新帧属性（offset/scale/rotation/opacity/duration/is_keyframe/tags） |
+| `update_frame` | 更新帧图片属性/变换 |
 | `delete_frame` | 删除帧 |
 | `clear_frame_cell` | 清空时间轴单元格但不删除可复用资产文件 |
+| `get_timeline` | 获取轨道、步骤、图片单元格和独立特效单元格 |
+| `upsert_attack_effect` | 在任意轨道×步骤单元格创建或替换攻击特效 |
 | `duplicate_frame` | 复制帧 1–16 份 |
 | `reorder_frames` | 重排帧顺序 |
 | `generate_frames` | 为项目生成帧（AI provider） |

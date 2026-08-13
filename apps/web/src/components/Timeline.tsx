@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeOff, Lock, LockOpen, Plus, Trash2 } from "lucide-react";
-import { frameImageUrl, type AnimationAxis, type AnimationTrack, type Frame, type TimelineStep } from "../api";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Lock, LockOpen, Plus, Sparkles, Trash2 } from "lucide-react";
+import { frameImageUrl, type AnimationAxis, type AnimationTrack, type AttackEffectCell, type Frame, type TimelineStep } from "../api";
 import { useT } from "../i18n";
 import IconBtn from "./IconBtn";
 import PxSelect from "./PxSelect";
 
 interface Props {
-  axes: AnimationAxis[]; axis: AnimationAxis; tracks: AnimationTrack[]; steps: TimelineStep[]; frames: Frame[];
+  axes: AnimationAxis[]; axis: AnimationAxis; tracks: AnimationTrack[]; steps: TimelineStep[]; frames: Frame[]; effects: AttackEffectCell[];
   activeTrackId: string | null; activeStepId: string | null; activeId: string | null; v: number; height?: number;
   onAxis: (id: string) => void; onAddAxis: () => void; onDeleteAxis: () => void;
   onCell: (trackId: string, stepId: string, frameId: string | null) => void;
@@ -28,6 +28,7 @@ export default function Timeline(p: Props) {
     () => new Map(p.frames.filter((f) => f.track_id && f.step_id).map((f) => [`${f.track_id}:${f.step_id}`, f] as const)),
     [p.frames]
   );
+  const effects = useMemo(() => new Map(p.effects.map((effect) => [`${effect.track_id}:${effect.step_id}`, effect] as const)), [p.effects]);
   const assetFrameIds = (dataTransfer: DataTransfer): string[] => {
     try {
       const payload = JSON.parse(dataTransfer.getData("application/x-framebaker-frame-cell"));
@@ -85,10 +86,10 @@ export default function Timeline(p: Props) {
           {!track.is_primary && <IconBtn title={t("timeline.deleteTrack")} onClick={() => p.onDeleteTrack(track)}><Trash2 size={12}/></IconBtn>}
         </div>
         {p.steps.map((step) => {
-          const f=cells.get(`${track.id}:${step.id}`) ?? null; const targetKey=`${track.id}:${step.id}`;
+          const f=cells.get(`${track.id}:${step.id}`) ?? null; const effect=effects.get(`${track.id}:${step.id}`) ?? null; const targetKey=`${track.id}:${step.id}`;
           return <div
             key={step.id}
-            className={`tl-cell ${track.id===p.activeTrackId&&step.id===p.activeStepId?"active":""} ${f&&!track.locked?"draggable":""} ${f?.id===draggingFrameId?"dragging":""} ${dropTarget===targetKey?"drop-target":""}`}
+            className={`tl-cell ${track.id===p.activeTrackId&&step.id===p.activeStepId?"active":""} ${effect?"has-effect":""} ${f&&!track.locked?"draggable":""} ${f?.id===draggingFrameId?"dragging":""} ${dropTarget===targetKey?"drop-target":""}`}
             draggable={!!f&&!track.locked}
             onDragStart={(e)=>{if(!f||track.locked){e.preventDefault();return;}frameDrag.current={frameId:f.id,trackId:track.id,stepId:step.id};setDraggingFrameId(f.id);e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("application/x-framebaker-frame-cell",JSON.stringify(frameDrag.current));}}
             onDragOver={(e)=>{if(!track.locked&&(frameDrag.current||Array.from(e.dataTransfer.types).includes("application/x-framebaker-frame-cell"))){e.preventDefault();e.dataTransfer.dropEffect=frameDrag.current?"move":"copy";setDropTarget(targetKey);}}}
@@ -97,8 +98,8 @@ export default function Timeline(p: Props) {
             onDragEnd={()=>{frameDrag.current=null;setDraggingFrameId(null);setDropTarget(null);}}
             onClick={() => p.onCell(track.id,step.id,f?.id??null)}
             onContextMenu={(e)=>{if(!f)return;e.preventDefault();p.onContextMenu(f.id,{x:e.clientX,y:e.clientY});}}
-            title={f?(track.locked?t("timeline.lockedCell"):t("timeline.dragCell")):t("timeline.emptyCell")}
-          >{f&&<img src={frameImageUrl(f.id,p.v,128)} alt="" draggable={false} loading="lazy" decoding="async"/>}</div>;
+            title={effect?t("attackEffect.cellHint"):f?(track.locked?t("timeline.lockedCell"):t("timeline.dragCell")):t("timeline.emptyCell")}
+          >{f&&<img src={frameImageUrl(f.id,p.v,128)} alt="" draggable={false} loading="lazy" decoding="async"/>}{effect&&<span className="tl-effect-mark"><Sparkles size={15}/></span>}</div>;
         })}
       </div>)}
       {!p.steps.length && <div className="tl-empty">{t("msg.timeline_empty_import_materials_first")}</div>}

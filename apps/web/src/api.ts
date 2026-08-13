@@ -30,11 +30,13 @@ import type {
   WSMessage,
   AnimationAxis,
   AnimationTrack,
+  AttackEffect,
+  AttackEffectCell,
   TimelineStep,
   TimelineResponse,
 } from "@framebaker/shared";
 
-export type { Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse } from "@framebaker/shared";
+export type { AttackEffect, AttackEffectCell, Frame, FramePatch, Job, Material, Project, Folder, FolderKind, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse } from "@framebaker/shared";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -116,6 +118,10 @@ export const api = {
     req<{ frameIds: string[] }>(`/api/tracks/${trackId}/place-frames`, { method: "POST", ...json(body) }),
   patchFrame: (id: string, patch: FramePatch) =>
     req<FrameResponse>(`/api/frames/${id}`, { method: "PATCH", ...json(patch) }),
+  putAttackEffect: (trackId: string, stepId: string, effect: AttackEffect) =>
+    req<{ effect: AttackEffectCell }>(`/api/tracks/${trackId}/steps/${stepId}/effect`, { method: "PUT", ...json(effect) }),
+  deleteAttackEffect: (trackId: string, stepId: string) =>
+    req<OkResponse>(`/api/tracks/${trackId}/steps/${stepId}/effect`, { method: "DELETE" }),
   replaceFrame: (id: string, file: Blob) => {
     const fd = new FormData();
     fd.append("file", file, "replacement.png");

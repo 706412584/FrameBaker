@@ -122,19 +122,23 @@ AI 客户端 → POST /mcp { jsonrpc, method: "initialize" }
 拖拽 Pixi 精灵 → pointerup → PATCH /api/frames/:id {offset_x, offset_y}
   → SQLite 更新 → 广播 frame_updated → 各客户端同步
 工具栏步进调整 scale / rotation / opacity → 同一 PATCH 持久化
+攻击特效绘制模式把指针轨迹采样为逐笔颜色/笔宽/压力点
+  → 抬笔 PUT /api/tracks/:id/steps/:stepId/effect；没有图片的空单元格也是合法目标
+  → 紧凑笔锋预览与画布共用 Catmull-Rom 平滑、宽起势/窄收尾及 flame/energy/ink 多层渲染
+  → 单元格间复制粘贴矢量数据，每个步骤可独立移动/缩放/旋转/淡化
 替换图片 → CropModal 剪裁并编码 PNG → POST /api/frames/:id/replace
   → 写入 processed 槽位并清理旧 processed 文件
 时间轴 HTML5 DnD → 前端乐观重排 → POST /api/projects/:id/reorder {frameIds}
   → 事务重写 idx → 广播 frames_reordered
 ```
 
-### 导出精灵帧（纯前端，无服务端参与）
+### 导出动画（纯前端，无服务端参与）
 
 ```
-按 idx 拉取全部 /api/frames/:id/image → createImageBitmap
-  → 按 Pixi 相同的中心原点语义计算 offset / scale / rotation 后的全局包围盒
-  → 每帧单独 canvas（统一单元格尺寸，变换与 opacity 烘焙，imageSmoothing 关闭）
-  → 逐帧下载 <name>_0001.png … + <name>.frames.json（含每帧 file/w/h/duration、originX/originY）
+拉取全部可见时间轴单元格 → createImageBitmap
+  → 为变换后的图片与矢量攻击特效计算统一全局包围盒
+  → 关闭 imageSmoothing，选择烘焙为独立透明 PNG 序列或单张横向精灵图 PNG
+  → ZIP 内附 <name>.frames.json（file/x/y/w/h/duration、原点及 FPS）
 ```
 
 ### 素材库（素材 → 抠图 → 导入项目）

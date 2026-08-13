@@ -75,7 +75,7 @@ PNG image stream. `type=processed` falls back to raw when no processed file exis
 
 ### PATCH /api/frames/:id
 
-Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), `tags` (string[]).
+Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), and `tags` (string[]). Attack effects are independent timeline cells and use the endpoints below rather than frame patches.
 
 ```json
 // Request
@@ -100,13 +100,14 @@ Deletes frame and image files; subsequent frames in the same project have their 
 
 ## Canonical composited timeline
 
-- `GET /api/projects/:id/timeline?axisId=` — all project axes plus the selected/default axis, ordered tracks, shared steps, frame cells, unassigned `poolFrames`, and reusable left-panel `assetFrames`.
+- `GET /api/projects/:id/timeline?axisId=` — all project axes plus the selected/default axis, ordered tracks, shared steps, image `frames`, independent attack-effect `effects`, unassigned `poolFrames`, and reusable left-panel `assetFrames`.
 - `POST /api/projects/:id/axes` (`name`, optional `fps`); `PATCH /api/axes/:id`; `DELETE /api/axes/:id` (the sole axis is protected).
 - `POST /api/axes/:id/tracks`; `PATCH|DELETE /api/tracks/:id`; `POST /api/axes/:id/tracks/reorder` with exact unique `trackIds`. The primary/sole track is protected.
 - `POST /api/axes/:id/steps`; `PATCH|DELETE /api/steps/:id`; `POST /api/axes/:id/steps/reorder` with exact unique `stepIds`. Step duration is 1–600 ticks and is mirrored to every cell.
 - `PATCH /api/frames/:id/placement` with `{ "trackId", "stepId", "swap"?, "copy"? }`. Timeline moves use the existing frame; left-panel assembly uses `copy: true` to create an instance while keeping the source asset visible and reusable. With `swap: true`, an occupied target returns to the asset panel.
 - `DELETE /api/frames/:id/placement` clears one timeline cell without deleting reusable image files. Asset frames return to the asset panel; copied timeline instances are discarded.
 - `POST /api/tracks/:id/place-frames` with `{ "frameIds": [...], "startStepId"? }` copies same-project frame assets into consecutive cells on the target track. Occupied cells return to the asset panel, and missing trailing steps are appended atomically. Cross-project and non-asset sources are rejected before the timeline changes.
+- `PUT /api/tracks/:id/steps/:stepId/effect` creates or replaces the effect in any track × step cell, including a cell with no image. The body contains up to 128 strokes; each stroke stores a `#RRGGBB` color, size 1–256, optional deterministic texture `brush` (`slash`, `bristle`, `dry`, `spark`, or `echo`; defaults to `slash`), and up to 4096 `{x,y,pressure}` points, plus independent offset/scale/rotation/opacity and optional `style` (`flame`, `energy`, or `ink`). `DELETE` on the same URL clears only the effect and leaves an image in the same cell untouched.
 
 Timeline mutations broadcast `timeline_changed` with `projectId` and relevant axis/track/step/frame IDs. Deleting a cell prunes its step only when empty. Legacy duplication inserts shared steps after the source; legacy reorder is accepted only for an unambiguous primary-track one-cell-per-step shape.
 
@@ -497,9 +498,11 @@ After handshake, send `notifications/initialized` notification (no response need
 | `update_project` | Update project name/folder |
 | `delete_project` | Delete project and all its frames/jobs/files |
 | `list_frames` | List all frames in a project |
-| `update_frame` | Update frame properties (offset/scale/rotation/opacity/duration/is_keyframe/tags) |
+| `update_frame` | Update frame image properties/transform |
 | `delete_frame` | Delete a frame |
 | `clear_frame_cell` | Clear a timeline cell without deleting reusable asset files |
+| `get_timeline` | Get tracks, steps, image cells, and independent effect cells |
+| `upsert_attack_effect` | Create or replace an attack effect in any track × step cell |
 | `duplicate_frame` | Duplicate frame 1–16 copies |
 | `reorder_frames` | Reorder frames |
 | `generate_frames` | Generate frames for a project (AI provider) |
