@@ -151,6 +151,8 @@ describe("提示词加强器关联", () => {
     expect(bodies[0].messages[2].content).toContain("crisp pixel art");
     expect(bodies[1].messages[0].content).toContain("action order and timing");
     expect(bodies[1].messages[0].content).toContain("stable subject identity");
+    expect(bodies[1].messages[0].content).toContain("about 15% padding on every edge");
+    expect(bodies[1].messages[0].content).toContain("Never let any part of the subject touch the frame boundary");
     expect(bodies[1].messages[2].content).toContain("continuous jump");
     expect(bodies[0].messages.at(-1)).toEqual({ role: "user", content: 'Optimization request (JSON wrapper, not output format): {"originalPrompt":"red fox running right","referenceImageCount":0}' });
   });

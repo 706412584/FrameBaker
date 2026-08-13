@@ -96,6 +96,8 @@ describe("动作生成 prompt", () => {
       extra: "fast",
     });
     expect(video).toContain("continuous run cycle loop");
+    expect(video).toContain("about 15% empty safe margin on every edge");
+    expect(video).toContain("never crop any body part");
     expect(video).toContain("Char: runner");
     expect(video).toContain("fast");
   });

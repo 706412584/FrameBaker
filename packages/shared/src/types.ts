@@ -436,7 +436,7 @@ export function buildActionVideoPrompt(opts: {
   if (!a0) return clip("Pixel art game character idle loop. Plain bg, no text.", 1400);
 
   const parts = [
-    `Pixel art game character performing continuous ${a0.prompt} loop. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
+    `Pixel art game character performing continuous ${a0.prompt} loop. Show the entire character, every limb, accessory, and extremity fully inside the frame at all times; use a slightly wide locked camera and keep about 15% empty safe margin on every edge. Keep the complete action trajectory inside this safe area; never touch or cross the frame boundary and never crop any body part, including at the widest pose. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
   ];
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Char: ${clip(character, 200)}`);
