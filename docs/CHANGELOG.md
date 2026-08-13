@@ -4,10 +4,13 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-13
+
 ### Changed
 
 - Split multi-image generation requests into independently scheduled jobs under the global queue concurrency limit, return all IDs through `jobIds` while preserving `jobId`, and refresh an open material library as each generated material completes.
 - Changed all default action prompts to let idle, movement, attack, casting, hit, and defeat motions fit the referenced character's appearance, equipment, and abilities instead of assuming specific motions; explicit extra descriptions still specify the move.
+- Video generation prompts (both prompt enhancement and default action videos) now require a slightly wider locked camera with about 15% safe margin on every edge, keeping the whole subject and its full motion trajectory inside the frame so limbs and props are never cropped at the boundary.
 
 ### Added
 
