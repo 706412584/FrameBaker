@@ -3,8 +3,11 @@ import {
   ARTICULATED_CHARACTER_PART_ROLES,
   buildArticulatedCharacterPrompt,
   buildArticulatedPartsPrompt,
+  ACTION_PRESETS,
   buildActionSheetPrompt,
   buildActionVideoPrompt,
+  buildCharacterDirectionSheetPrompt,
+  CHARACTER_DIRECTION_PRESETS,
   isLikelyImageOnlyModel,
   normalizeDashscopeBaseUrl,
   parseSizePreview,
@@ -41,6 +44,19 @@ describe("生成尺寸与 provider 规则", () => {
 });
 
 describe("动作生成 prompt", () => {
+  test("动作预设默认根据当前角色形象决定具体表现", () => {
+    expect(Object.fromEntries(ACTION_PRESETS.map((action) => [action.id, action.prompt]))).toEqual({
+      idle: "idle fitting the character",
+      walk: "walk fitting the character",
+      run: "run fitting the character",
+      jump: "jump fitting the character",
+      attack: "attack fitting the character and equipment",
+      cast: "cast fitting the character and abilities",
+      hurt: "hit reaction fitting the character",
+      death: "defeat fitting the character",
+    });
+  });
+
   test("帧数推荐网格会限制输入范围", () => {
     expect(suggestActionSheetGrid(-2)).toEqual({ cols: 1, rows: 1 });
     expect(suggestActionSheetGrid(4)).toEqual({ cols: 4, rows: 1 });
@@ -51,16 +67,16 @@ describe("动作生成 prompt", () => {
   test("同动作拼图保留循环语义、截断多余帧并说明空格", () => {
     const prompt = buildActionSheetPrompt({
       frames: [
-        { id: "idle", label: "待机", prompt: "idle breathing" },
-        { id: "idle", label: "待机", prompt: "idle breathing" },
-        { id: "idle", label: "待机", prompt: "idle breathing" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
+        { id: "idle", label: "待机", prompt: "idle fitting the character" },
       ],
       cols: 2,
       rows: 2,
       characterPrompt: "hero",
     });
 
-    expect(prompt).toContain("2×2 sprite sheet: 3-frame continuous idle breathing cycle");
+    expect(prompt).toContain("2×2 sprite sheet: 3-frame continuous idle fitting the character cycle");
     expect(prompt).toContain("last loops to first");
     expect(prompt).toContain("Blank last 1 panel(s).");
     expect(prompt).toContain("Char: hero");
@@ -84,6 +100,8 @@ describe("动作生成 prompt", () => {
       extra: "fast",
     });
     expect(video).toContain("continuous run cycle loop");
+    expect(video).toContain("about 15% empty safe margin on every edge");
+    expect(video).toContain("never crop any body part");
     expect(video).toContain("Char: runner");
     expect(video).toContain("fast");
     expect(buildActionVideoPrompt({
@@ -122,5 +140,28 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("no upper-leg or thigh segment");
     expect(prompt).toContain("weapon must not touch either arm");
     expect(prompt).toContain("Extra requirements: red cape");
+  });
+
+  test("角色 8 向图使用中心留空的 3×3 环形布局并锁定角色一致性", () => {
+    const prompt = buildCharacterDirectionSheetPrompt({ characterPrompt: "red knight", extra: "pixel art" });
+    expect(CHARACTER_DIRECTION_PRESETS.map((direction) => direction.id)).toEqual([
+      "back-left",
+      "back",
+      "back-right",
+      "left",
+      "right",
+      "front-left",
+      "front",
+      "front-right",
+    ]);
+    expect(prompt).toContain("arranged as 3 columns × 3 rows");
+    expect(prompt).toContain("all eight distinct 45-degree body headings exactly once");
+    expect(prompt).toContain("center EMPTY");
+    expect(prompt).toContain("Rotate the entire character around the vertical axis—not only the head or eyes");
+    expect(prompt).toContain("bottom-center FRONT (face/chest toward viewer)");
+    expect(prompt).toContain("Do not fill all cells with the reference orientation");
+    expect(prompt).toContain("Appearance only (ignore pose, view and composition in this description): red knight");
+    expect(prompt).toContain("pixel art");
+    expect(prompt.length).toBeLessThanOrEqual(1400);
   });
 });

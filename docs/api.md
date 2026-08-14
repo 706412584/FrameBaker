@@ -75,7 +75,7 @@ PNG image stream. `type=processed` falls back to raw when no processed file exis
 
 ### PATCH /api/frames/:id
 
-Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), `tags` (string[]).
+Updatable fields (at least one required, all optional): `offset_x` / `offset_y` (-100000–100000), `scale` (0.1–8), `rotation` (radians, -π–π), `opacity` (0–1), `duration` (int 1–600), `is_keyframe` (0/1), and `tags` (string[]). Attack effects are independent timeline cells and use the endpoints below rather than frame patches.
 
 ```json
 // Request
@@ -100,13 +100,14 @@ Deletes frame and image files; subsequent frames in the same project have their 
 
 ## Canonical composited timeline
 
-- `GET /api/projects/:id/timeline?axisId=` — all project axes plus the selected/default axis, ordered tracks, shared steps, frame cells, unassigned `poolFrames`, and reusable left-panel `assetFrames`.
+- `GET /api/projects/:id/timeline?axisId=` — all project axes plus the selected/default axis, ordered tracks, shared steps, image `frames`, independent attack-effect `effects`, unassigned `poolFrames`, and reusable left-panel `assetFrames`.
 - `POST /api/projects/:id/axes` (`name`, optional `fps`); `PATCH /api/axes/:id`; `DELETE /api/axes/:id` (the sole axis is protected).
 - `POST /api/axes/:id/tracks`; `PATCH|DELETE /api/tracks/:id`; `POST /api/axes/:id/tracks/reorder` with exact unique `trackIds`. The primary/sole track is protected.
 - `POST /api/axes/:id/steps`; `PATCH|DELETE /api/steps/:id`; `POST /api/axes/:id/steps/reorder` with exact unique `stepIds`. Step duration is 1–600 ticks and is mirrored to every cell.
 - `PATCH /api/frames/:id/placement` with `{ "trackId", "stepId", "swap"?, "copy"? }`. Timeline moves use the existing frame; left-panel assembly uses `copy: true` to create an instance while keeping the source asset visible and reusable. With `swap: true`, an occupied target returns to the asset panel.
 - `DELETE /api/frames/:id/placement` clears one timeline cell without deleting reusable image files. Asset frames return to the asset panel; copied timeline instances are discarded.
 - `POST /api/tracks/:id/place-frames` with `{ "frameIds": [...], "startStepId"? }` copies same-project frame assets into consecutive cells on the target track. Occupied cells return to the asset panel, and missing trailing steps are appended atomically. Cross-project and non-asset sources are rejected before the timeline changes.
+- `PUT /api/tracks/:id/steps/:stepId/effect` creates or replaces the effect in any track × step cell, including a cell with no image. The body contains up to 128 strokes; each stroke stores a `#RRGGBB` color, size 1–256, optional deterministic texture `brush` (`slash`, `bristle`, `dry`, `spark`, or `echo`; defaults to `slash`), and up to 4096 `{x,y,pressure}` points, plus independent offset/scale/rotation/opacity and optional `style` (`flame`, `energy`, or `ink`). `DELETE` on the same URL clears only the effect and leaves an image in the same cell untouched.
 
 Timeline mutations broadcast `timeline_changed` with `projectId` and relevant axis/track/step/frame IDs. Deleting a cell prunes its step only when empty. Legacy duplication inserts shared steps after the source; legacy reorder is accepted only for an unambiguous primary-track one-cell-per-step shape.
 
@@ -149,7 +150,7 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 // Request
 { "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-image", "size": "1328*1328", "references": [{ "kind": "material", "id": "…" }, { "kind": "frame", "id": "…" }], "mediaKind": "image" }
 // Response
-{ "jobId": "…" }
+{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }
 ```
 
 Provider resolution: if `providerId` is passed, looks up by id (not found → 400); default uses the first fully configured provider (settings page can configure multiple coexisting providers, types: `cli` / `api` (OpenAI-compatible) / `dashscope` (DashScope native) / `gemini` (banana) / `minimax`; when list is empty, env `FRAMEBAKER_GEN_CLI` synthesizes an id=`env` CLI provider as fallback). Optional `size` overrides the provider's `apiSize` at generation time (format varies by provider type: api e.g., `1024x1024`, dashscope e.g., `1328*1328`, gemini/minimax e.g., `16:9`; preset tiers in shared constant `GEN_SIZE_PRESETS`; CLI providers ignore size).
@@ -160,7 +161,7 @@ Provider resolution: if `providerId` is passed, looks up by id (not found → 40
 - **Gemini provider (banana / nano-banana)**: `POST {apiBaseUrl}/v1beta/models/{model}:generateContent` (`x-goog-api-key` header); each reference is sent as an ordered `{inlineData: {mimeType,data}}` part before the text part; `apiSize` maps to `imageConfig.aspectRatio` (e.g., `16:9`). The adapter searches every candidate/part for `inlineData.data` (and tolerates proxy `inline_data`), reports `promptFeedback.blockReason`, candidate `finishReason`, safety categories, model refusal text, and `responseId` when HTTP 200 contains no image, and retries once only for `NO_IMAGE`, `IMAGE_OTHER`, or a transient empty-candidate response.
 - **MiniMax provider**: `POST {apiBaseUrl}/v1/image_generation` (Bearer); reference image via `subject_reference` (subject feature preservation, one image limit, base64 dataURI); `apiSize` maps to `aspect_ratio` (e.g., `16:9`); `response_format=base64`, response takes `data.image_base64[0]`; `base_resp.status_code` non-0 = failure.
 
-Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16.
+Model defaults to request's `model`, then first item in provider's model list; neither available = job error. Provider not found or unconfigured = job set to `error` with explanation. `count` 1–16. In image mode, each requested output is queued as an independent job and runs under the global queue concurrency limit; `jobId` remains the first ID for compatibility and `jobIds` contains the full batch.
 
 - **Video mode**: `mediaKind: "video"` — only generates and saves a single video material (`raw.mp4`, no frame extraction; `count`/`fps` ignored). Only supported by CLI / DashScope / MiniMax. After completion, use `POST /api/materials/:id/extract` (fps or timestamps) to extract frames.
 
@@ -197,7 +198,7 @@ Material image/video stream. `type=processed` falls back to raw when no processe
 
 ### POST /api/materials/upload
 
-multipart/form-data: `file` + optional `processedFile`, `metadata` (JSON object string), `autoMatting` (`"true"`), and `fps` (video extraction, default 8). `processedFile` creates a material with both raw/processed slots and `status=matted`; grid splitting uses it to preserve real before/after pairs.
+multipart/form-data: `file` + optional `processedFile`, `metadata` (JSON object string; Elysia's multipart object parsing is also accepted), `autoMatting` (`"true"`), and `fps` (video extraction, default 8). `processedFile` creates a material with both raw/processed slots and `status=matted`; grid splitting uses it to preserve real before/after pairs.
 PNG/JPG single image → directly creates 1 material, response `{ "materialId": "…" }`; GIF/MP4 → queued frame extraction, one material per frame, response `{ "jobId": "…" }`.
 
 ```bash
@@ -207,7 +208,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…" }` (provider resolution and multi-reference rules are the same as `/api/import/generate`). Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }` (provider resolution, independent image jobs, and multi-reference rules are the same as `/api/import/generate`). Each completed material job broadcasts `materials_changed`, so an open material library refreshes incrementally. Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
 
 ### POST /api/materials/:id/extract
 
@@ -489,7 +490,7 @@ All tools manage pixel-art animation projects — frames, materials, generation,
 // Request
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // Response
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.1" } } }
 ```
 
 After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.
@@ -504,9 +505,11 @@ After handshake, send `notifications/initialized` notification (no response need
 | `update_project` | Update project name/folder |
 | `delete_project` | Delete project and all its frames/jobs/files |
 | `list_frames` | List all frames in a project |
-| `update_frame` | Update frame properties (offset/scale/rotation/opacity/duration/is_keyframe/tags) |
+| `update_frame` | Update frame image properties/transform |
 | `delete_frame` | Delete a frame |
 | `clear_frame_cell` | Clear a timeline cell without deleting reusable asset files |
+| `get_timeline` | Get tracks, steps, image cells, and independent effect cells |
+| `upsert_attack_effect` | Create or replace an attack effect in any track × step cell |
 | `duplicate_frame` | Duplicate frame 1–16 copies |
 | `reorder_frames` | Reorder frames |
 | `generate_frames` | Generate frames for a project (AI provider) |

@@ -19,6 +19,7 @@ import { skeletalProjectsApi } from "./api/skeletalProjects";
 import { characterPartSetsApi } from "./api/characterPartSets";
 import { beginProjectUndo, finishProjectUndo, undoProject } from "./undo";
 import { timelineApi } from "./api/timeline";
+import { attackEffectsApi } from "./api/attackEffects";
 import { mcpHandler } from "./mcp";
 import { cancelJob, getQueueConcurrency } from "./queue";
 import { broadcast } from "./ws";
@@ -237,6 +238,7 @@ export const app = new Elysia()
   .use(skeletalProjectsApi)
   .use(framesApi)
   .use(timelineApi)
+  .use(attackEffectsApi)
   .use(importApi)
   .use(materialsApi)
   .use(characterPartSetsApi)

@@ -9,6 +9,13 @@ export interface FrameBounds {
   bottom: number;
 }
 
+export interface ImageRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /**
  * 图片以中心为锚点，依次应用 offset、弧度旋转和等比缩放后的轴对齐包围盒。
  * opacity 只影响合成，不改变几何范围，由各渲染适配层应用。
@@ -24,6 +31,27 @@ export function transformedFrameBounds(width: number, height: number, frame: Fra
     right: frame.offset_x + halfW,
     top: frame.offset_y - halfH,
     bottom: frame.offset_y + halfH,
+  };
+}
+
+/** 图片局部矩形按“图片中心锚点 → 平移 → 旋转 → 缩放”转换后的轴对齐范围。 */
+export function transformedFrameRectBounds(width: number, height: number, rect: ImageRect, frame: FrameTransform): FrameBounds {
+  const cos = Math.cos(frame.rotation);
+  const sin = Math.sin(frame.rotation);
+  const corners = [
+    [rect.x - width / 2, rect.y - height / 2],
+    [rect.x + rect.w - width / 2, rect.y - height / 2],
+    [rect.x + rect.w - width / 2, rect.y + rect.h - height / 2],
+    [rect.x - width / 2, rect.y + rect.h - height / 2],
+  ].map(([x, y]) => ({
+    x: frame.offset_x + (x! * cos - y! * sin) * frame.scale,
+    y: frame.offset_y + (x! * sin + y! * cos) * frame.scale,
+  }));
+  return {
+    left: Math.min(...corners.map((point) => point.x)),
+    right: Math.max(...corners.map((point) => point.x)),
+    top: Math.min(...corners.map((point) => point.y)),
+    bottom: Math.max(...corners.map((point) => point.y)),
   };
 }
 

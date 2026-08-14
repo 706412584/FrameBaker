@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db } from "../../db";
-import { createJob } from "../../queue";
+import { createGenerationJobs } from "../../queue";
 import { checkVideoSupport, resolveReferencePaths } from "../../providerAdapter";
 import { ok, err } from "../helpers";
 
@@ -11,7 +11,7 @@ export function register(server: McpServer) {
     {
       title: "Generate Frames",
       description:
-        "Generate frames for a project using an AI generation provider (CLI/API/DashScope/Gemini/MiniMax). Creates a job and returns jobId. Poll with get_job or listen for completion. Supports up to 10 ordered reference images, provider selection, model, size, and video mode.",
+        "Generate frames for a project using an AI generation provider (CLI/API/DashScope/Gemini/MiniMax). Each requested image becomes an independently scheduled job; returns jobId (first job) and jobIds (all jobs). Poll with get_job or listen for completion. Supports up to 10 ordered reference images, provider selection, model, size, and video mode.",
       inputSchema: z.object({
         projectId: z.string().describe("Target project UUID"),
         prompt: z.string().describe("Generation prompt (English recommended)"),
@@ -53,21 +53,19 @@ export function register(server: McpServer) {
       if (ref.error) return err(ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return err(videoErr);
-      const jobId = createJob(projectId, "generate_frames", {
-        generate: {
-          prompt,
-          count: body.count,
-          autoMatting: body.autoMatting,
-          target: { kind: "project", projectId },
-          referencePaths: ref.referencePaths,
-          providerId,
-          model,
-          size,
-          mediaKind,
-          fps,
-        },
+      const jobIds = createGenerationJobs(projectId, {
+        prompt,
+        count: body.count,
+        autoMatting: body.autoMatting,
+        target: { kind: "project", projectId },
+        referencePaths: ref.referencePaths,
+        providerId,
+        model,
+        size,
+        mediaKind,
+        fps,
       });
-      return ok({ jobId });
+      return ok({ jobId: jobIds[0], jobIds });
     }
   );
 
@@ -76,7 +74,7 @@ export function register(server: McpServer) {
     {
       title: "Generate Materials",
       description:
-        "Generate materials (not project frames) using an AI generation provider. Materials go to the material library for later matting/cropping/import to projects. Creates a job and returns jobId. Same provider/reference options as generate_frames. Optional name sets the material name base (defaults to prompt prefix).",
+        "Generate materials (not project frames) using an AI generation provider. Each requested image becomes an independently scheduled job; returns jobId (first job) and jobIds (all jobs). Materials go to the material library as each job completes. Same provider/reference options as generate_frames. Optional name sets the material name base (defaults to prompt prefix).",
       inputSchema: z.object({
         prompt: z.string().describe("Generation prompt (English recommended)"),
         count: z.number().int().min(1).max(16).describe("Number of materials to generate (default 1)").optional(),
@@ -118,23 +116,21 @@ export function register(server: McpServer) {
       if (ref.error) return err(ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return err(videoErr);
-      const jobId = createJob("", "generate_frames", {
-        generate: {
-          prompt,
-          count: body.count,
-          autoMatting: body.autoMatting,
-          target: { kind: "materials" },
-          name,
-          referencePaths: ref.referencePaths,
-          providerId,
-          model,
-          size,
-          mediaKind,
-          fps,
-          folderId: body.folderId,
-        },
+      const jobIds = createGenerationJobs("", {
+        prompt,
+        count: body.count,
+        autoMatting: body.autoMatting,
+        target: { kind: "materials" },
+        name,
+        referencePaths: ref.referencePaths,
+        providerId,
+        model,
+        size,
+        mediaKind,
+        fps,
+        folderId: body.folderId,
       });
-      return ok({ jobId });
+      return ok({ jobId: jobIds[0], jobIds });
     }
   );
 }

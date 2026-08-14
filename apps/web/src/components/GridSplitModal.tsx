@@ -29,6 +29,11 @@ interface SkeletalReview {
   issues: SkeletalPartQualityIssue[];
 }
 
+function gridFromMaterialName(name: string): { cols: number; rows: number } {
+  const match = /_(\d+)x(\d+)$/.exec(name.trim());
+  return match ? { cols: clampCell(Number(match[1])), rows: clampCell(Number(match[2])) } : { cols: 2, rows: 2 };
+}
+
 function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
   let { x, y, w, h } = r;
   w = Math.max(1, Math.min(Math.round(w), imgW));
@@ -49,8 +54,9 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const slot = m.processed_path ? "processed" : "raw";
   const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
   const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
-  const [rows, setRows] = useState(guidedSkeletalSplit ? 3 : 2);
-  const [cols, setCols] = useState(guidedSkeletalSplit ? 4 : 2);
+  const initialGrid = gridFromMaterialName(m.name);
+  const [rows, setRows] = useState(guidedSkeletalSplit ? 3 : initialGrid.rows);
+  const [cols, setCols] = useState(guidedSkeletalSplit ? 4 : initialGrid.cols);
   const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
@@ -70,7 +76,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const dragRef = useRef<{ ax: number; ay: number; rx: number; ry: number } | null>(null);
   useModalEscClose(onClose);
 
-  const total = rows * cols;
+  const skipCenter = /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
+  const total = rows * cols - (skipCenter ? 1 : 0);
 
   useEffect(() => () => {
     skeletalReview?.previews.forEach((url) => URL.revokeObjectURL(url));
@@ -256,6 +263,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     let fail = 0;
     let trimmed = 0;
     const createdMembers: CharacterPartSetMember[] = [];
+    let firstError = "";
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
@@ -272,7 +280,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          const i = r * cols + c + 1;
+          if (skipCenter && r === 1 && c === 1) continue;
+          const i = r * cols + c + 1 - (skipCenter && r > 1 ? 1 : 0);
           setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
             const w = c === cols - 1 ? region.w - cw * c : cw;
@@ -317,8 +326,9 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
               createdMembers.push({ materialId: uploaded.materialId, role: draft!.role, name: draft!.name.trim() || `${base} ${i}` });
             }
             ok++;
-          } catch {
+          } catch (e) {
             fail++;
+            firstError ||= (e as Error).message;
           }
         }
       }
@@ -347,6 +357,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           setPartSetId(created.id);
         }
       }
+      if (ok === 0 && firstError) throw new Error(firstError);
       onDone();
       const msg = splitLine === "skeletal" && fail === 0
         ? t("skeletal.split.createdParts", { count: createdMembers.length })

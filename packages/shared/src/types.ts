@@ -394,16 +394,28 @@ export type EnhanceStyleId = (typeof ENHANCE_STYLES)[number]["id"];
  * prompt 为英文动作基调；完整文案由 buildActionSheetPrompt / buildActionVideoPrompt 组装。
  */
 export const ACTION_PRESETS = [
-  { id: "idle", label: "action.idle", prompt: "idle breathing" },
-  { id: "walk", label: "action.walk", prompt: "walk cycle" },
-  { id: "run", label: "action.run", prompt: "run cycle" },
-  { id: "jump", label: "action.jump", prompt: "jump arc" },
-  { id: "attack", label: "action.attack", prompt: "attack swing" },
-  { id: "cast", label: "action.cast", prompt: "spell cast" },
-  { id: "hurt", label: "action.hurt", prompt: "hit recoil" },
-  { id: "death", label: "action.death", prompt: "collapse / defeat" },
+  { id: "idle", label: "action.idle", prompt: "idle fitting the character" },
+  { id: "walk", label: "action.walk", prompt: "walk fitting the character" },
+  { id: "run", label: "action.run", prompt: "run fitting the character" },
+  { id: "jump", label: "action.jump", prompt: "jump fitting the character" },
+  { id: "attack", label: "action.attack", prompt: "attack fitting the character and equipment" },
+  { id: "cast", label: "action.cast", prompt: "cast fitting the character and abilities" },
+  { id: "hurt", label: "action.hurt", prompt: "hit reaction fitting the character" },
+  { id: "death", label: "action.death", prompt: "defeat fitting the character" },
 ] as const;
 export type ActionPresetId = (typeof ACTION_PRESETS)[number]["id"];
+
+/** 角色 8 向图固定顺序：3×3 环形布局，中心格留空，按从左到右、从上到下读取。 */
+export const CHARACTER_DIRECTION_PRESETS = [
+  { id: "back-left", label: "direction.backLeft", prompt: "back-left three-quarter view" },
+  { id: "back", label: "direction.back", prompt: "back view" },
+  { id: "back-right", label: "direction.backRight", prompt: "back-right three-quarter view" },
+  { id: "left", label: "direction.left", prompt: "left profile view" },
+  { id: "right", label: "direction.right", prompt: "right profile view" },
+  { id: "front-left", label: "direction.frontLeft", prompt: "front-left three-quarter view" },
+  { id: "front", label: "direction.front", prompt: "front view" },
+  { id: "front-right", label: "direction.frontRight", prompt: "front-right three-quarter view" },
+] as const;
 
 /** 视频定点抽帧最多时间点数（前后端一致） */
 export const EXTRACT_TIMESTAMPS_MAX = 64;
@@ -463,6 +475,22 @@ export function buildActionSheetPrompt(opts: {
   return clip(parts.join(" "), 1400);
 }
 
+/** 组装角色 8 向图 prompt：固定姿势、正交镜头和 3×3 环形方向，中心格留空。 */
+export function buildCharacterDirectionSheetPrompt(opts: {
+  characterPrompt?: string | null;
+  extra?: string | null;
+}): string {
+  const clip = (s: string, max: number) => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
+  const parts = [
+    "Same character as reference. Create exactly one 8-direction character turnaround sprite sheet arranged as 3 columns × 3 rows with 9 equal cells. MANDATORY: every occupied cell must show a visibly different full-body orientation; use all eight distinct 45-degree body headings exactly once, with no repeated or duplicated view. Cell order is fixed: top-left BACK-LEFT (rear and left side visible); top-center BACK (back faces viewer); top-right BACK-RIGHT (rear and right side visible); middle-left LEFT (left profile); center EMPTY; middle-right RIGHT (right profile); bottom-left FRONT-LEFT (face/chest and left side visible); bottom-center FRONT (face/chest toward viewer); bottom-right FRONT-RIGHT (face/chest and right side visible). Rotate the entire character around the vertical axis—not only the head or eyes—while keeping an identical neutral standing pose. Preserve identity, outfit, equipment, colors, proportions, scale, eye level, orthographic camera and lighting. One full character centered per occupied cell, no overlap; center cell completely empty; plain/transparent background; no text, labels, borders or watermark. Do not fill all cells with the reference orientation.",
+  ];
+  const character = opts.characterPrompt?.trim();
+  if (character) parts.push(`Appearance only (ignore pose, view and composition in this description): ${clip(character, 180)}`);
+  const extra = opts.extra?.trim();
+  if (extra) parts.push(clip(extra, 120));
+  return clip(parts.join(" "), 1400);
+}
+
 /**
  * 组装「动作视频」prompt：点选一个动作注入，生成一段连续短片（抽帧在素材库单独做）。
  * 不做拼图格点；强调该动作循环与角色一致。
@@ -477,7 +505,7 @@ export function buildActionVideoPrompt(opts: {
   if (!a0) return clip("Pixel art game character idle loop. Plain bg, no text.", 1400);
 
   const parts = [
-    `Pixel art game character performing continuous ${a0.prompt} loop. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
+    `Pixel art game character performing continuous ${a0.prompt} loop. Show the entire character, every limb, accessory, and extremity fully inside the frame at all times; use a slightly wide locked camera and keep about 15% empty safe margin on every edge. Keep the complete action trajectory inside this safe area; never touch or cross the frame boundary and never crop any body part, including at the widest pose. Keep identity consistent; smooth motion; clear silhouette; plain or simple bg; no text, no UI, no watermark.`,
   ];
   const character = opts.characterPrompt?.trim();
   if (character) parts.push(`Char: ${clip(character, 200)}`);
@@ -634,6 +662,49 @@ export interface Folder {
   created_at: number;
 }
 
+/** 攻击特效笔画点；pressure 用于毛笔粗细变化。 */
+export interface AttackEffectPoint {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
+export const ATTACK_EFFECT_BRUSHES = ["slash", "bristle", "dry", "spark", "echo"] as const;
+export type AttackEffectBrush = (typeof ATTACK_EFFECT_BRUSHES)[number];
+
+/** 单次落笔保留当时的颜色和笔宽，后续可继续叠加不同样式。 */
+export interface AttackEffectStroke {
+  color: string;
+  size: number;
+  points: AttackEffectPoint[];
+  /** 旧数据缺省时按 slash 渲染。 */
+  brush?: AttackEffectBrush;
+}
+
+export type AttackEffectStyle = "flame" | "energy" | "ink";
+
+/** 时间轴单元格独立的矢量攻击特效；整体变换与角色图片变换互不影响。 */
+export interface AttackEffect {
+  strokes: AttackEffectStroke[];
+  offset_x: number;
+  offset_y: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+  /** 旧数据缺省时按 flame 渲染。 */
+  style?: AttackEffectStyle;
+}
+
+/** 独立占据时间轴轨道×步骤坐标的特效单元格，可与图片帧共存。 */
+export interface AttackEffectCell {
+  id: string;
+  project_id: string;
+  track_id: string;
+  step_id: string;
+  effect: AttackEffect;
+  created_at: number;
+}
+
 export interface Frame {
   id: string;
   project_id: string;
@@ -657,6 +728,8 @@ export interface Frame {
   tags: string[];
   source: FrameSource;
   metadata: Record<string, unknown>;
+  /** @deprecated 仅用于启动时迁移旧版帧级特效；新特效存入 AttackEffectCell。 */
+  attack_effect: AttackEffect | null;
 }
 
 export interface AnimationAxis {
@@ -691,10 +764,16 @@ export interface TimelineResponse {
   tracks: AnimationTrack[];
   steps: TimelineStep[];
   frames: Frame[];
+  /** 可存在于空图片单元格中的独立攻击特效。 */
+  effects: AttackEffectCell[];
   /** 尚未放入任何动画轴的待编排帧。 */
   poolFrames: Frame[];
   /** 项目左侧永久保留的可复用帧资产。 */
   assetFrames: Frame[];
+}
+
+export interface AttackEffectCellRow extends Omit<AttackEffectCell, "effect"> {
+  effect: string;
 }
 
 export interface Job {
@@ -707,12 +786,13 @@ export interface Job {
   created_at: number;
 }
 
-/** DB 行形态：tags/metadata 为未解析的 JSON 字符串，status/source 为宽松 string */
-export interface FrameRow extends Omit<Frame, "status" | "source" | "tags" | "metadata"> {
+/** DB 行形态：JSON 字段未解析，status/source 为宽松 string */
+export interface FrameRow extends Omit<Frame, "status" | "source" | "tags" | "metadata" | "attack_effect"> {
   status: string;
   source: string;
   tags: string;
   metadata: string;
+  attack_effect: string | null;
 }
 
 // ===== 素材库 =====
@@ -789,6 +869,8 @@ export interface JobsResponse {
 }
 export interface JobCreatedResponse {
   jobId: string;
+  /** 批量请求拆出的全部任务 id；jobId 始终等于第一项。 */
+  jobIds?: string[];
 }
 export interface OkResponse {
   ok: boolean;

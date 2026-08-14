@@ -68,12 +68,10 @@ export function createGeneratedArtifactCommitter(options: {
   const ids: string[] = [];
   let finished = false;
   let projectRaw = "";
-  let projectStart = 0;
   if (options.target.kind === "project") {
     projectRaw = join(STORAGE_ROOT, "projects", options.target.projectId, "raw");
     mkdirSync(projectRaw, { recursive: true });
     mkdirSync(join(STORAGE_ROOT, "projects", options.target.projectId, "processed"), { recursive: true });
-    projectStart = nextNumber(projectRaw);
   }
   const metadata = (index: number) =>
     JSON.stringify({
@@ -118,7 +116,9 @@ export function createGeneratedArtifactCommitter(options: {
   const commitImage = (allocation: ArtifactAllocation): string => {
     const id = allocation.id ?? uid();
     if (options.target.kind === "project") {
-      const rawPath = `${projectRaw}/frame_${String(projectStart + allocation.index).padStart(4, "0")}.png`;
+      // 提交时再取编号；并发生成任务创建 committer 时目录状态可能相同。
+      const frameNumber = nextNumber(projectRaw);
+      const rawPath = `${projectRaw}/frame_${String(frameNumber).padStart(4, "0")}.png`;
       // Provider 输出先留在 staging；完成后同步提交，避免撤销读到半写文件。
       invalidateProjectUndo(options.target.projectId);
       renameSync(allocation.path, rawPath);

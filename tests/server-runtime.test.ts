@@ -35,6 +35,7 @@ function createUndoFixture() {
 
 function cleanupUndoFixture(fixture: ReturnType<typeof createUndoFixture>) {
   invalidateProjectUndo(fixture.projectId);
+  db.query("DELETE FROM attack_effects WHERE project_id=?").run(fixture.projectId);
   db.query("DELETE FROM frames WHERE project_id=?").run(fixture.projectId);
   db.query("DELETE FROM animation_steps WHERE axis_id=?").run(fixture.axisId);
   db.query("DELETE FROM animation_tracks WHERE axis_id=?").run(fixture.axisId);
@@ -109,9 +110,11 @@ describe("SQLite 实体转换", () => {
     const frame = serializeFrame({
       id: "frame", project_id: "project", idx: 0, raw_path: "/tmp/raw.png", processed_path: null, status: "ready", duration: 1,
       is_keyframe: 0, offset_x: 0, offset_y: 0, scale: 1, rotation: 0, opacity: 1, tags: "invalid", source: "upload", metadata: "{bad",
+      attack_effect: '{"strokes":[],"offset_x":1,"offset_y":2,"scale":1,"rotation":0,"opacity":1}',
     });
     expect(frame.tags).toEqual([]);
     expect(frame.metadata).toEqual({});
+    expect(frame.attack_effect?.offset_y).toBe(2);
   });
 
   test("素材按扩展名推断媒体类型，并优先使用原始路径", () => {
@@ -142,6 +145,46 @@ describe("SQLite 实体转换", () => {
 });
 
 describe("时间轴单元格", () => {
+  test("空图片单元格可创建、读取、删除并撤销独立攻击特效", async () => {
+    const fixture = createUndoFixture();
+    const effect = {
+      strokes: [{ color: "#ff8a18", size: 24, brush: "dry", points: [
+        { x: -20, y: 8, pressure: 0.2 },
+        { x: 0, y: -12, pressure: 1 },
+        { x: 24, y: 4, pressure: 0.2 },
+      ] }],
+      offset_x: 3,
+      offset_y: -2,
+      scale: 1,
+      rotation: 0,
+      opacity: 1,
+      style: "flame",
+    };
+    try {
+      clearFramePlacement(fixture.frameId);
+      const url = `http://localhost/api/tracks/${fixture.trackId}/steps/${fixture.stepId}/effect`;
+      const created = await app.handle(new Request(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(effect),
+      }));
+      expect(created.status).toBe(200);
+
+      const timeline = await app.handle(new Request(`http://localhost/api/projects/${fixture.projectId}/timeline`));
+      const body = await timeline.json() as { frames: unknown[]; effects: Array<{ track_id: string; step_id: string; effect: typeof effect }> };
+      expect(body.frames).toHaveLength(0);
+      expect(body.effects).toHaveLength(1);
+      expect(body.effects[0]).toMatchObject({ track_id: fixture.trackId, step_id: fixture.stepId, effect: { style: "flame", offset_x: 3, strokes: [{ brush: "dry" }] } });
+
+      expect((await app.handle(new Request(url, { method: "DELETE" }))).status).toBe(200);
+      expect(db.query("SELECT id FROM attack_effects WHERE project_id=?").get(fixture.projectId)).toBeNull();
+      expect(await undoProject(fixture.projectId)).toBeTrue();
+      expect(db.query("SELECT id FROM attack_effects WHERE project_id=?").get(fixture.projectId)).not.toBeNull();
+    } finally {
+      cleanupUndoFixture(fixture);
+    }
+  });
+
   test("清空实例帧后保留原步骤", () => {
     const projectId = `test-project-${crypto.randomUUID()}`;
     const axisId = crypto.randomUUID();

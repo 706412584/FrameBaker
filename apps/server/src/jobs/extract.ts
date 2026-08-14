@@ -49,6 +49,10 @@ export function normalizeExtractTimestamps(raw: number[]): number[] {
 export interface GeneratePayload {
   prompt: string;
   count: number;
+  /** 拆分生成任务所属批次的总数；未拆分的旧负载回退到 count。 */
+  batchCount?: number;
+  /** 当前任务在拆分批次中的零基索引。 */
+  batchIndex?: number;
   autoMatting: boolean;
   target: JobTarget;
   /** 素材命名基准（仅 materials 目标；缺省取 prompt 前 24 字符） */
@@ -249,9 +253,11 @@ export async function generateFrames(
   if (signal?.aborted) throw new JobCancelledError();
   const adapter = createProviderAdapter(p, progress, signal);
   const name = (p.name?.trim().slice(0, 48) || p.prompt.trim().slice(0, 24)) || "生成素材";
+  const batchCount = p.batchCount ?? p.count;
+  const batchIndex = p.batchIndex ?? 0;
   const artifacts = createGeneratedArtifactCommitter({
     target: p.target,
-    count: p.count,
+    count: batchCount,
     autoMatting: p.autoMatting,
     name,
     folderId: p.folderId,
@@ -292,12 +298,13 @@ export async function generateFrames(
 
     for (let index = 0; index < p.count; index++) {
       if (signal?.aborted) throw new JobCancelledError();
+      const artifactIndex = batchIndex + index;
       progress(
         p.target.kind === "project"
-          ? `生成第 ${index + 1}/${p.count} 帧`
-          : `生成第 ${index + 1}/${p.count} 个素材`
+          ? `生成第 ${artifactIndex + 1}/${batchCount} 帧`
+          : `生成第 ${artifactIndex + 1}/${batchCount} 个素材`
       );
-      const result = await produceAndCommit("image", index);
+      const result = await produceAndCommit("image", artifactIndex);
       committed.push(result);
       if (result.kind === "video") {
         progress("CLI 产出为视频，已存入素材库（请自行抽帧）");

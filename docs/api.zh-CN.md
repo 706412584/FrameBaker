@@ -75,7 +75,7 @@ PNG 图片流。`type=processed` 且无 processed 文件时回退 raw。可选�
 
 ### PATCH /api/frames/:id
 
-可更新字段（至少一个，全部可选）：`offset_x` / `offset_y`（-100000–100000）、`scale`（0.1–8）、`rotation`（弧度，-π–π）、`opacity`（0–1）、`duration`（int 1–600）、`is_keyframe`（0/1）、`tags`（string[]）。
+可更新字段（至少一个，全部可选）：`offset_x` / `offset_y`（-100000–100000）、`scale`（0.1–8）、`rotation`（弧度，-π–π）、`opacity`（0–1）、`duration`（int 1–600）、`is_keyframe`（0/1）及 `tags`（string[]）。攻击特效是独立时间轴单元格，使用下述专用接口，不再随图片帧 PATCH。
 
 ```json
 // 请求
@@ -100,13 +100,14 @@ multipart/form-data：`file`（PNG，服务端校验文件签名）。编辑器�
 
 ## 规范合成时间轴
 
-- `GET /api/projects/:id/timeline?axisId=`：返回项目全部动画轴，以及选中/默认轴、轨道、共享步骤、全部帧单元格、待编排 `poolFrames` 和左侧可复用 `assetFrames`。
+- `GET /api/projects/:id/timeline?axisId=`：返回项目全部动画轴，以及选中/默认轴、轨道、共享步骤、图片 `frames`、独立攻击特效 `effects`、待编排 `poolFrames` 和左侧可复用 `assetFrames`。
 - `POST /api/projects/:id/axes`（`name`、可选 `fps`）；`PATCH /api/axes/:id`；`DELETE /api/axes/:id`（保护唯一轴）。
 - `POST /api/axes/:id/tracks`；`PATCH|DELETE /api/tracks/:id`；`POST /api/axes/:id/tracks/reorder` 接收完整且不重复的 `trackIds`。主轨/唯一轨道不可删除。
 - `POST /api/axes/:id/steps`；`PATCH|DELETE /api/steps/:id`；`POST /api/axes/:id/steps/reorder` 接收完整且不重复的 `stepIds`。时长范围 1–600，并镜像到步骤内全部单元格。
 - `PATCH /api/frames/:id/placement` 请求 `{ "trackId", "stepId", "swap"?, "copy"? }`；时间轴内部移动沿用原帧，左侧组装使用 `copy: true` 创建实例，源资产始终留在左侧并可重复使用。`swap: true` 时目标已有帧会退回资产面板。
 - `DELETE /api/frames/:id/placement` 清空单个时间轴单元格但不删除可复用图片文件；资产帧退回资产面板，复制出的时间轴实例则丢弃。
 - `POST /api/tracks/:id/place-frames` 请求 `{ "frameIds": [...], "startStepId"? }`，把同项目帧资产依次复制到目标轨道的连续单元格。已有单元格帧退回资产面板，末尾步骤不足时原子追加；跨项目来源与非资产帧会在时间轴变更前被拒绝。
+- `PUT /api/tracks/:id/steps/:stepId/effect`：在任意轨道×步骤单元格创建或替换特效，即使该格没有图片也可使用。请求最多 128 条笔画；每笔保存 `#RRGGBB` 颜色、1–256 笔宽、可选且确定性渲染的纹理 `brush`（`slash`、`bristle`、`dry`、`spark`、`echo`，缺省为 `slash`）及最多 4096 个 `{x,y,pressure}` 点，以及独立位置/缩放/旋转/透明度和可选 `style`（`flame`、`energy`、`ink`）。同 URL 的 `DELETE` 只清除特效，不影响该格的人物图片。
 
 时间轴变更广播 `timeline_changed` 及 `projectId` 和相关 ID。删除单元格仅在步骤变空时裁剪步骤；旧复制会在源步骤后插入共享步骤；旧换序仅接受主轨“一步骤一单元格”的无歧义形态。
 
@@ -149,7 +150,7 @@ curl -F "file=@test.gif" -F "projectId=$PID" -F "type=gif" http://localhost:3000
 // 请求
 { "projectId": "…", "prompt": "pixel art knight", "count": 4, "autoMatting": false, "providerId": "…", "model": "wanx2.1-image", "size": "1328*1328", "references": [{ "kind": "material", "id": "…" }, { "kind": "frame", "id": "…" }], "mediaKind": "image" }
 // 响应
-{ "jobId": "…" }
+{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }
 ```
 
 provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用第一个配置齐备的 provider（设置页可配多个共存，类型：`cli` / `api`（OpenAI 兼容）/ `dashscope`（百炼原生）/ `gemini`（banana）/ `minimax`；列表为空时 env `FRAMEBAKER_GEN_CLI` 合成 id=`env` 的 CLI provider 兜底）。可选 `size` 在生成时覆盖 provider 的 `apiSize`（格式随 provider 类型：api 如 `1024x1024`、dashscope 如 `1328*1328`、gemini/minimax 如 `16:9`；预设档位见共享常量 `GEN_SIZE_PRESETS`；CLI provider 无尺寸概念忽略）。
@@ -160,7 +161,7 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 - **Gemini provider（banana / nano-banana）**：`POST {apiBaseUrl}/v1beta/models/{model}:generateContent`（`x-goog-api-key` 头）；每张引用图按顺序作为 `{inlineData: {mimeType,data}}` part 放在文本 part 前；`apiSize` 映射 `imageConfig.aspectRatio`（如 `16:9`）。适配器遍历全部 candidate/part 查找 `inlineData.data`（兼容代理的 `inline_data`）；HTTP 200 却无图片时会明确报告 `promptFeedback.blockReason`、候选 `finishReason`、安全类别、模型拒绝文本及 `responseId`，仅对 `NO_IMAGE`、`IMAGE_OTHER` 或暂时性空候选自动重试一次。
 - **MiniMax provider**：`POST {apiBaseUrl}/v1/image_generation`（Bearer）；引用图走 `subject_reference`（主体特征保持，限一张，base64 dataURI）；`apiSize` 映射 `aspect_ratio`（如 `16:9`）；`response_format=base64`，响应取 `data.image_base64[0]`，`base_resp.status_code` 非 0 视为失败。
 
-模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。
+模型取请求的 `model`，缺省 provider 模型列表第一项，都没有则任务 error。provider 不存在/配置不齐时任务置 `error` 并给出说明。`count` 1–16。图片模式下每个产物拆成一个独立任务，按全局队列并发数运行；`jobId` 为兼容保留并指向首个任务，`jobIds` 返回整批任务。
 
 - **视频模式**：`mediaKind: "video"`——只生成并保存一段视频素材（`raw.mp4`，不抽帧；`count`/`fps` 忽略）。仅支持 CLI / 百炼 / MiniMax。完成后用 `POST /api/materials/:id/extract`（fps 或 timestamps）抽帧成多张图片素材。
 
@@ -197,7 +198,7 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 
 ### POST /api/materials/upload
 
-multipart/form-data：`file` + 可选 `processedFile`、`metadata`（JSON 对象字符串）、`autoMatting`(`"true"`)、`fps`（视频抽帧，默认 8）。传 `processedFile` 时素材同时保存 raw/processed 两个槽位并标记 `status=matted`；网格拆分用它保留真实前后对比。
+multipart/form-data：`file` + 可选 `processedFile`、`metadata`（JSON 对象字符串；也兼容 Elysia multipart 自动解析后的对象）、`autoMatting`(`"true"`)、`fps`（视频抽帧，默认 8）。传 `processedFile` 时素材同时保存 raw/processed 两个槽位并标记 `status=matted`；网格拆分用它保留真实前后对比。
 PNG/JPG 等单图 → 直接生成 1 个素材，响应 `{ "materialId": "…" }；GIF/MP4 → 队列拆帧每帧一个素材，响应 `{ "jobId": "…" }`。
 
 ```bash
@@ -207,7 +208,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…" }`（provider 解析与多引用图规则同 `/api/import/generate`）。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }`（provider 解析、图片独立任务与多引用图规则同 `/api/import/generate`）。每个素材任务完成时都会广播 `materials_changed`，停留在素材库时会逐个刷新。可选 `name`：素材命名基准（缺省取 prompt 前 24 字符），产出命名为 `name #i`（count>1）——素材详情「多动作生成」按「素材名_动作」传入。支持 `mediaKind: "video"`：只生成并保存视频素材（`kind=video`），**不抽帧**；完成后用下方 extract 接口拆帧。
 
 ### POST /api/materials/:id/extract
 
@@ -489,7 +490,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.3.1" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。
@@ -504,9 +505,11 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `update_project` | 更新项目名/文件夹 |
 | `delete_project` | 删除项目及其帧/任务/文件 |
 | `list_frames` | 列出项目全部帧 |
-| `update_frame` | 更新帧属性（offset/scale/rotation/opacity/duration/is_keyframe/tags） |
+| `update_frame` | 更新帧图片属性/变换 |
 | `delete_frame` | 删除帧 |
 | `clear_frame_cell` | 清空时间轴单元格但不删除可复用资产文件 |
+| `get_timeline` | 获取轨道、步骤、图片单元格和独立特效单元格 |
+| `upsert_attack_effect` | 在任意轨道×步骤单元格创建或替换攻击特效 |
 | `duplicate_frame` | 复制帧 1–16 份 |
 | `reorder_frames` | 重排帧顺序 |
 | `generate_frames` | 为项目生成帧（AI provider） |

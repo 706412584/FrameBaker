@@ -153,7 +153,7 @@ export default function App() {
         {view.page === "settings" && <SettingsPage />}
         {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} onEditActionLibrary={() => nav({ page: "motions" })} />}
         {/* 右侧常驻任务队列面板（有任务时才显示） */}
-        <JobPanel />
+        <JobPanel syncOnEnter={view.page === "materials"} />
         {/* 全局通知条 + 确认弹窗（notice.ts） */}
         <AppModals />
       </MaterialEditorProvider>

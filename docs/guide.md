@@ -98,11 +98,11 @@ Card bottom-right status dot: green = matted, gray = raw.
 ## Project Editor
 
 - **Import** (three tabs): Material Library (multi-select, appended to timeline end in selection order) / Upload Files (same crop confirmation) / Generate (same as material generation, directly becomes frames)
-- **Frame list + canvas**: PixiJS canvas drag frame to change position (offset); onion skin (prev red / next blue); grid; 25–400% zoom; replace image; frame duration; keyframe star
+- **Frame list + canvas**: PixiJS canvas drag frame to change position (offset); onion skin; grid; zoom; replace image; frame duration; keyframe star; select any timeline cell—including an empty image cell—to draw a wide-start/narrow-tail `Flame` / `Energy` / `Ink` attack FX layer with compact live preview and `Slash` / `Bristle` / `Dry` / `Spark` / `Echo` textures, then independently move/scale/rotate/fade, delete only the effect, or copy it to another step
 - **Timeline**: drag-and-drop reorder; Cmd/Ctrl, Shift multi-select then batch delete / duplicate / uniform duration
 - **Context menu**: right-click on frames in frame list / timeline — single frame (keyframe, duration ±1, crop, duplicate, delete); right-click within multi-selection shows batch menu (duplicate / trim transparent edges / delete)
 - **Playback preview**: 1–24 fps, each frame stays for `duration` ticks
-- **Sprite sheet export**: pure frontend per-frame baking, downloads `*_0001.png` … + `*.frames.json` (with per-frame file/w/h/duration)
+- **Animation export**: choose an independent transparent PNG sequence or a single sprite-sheet PNG that automatically wraps into multiple rows before reaching browser canvas limits; both include composited attack FX and `*.frames.json`
 - Layout: frame list width, timeline height adjustable via split divider drag (double-click to reset, auto-persisted); theme three-state (follow system / light / dark)
 
 ## FAQ

@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Frame, FrameRow, Material, MaterialRow } from "@framebaker/shared";
 import { ensureBuiltinAnimationAssets } from "./builtinAnimationAssets";
+import type { AttackEffectCell, AttackEffectCellRow, Frame, FrameRow, Material, MaterialRow } from "@framebaker/shared";
 
 // 仓库根目录（apps/server/src → 根）：storage 固定放在根级，与启动时的 cwd 无关
 export const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS animation_tracks (
 );
 CREATE TABLE IF NOT EXISTS animation_steps (
   id TEXT PRIMARY KEY, axis_id TEXT NOT NULL, idx INTEGER NOT NULL, duration INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS attack_effects (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  track_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  effect TEXT NOT NULL,
+  created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
 
@@ -183,6 +191,7 @@ ensureColumn("materials", "folder_id", "TEXT");
 ensureColumn("frames", "track_id", "TEXT");
 ensureColumn("frames", "step_id", "TEXT");
 ensureColumn("frames", "is_asset", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("frames", "attack_effect", "TEXT");
 
 // v1：把旧项目无损投影到“默认轴 / 主轨 / 共享步骤”。确定性顺序为 idx,id。
 db.transaction(() => {
@@ -217,12 +226,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_axes_coord ON animation_axes(project_id, id
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tracks_coord ON animation_tracks(axis_id, idx);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_steps_coord ON animation_steps(axis_id, idx);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_frame_cell ON frames(track_id, step_id) WHERE track_id IS NOT NULL AND step_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_attack_effect_cell ON attack_effects(track_id, step_id);
+CREATE INDEX IF NOT EXISTS idx_attack_effects_project ON attack_effects(project_id);
 CREATE INDEX IF NOT EXISTS idx_frames_track_step ON frames(track_id, step_id);
 CREATE INDEX IF NOT EXISTS idx_axes_project ON animation_axes(project_id, idx);
 `);
 
 // 固定安装并升级最早六组动作；先完成全部表/列迁移，保证依赖资产和骨骼项目可事务化重映射。
 ensureBuiltinAnimationAssets(db);
+// 旧版曾把攻击特效寄存在图片帧上；迁移为可独立占据空单元格的特效记录。
+db.transaction(() => {
+  const rows = db.query(`SELECT id,project_id,track_id,step_id,attack_effect FROM frames
+    WHERE attack_effect IS NOT NULL AND attack_effect <> 'null' AND track_id IS NOT NULL AND step_id IS NOT NULL`).all() as Array<{
+      id: string; project_id: string; track_id: string; step_id: string; attack_effect: string;
+    }>;
+  for (const row of rows) {
+    db.query(`INSERT OR IGNORE INTO attack_effects (id,project_id,track_id,step_id,effect,created_at)
+      VALUES (?,?,?,?,?,?)`).run(crypto.randomUUID(), row.project_id, row.track_id, row.step_id, row.attack_effect, Date.now());
+  }
+  if (rows.length) db.query("UPDATE frames SET attack_effect=NULL WHERE attack_effect IS NOT NULL").run();
+})();
 
 // 视频/GIF 抽帧入库曾误标 source=mp4|gif；PNG 产物改为 extract
 db.query(
@@ -270,6 +293,7 @@ export function serializeFrame(f: FrameRow): Frame {
     ...f,
     tags: parseJson<string[]>(f.tags, []),
     metadata: parseJson<Record<string, unknown>>(f.metadata, {}),
+    attack_effect: parseJson<Frame["attack_effect"]>(f.attack_effect, null),
   } as Frame;
 }
 
@@ -277,4 +301,8 @@ export function serializeMaterial(m: MaterialRow): Material {
   const path = m.raw_path ?? m.processed_path ?? "";
   const kind: Material["kind"] = /\.(mp4|mov|webm|avi)$/i.test(path) ? "video" : "image";
   return { ...m, metadata: parseJson<Record<string, unknown>>(m.metadata, {}), kind } as Material;
+}
+
+export function serializeAttackEffect(row: AttackEffectCellRow): AttackEffectCell {
+  return { ...row, effect: parseJson(row.effect, { strokes: [], offset_x: 0, offset_y: 0, scale: 1, rotation: 0, opacity: 1 }) };
 }

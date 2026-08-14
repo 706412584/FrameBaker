@@ -133,19 +133,23 @@ Browser FormData → POST /api/import/upload
 Drag Pixi sprite → pointerup → PATCH /api/frames/:id {offset_x, offset_y}
   → SQLite update → broadcasts frame_updated → all clients sync
 Toolbar step-adjust scale / rotation / opacity → same PATCH to persist
+Attack FX draw mode samples pointer paths into per-stroke color/size/pressure points
+  → pointerup PUT /api/tracks/:id/steps/:stepId/effect; empty image cells are valid targets
+  → compact live brush preview mirrors Catmull-Rom smoothing and wide-start/narrow-tail multi-layer flame/energy/ink rendering
+  → copy/paste duplicates vectors between cells so every step can independently move/scale/rotate/fade them
 Replace image → CropModal crops and encodes PNG → POST /api/frames/:id/replace
   → writes to processed slot and cleans up old processed file
 Timeline HTML5 DnD → frontend optimistic reorder → POST /api/projects/:id/reorder {frameIds}
   → transaction rewrites idx → broadcasts frames_reordered
 ```
 
-### Sprite Sheet Export (Pure Frontend, No Server)
+### Animation Export (Pure Frontend, No Server)
 
 ```
-Fetch all /api/frames/:id/image by idx → createImageBitmap
-  → compute global bounding box using same center-origin semantics as Pixi (offset / scale / rotation)
-  → per-frame individual canvas (uniform cell size, transform & opacity baked in, imageSmoothing off)
-  → download per-frame <name>_0001.png … + <name>.frames.json (with per-frame file/w/h/duration, originX/originY)
+Fetch all visible timeline cells → createImageBitmap
+  → compute one global bounding box for transformed images and vector attack effects
+  → bake with imageSmoothing off as either individual transparent PNGs or one horizontal sprite-sheet PNG
+  → ZIP images plus <name>.frames.json (file/x/y/w/h/duration, origin and FPS)
 ```
 
 ### Material Library (Material → Matting → Import to Project)

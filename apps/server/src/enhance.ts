@@ -60,7 +60,7 @@ export function buildEnhanceSystem(
   const s = ENHANCE_STYLES.find((x) => x.id === style) ?? ENHANCE_STYLES[0];
   const task = mediaKind === "video" ? "video generation" : "image generation";
   const focus = mediaKind === "video"
-    ? `Add only useful, executable motion details: action order and timing, movement direction and speed, camera movement or a locked camera, rhythm, and continuity. Require stable subject identity, silhouette, palette, and background across frames; avoid flicker, morphing, extra limbs, sudden cuts, and shape drift.`
+    ? `Add only useful, executable motion details: action order and timing, movement direction and speed, camera movement or a locked camera, rhythm, and continuity. Frame the entire subject with every limb, prop, and extremity fully visible at all times: use a slightly wider shot, keep the subject centered inside a generous safe area with about 15% padding on every edge, and keep the full motion trajectory inside that area. Never let any part of the subject touch the frame boundary or be cropped, even at the fastest or widest pose. Require stable subject identity, silhouette, palette, and background across frames; avoid flicker, morphing, extra limbs, sudden cuts, shape drift, edge clipping, and camera reframing that cuts off the subject.`
     : `Add only useful, visible image details: subject appearance and pose, action, count, composition, viewpoint, environment, lighting, palette, and atmosphere.${s.id === "pixel" ? " Prefer a readable silhouette, crisp hard-edged pixel clusters, a limited coherent palette, and no unnecessary photorealistic or blurry detail." : " Follow the selected style without mixing in traits from other styles."}`;
   const referenceMode = referenceImageCount === 0
     ? "Mode: text-to-generation. No reference image is selected, so make the text self-contained."
@@ -101,7 +101,7 @@ function buildExample(style?: string, mediaKind: "image" | "video" = "image", re
     general: "clear visual design with a readable silhouette and coherent red color palette",
   }[selected];
   const motion = mediaKind === "video"
-    ? "; one continuous jump from left to right with a clear takeoff, airborne arc, and landing; locked side-view camera; stable shape and color throughout"
+    ? "; one continuous jump from left to right with a clear takeoff, airborne arc, and landing; slightly wide locked side-view camera; full subject always visible with generous even margins; motion stays inside the safe area; stable shape and color throughout"
     : "; full-body side view; centered composition";
   const references = referenceImageCount === 0
     ? ""

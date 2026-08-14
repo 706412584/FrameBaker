@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -41,6 +41,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [showSplit, setShowSplit] = useState(false);
   const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const [actionPreset, setActionPreset] = useState<"actions" | "directions">("actions");
   const [showExtract, setShowExtract] = useState(false);
   const [extractFps, setExtractFps] = useState(8);
   const [extractMatte, setExtractMatte] = useState(true);
@@ -297,9 +298,25 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
                 className="px-btn"
                 disabled={busy}
                 title={t("msg.use_this_material_as_ref_append_continuous_frames_repeat")}
-                onClick={() => setShowActions(true)}
+                onClick={() => {
+                  setActionPreset("actions");
+                  setShowActions(true);
+                }}
               >
                 <PersonStanding size={14} /> {t("msg.multi_action_generate")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                title={t("msg.character_eight_view_action_hint")}
+                onClick={() => {
+                  setActionPreset("directions");
+                  setShowActions(true);
+                }}
+              >
+                <RefreshCw size={14} /> {t("msg.character_eight_view")}
               </motion.button>
             </>
           )}
@@ -368,7 +385,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
 
         <AnimatePresence>
           {showActions && (
-            <ActionGenModal material={m} v={v} onClose={() => setShowActions(false)} onToast={onToast} />
+            <ActionGenModal material={m} v={v} initialPreset={actionPreset} onClose={() => setShowActions(false)} onToast={onToast} />
           )}
         </AnimatePresence>
 

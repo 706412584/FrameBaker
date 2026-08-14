@@ -48,6 +48,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
       .then(([nextDocument, nextAssets, nextMaterials, nextPartSets]) => {
         if (!active) return;
         setDocument(nextDocument);
+        // 回到已经组装过角色的项目时，直接回到最常用的动作工作区；新项目仍从角色绑定开始。
+        setTab(nextDocument.character ? "animations" : "character");
         setAssets(nextAssets);
         setMaterials(nextMaterials.filter((item) => item.kind === "image"));
         setPartSets(nextPartSets);
@@ -192,7 +194,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
         animations: skeletonChanged ? [] : document.animations,
         activeAnimationId: skeletonChanged ? null : document.activeAnimationId,
       };
-      await save(next);
+      if (await save(next)) setTab("animations");
     } catch (e) {
       notify(t("skeletal.importFailed", { msg: (e as Error).message }));
     } finally {

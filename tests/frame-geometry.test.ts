@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fitScaleForBounds, normalizeFrameRotation, transformedFrameBounds } from "../apps/web/src/frameGeometry";
+import { fitScaleForBounds, normalizeFrameRotation, transformedFrameBounds, transformedFrameRectBounds } from "../apps/web/src/frameGeometry";
 
 describe("帧变换几何", () => {
   test("按中心锚点计算平移后的包围盒", () => {
@@ -22,6 +22,15 @@ describe("帧变换几何", () => {
     expect(bounds.right).toBeCloseTo(50);
     expect(bounds.top).toBeCloseTo(-100);
     expect(bounds.bottom).toBeCloseTo(100);
+  });
+
+  test("透明图片只按不透明局部矩形计算变换范围", () => {
+    expect(transformedFrameRectBounds(100, 80, { x: 40, y: 20, w: 20, h: 30 }, {
+      offset_x: 10,
+      offset_y: -5,
+      scale: 2,
+      rotation: 0,
+    })).toEqual({ left: -10, right: 30, top: -45, bottom: 15 });
   });
 
   test("适应视口不会放大，且处理退化边界", () => {

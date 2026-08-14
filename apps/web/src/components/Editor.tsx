@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Copy, Crop, Download, Minus, Play, Plus, Scan, Star, Trash2, Upload } from "lucide-react";
 import type * as Pixi from "pixi.js";
+import type { AttackEffect, AttackEffectBrush } from "@framebaker/shared";
 import { api, frameImageUrl, wsClient, type AnimationTrack, type Frame, type FramePatch, type Project, type TimelineResponse } from "../api";
 import { askConfirm, notify } from "../notice";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
@@ -12,11 +13,16 @@ import ImportModal from "./ImportModal";
 import PlaybackBar from "./PlaybackBar";
 import BatchBar from "./BatchBar";
 import CanvasToolbar from "./CanvasToolbar";
+import AttackEffectToolbar from "./AttackEffectToolbar";
+import ExportAnimationModal from "./ExportAnimationModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 import CropModal from "./CropModal";
 import SplitDivider from "./SplitDivider";
 import IconBtn from "./IconBtn";
-import { exportSpritesheet } from "../export";
+import ThemeToggle from "./ThemeToggle";
+import NoticeHistory from "./NoticeHistory";
+import { exportAnimation, type AnimationExportFormat } from "../export";
+import { DEFAULT_ATTACK_COLOR } from "../attackEffect";
 import { useT } from "../i18n";
 import {
   LAYOUT_DEFAULTS,
@@ -66,6 +72,13 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   const [zoom, setZoom] = useState(1);
   const [onion, setOnion] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
+  const [brushMode, setBrushMode] = useState(false);
+  const [brushColor, setBrushColor] = useState(DEFAULT_ATTACK_COLOR);
+  const [brushSize, setBrushSize] = useState(18);
+  const [attackBrush, setAttackBrush] = useState<AttackEffectBrush>("slash");
+  const [copiedEffect, setCopiedEffect] = useState<AttackEffect | null>(null);
+  const [showExport, setShowExport] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const zoomBy = useCallback(
     (factor: number) => setZoom((z) => Math.min(4, Math.max(0.25, Math.round(z * factor * 100) / 100))),
     []
@@ -101,9 +114,11 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 同一帧的 PATCH 串行提交：UI 先乐观更新，避免快速连续步进丢操作或响应乱序
   const patchChains = useRef(new Map<string, Promise<void>>());
   const patchRevisions = useRef(new Map<string, number>());
+  const effectChains = useRef(new Map<string, Promise<void>>());
   const steps = timeline?.steps ?? [];
   const tracks = timeline?.tracks ?? [];
   const allFrames = timeline?.frames ?? [];
+  const allEffects = timeline?.effects ?? [];
 
   const loadFrames = useCallback(async (preferredTrackId?: string) => {
     try {
@@ -216,6 +231,42 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
     },
     [loadFrames, t]
   );
+
+  /** 特效属于轨道×步骤单元格，不依赖该格是否放置图片帧。 */
+  const changeActiveEffect = useCallback((effect: AttackEffect | null) => {
+    if (!activeTrackId || !activeStepId) return;
+    const trackId = activeTrackId;
+    const stepId = activeStepId;
+    const key = `${trackId}:${stepId}`;
+    setTimeline((current) => {
+      if (!current) return current;
+      const existing = current.effects.find((cell) => cell.track_id === trackId && cell.step_id === stepId);
+      const effects = current.effects.filter((cell) => cell.track_id !== trackId || cell.step_id !== stepId);
+      if (effect) effects.push(existing ? { ...existing, effect } : {
+        id: `local:${key}`,
+        project_id: projectId,
+        track_id: trackId,
+        step_id: stepId,
+        effect,
+        created_at: Date.now(),
+      });
+      return { ...current, effects };
+    });
+    const previous = effectChains.current.get(key) ?? Promise.resolve();
+    const request = previous
+      .then(async () => {
+        if (effect) await api.putAttackEffect(trackId, stepId, effect);
+        else await api.deleteAttackEffect(trackId, stepId);
+      })
+      .catch((error) => {
+        notify(t("msg.frame_update_failed_msg", { msg: (error as Error).message }));
+        void loadFrames(trackId);
+      })
+      .finally(() => {
+        if (effectChains.current.get(key) === request) effectChains.current.delete(key);
+      });
+    effectChains.current.set(key, request);
+  }, [activeStepId, activeTrackId, loadFrames, projectId, t]);
 
   const onDuplicate = useCallback(
     async (id: string) => {
@@ -348,6 +399,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       // 播放预览始终从自动适应倍率开始，不继承编辑时的手动放大，避免被控制条遮挡。
       setZoom(1);
       setFitRequest((request) => request + 1);
+      setBrushMode(false);
     }
     setShowPreview((s) => !s);
   }, [showPreview, steps, activeStepId]);
@@ -355,12 +407,12 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
   // 深链/测试钩子：?autoplay=1 进入项目后自动开始播放
   const autoPlayed = useRef(false);
   useEffect(() => {
-    if (autoPlayed.current || allFrames.length === 0) return;
+    if (autoPlayed.current || (allFrames.length === 0 && allEffects.length === 0)) return;
     if (new URLSearchParams(location.search).has("autoplay")) {
       autoPlayed.current = true;
       togglePlayback();
     }
-  }, [allFrames, togglePlayback]);
+  }, [allEffects.length, allFrames.length, togglePlayback]);
 
   // 播放计时器：按 fps tick 推进，每帧停留 duration 个 tick
   useEffect(() => {
@@ -436,16 +488,20 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       const frame = allFrames.find(
         (item) => item.id === activeId && item.track_id === activeTrackId && item.step_id === activeStepId
       );
-      if (!frame) return;
+      const cellEffect = allEffects.find((item) => item.track_id === activeTrackId && item.step_id === activeStepId);
+      if (!frame && !cellEffect) return;
       e.preventDefault();
-      setActiveId(null);
-      void api.clearFrameCell(frame.id)
-        .then(() => loadFrames(activeTrackId ?? undefined))
-        .catch((error) => notify(t("timeline.moveFailed", { msg: (error as Error).message })));
+      if (cellEffect) changeActiveEffect(null);
+      if (frame) {
+        setActiveId(null);
+        void api.clearFrameCell(frame.id)
+          .then(() => loadFrames(activeTrackId ?? undefined))
+          .catch((error) => notify(t("timeline.moveFailed", { msg: (error as Error).message })));
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [projectId, showImport, showPreview, ctxMenu, clearSelection, allFrames, activeId, activeTrackId, activeStepId, loadFrames, t]);
+  }, [projectId, showImport, showPreview, ctxMenu, clearSelection, allFrames, allEffects, activeId, activeTrackId, activeStepId, loadFrames, t, changeActiveEffect]);
 
   // ---- 批量操作：循环调现有 API，完成后统一刷新并清空选区 ----
   const selectedInOrder = useCallback(
@@ -544,6 +600,20 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       : [],
     [allFrames, displayStep, trackOrder]
   );
+  const compositeEffects = useMemo(
+    () => displayStep
+      ? allEffects
+          .filter((cell) => cell.step_id === displayStep.id && trackOrder.get(cell.track_id)?.visible)
+          .sort((a, b) => (trackOrder.get(a.track_id)?.idx ?? 0) - (trackOrder.get(b.track_id)?.idx ?? 0))
+      : [],
+    [allEffects, displayStep, trackOrder]
+  );
+  const activeEffectCell = activeTrackId && activeStepId
+    ? allEffects.find((cell) => cell.track_id === activeTrackId && cell.step_id === activeStepId) ?? null
+    : null;
+  const activeEffect = activeEffectCell?.effect ?? null;
+  const activeTrackLocked = !!tracks.find((track) => track.id === activeTrackId)?.locked;
+  const effectEditable = !showPreview && !!activeTrackId && !!activeStepId && !activeTrackLocked;
   const activeFrameId = active?.id;
   // 选择来源由 activeTrack/activeStep 表达；历史资产即使仍绑定轨道，从左侧选中时也按资产预览。
   const poolActive = !!active && activeTrackId === null && activeStepId === null;
@@ -631,10 +701,10 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
           type="button"
           whileTap={{ scale: 0.95 }}
           className="px-btn accent"
-          disabled={allFrames.length === 0}
-          onClick={() => timeline && exportSpritesheet(timeline, project?.name ?? "spritesheet").catch((e) => notify(t("msg.export_failed_msg", { msg: (e as Error).message })))}
+          disabled={allFrames.length === 0 && allEffects.length === 0}
+          onClick={() => setShowExport(true)}
         >
-          <Download size={14} /> {t("msg.export_spritesheet")}
+          <Download size={14} /> {t("exportAnimation.button")}
         </motion.button>
       </header>
 
@@ -674,12 +744,31 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
               onCrop={onCropFrame}
               onPatch={patchFrame}
             />
+            <AttackEffectToolbar
+              effect={activeEffect}
+              disabled={!effectEditable}
+              drawing={brushMode}
+              color={brushColor}
+              size={brushSize}
+              brush={attackBrush}
+              canPaste={copiedEffect !== null}
+              onToggleDrawing={() => setBrushMode((current) => !current)}
+              onColor={setBrushColor}
+              onSize={setBrushSize}
+              onBrush={setAttackBrush}
+              onChange={changeActiveEffect}
+              onCopy={(effect) => setCopiedEffect(structuredClone(effect))}
+              onPaste={() => copiedEffect && changeActiveEffect(structuredClone(copiedEffect))}
+            />
             {/* FrameEditor 常驻不卸载；播放条悬浮在画布上，不参与布局。 */}
             <div className={`stage-shell ${showPreview ? "playing" : ""}`} ref={shellRef}>
               <FrameEditor
                 frame={displayFrame}
                 composite={displayComposite}
+                effect={showPreview ? null : activeEffect}
+                effects={poolActive ? [] : compositeEffects}
                 editable={!showPreview && !!active && !tracks.find((tr) => tr.id === active.track_id)?.locked}
+                effectEditable={effectEditable}
                 prev={prev}
                 next={next}
                 v={v}
@@ -688,7 +777,12 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
                 onion={onion}
                 showGrid={showGrid}
                 playing={showPreview}
+                brushMode={brushMode}
+                brushColor={brushColor}
+                brushSize={brushSize}
+                attackBrush={attackBrush}
                 onPatch={patchFrame}
+                onEffectChange={changeActiveEffect}
                 onCanvasBlank={clearSelection}
               />
               <AnimatePresence>
@@ -718,7 +812,7 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       </div>
 
       <SplitDivider direction="row" onDelta={onTimelineDelta} onReset={() => setLayout((l) => ({ ...l, timelineH: LAYOUT_DEFAULTS.timelineH }))} />
-      {timeline && <Timeline axes={timeline.axes} axis={timeline.axis} tracks={tracks} steps={steps} frames={allFrames}
+      {timeline && <Timeline axes={timeline.axes} axis={timeline.axis} tracks={tracks} steps={steps} frames={allFrames} effects={allEffects}
         activeTrackId={activeTrackId} activeStepId={activeStepId} activeId={activeId} v={v} height={layout.timelineH}
         onAxis={(id)=>{axisIdRef.current=id;setAxisId(id);setActiveId(null);setActiveStepId(null)}}
         onAddAxis={async()=>{const {axis}=await api.createAxis(projectId,{name:t("timeline.defaultAxisName"),fps});axisIdRef.current=axis.id;setAxisId(axis.id)}}
@@ -757,6 +851,22 @@ export default function Editor({ projectId, onBack }: { projectId: string; onBac
       <AnimatePresence>
         {ctxMenu && (ctxBatch || ctxFrame) && (
           <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxItems} onClose={() => setCtxMenu(null)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showExport && timeline && (
+          <ExportAnimationModal
+            exporting={exporting}
+            onClose={() => setShowExport(false)}
+            onExport={(format: AnimationExportFormat) => {
+              setExporting(true);
+              void exportAnimation(timeline, project?.name ?? "animation", format)
+                .then(() => setShowExport(false))
+                .catch((error) => notify(t("msg.export_failed_msg", { msg: (error as Error).message })))
+                .finally(() => setExporting(false));
+            }}
+          />
         )}
       </AnimatePresence>
 

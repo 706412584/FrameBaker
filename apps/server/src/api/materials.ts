@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { CharacterBinding, MaterialRow } from "@framebaker/shared";
 import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
 import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
-import { createJob, createMattingJob } from "../queue";
+import { createGenerationJobs, createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
 import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
@@ -170,7 +170,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       let metadata: Record<string, unknown> = {};
       if (body.metadata) {
         try {
-          const parsed = JSON.parse(body.metadata) as unknown;
+          const parsed = typeof body.metadata === "string" ? JSON.parse(body.metadata) as unknown : body.metadata;
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
         } catch {
           // 非法 metadata 不阻断文件上传，仅按空对象保存。
@@ -187,7 +187,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       body: t.Object({
         file: t.File(),
         processedFile: t.Optional(t.File()),
-        metadata: t.Optional(t.String()),
+        metadata: t.Optional(t.Union([t.String(), t.Record(t.String(), t.Unknown())])),
         autoMatting: t.Optional(t.String()),
         fps: t.Optional(t.String()),
         folderId: t.Optional(t.String()),
