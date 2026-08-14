@@ -12,7 +12,7 @@ import PxSelect from "./PxSelect";
 
 type WorkspaceTab = "character" | "animations";
 
-export default function SkeletalProjectEditor({ project, onBack }: { project: Project; onBack: () => void }) {
+export default function SkeletalProjectEditor({ project, onBack, onEditActionLibrary }: { project: Project; onBack: () => void; onEditActionLibrary: () => void }) {
   const t = useT();
   const [tab, setTab] = useState<WorkspaceTab>("character");
   const [document, setDocument] = useState<SkeletalProjectDocument>();
@@ -330,6 +330,7 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
           </section>
           <button type="button" className="px-btn accent" disabled={busy || !bindingTemplateId} onClick={() => void importCharacter()}>{binding ? t("skeletal.character.replace") : t("skeletal.character.import")} </button>
           {!bindingTemplates.length && <p className="animation-empty">{t("skeletal.character.noTemplates")}</p>}
+          <button type="button" className="px-btn" onClick={onEditActionLibrary}>{t("skeletal.openActionLibrary")}</button>
         </section>
         <section className="pixel-panel skeletal-character-editor">
           {binding && skeleton ? <BindingEditor binding={binding} skeleton={skeleton} materials={assemblyMaterials} busy={busy} onSave={async (next: CharacterBinding) => {
