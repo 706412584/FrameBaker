@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BUILTIN_MOTIONS, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Download, Pause, Play, Plus, Trash2 } from "lucide-react";
-import { api, type Project, type SkeletalProjectDocument } from "../api";
+import { api, materialImageUrl, type Project, type SkeletalProjectDocument } from "../api";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { exportSkeletalProjectPackage } from "../export";
@@ -12,7 +12,7 @@ import PxSelect from "./PxSelect";
 
 type WorkspaceTab = "character" | "animations";
 
-export default function SkeletalProjectEditor({ project, onBack, onEditActionLibrary }: { project: Project; onBack: () => void; onEditActionLibrary: () => void }) {
+export default function SkeletalProjectEditor({ project, onBack }: { project: Project; onBack: () => void }) {
   const t = useT();
   const [tab, setTab] = useState<WorkspaceTab>("character");
   const [document, setDocument] = useState<SkeletalProjectDocument>();
@@ -299,6 +299,20 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
         <section className="pixel-panel skeletal-setup-panel">
           <h2>{t("skeletal.character.title")}</h2>
           <p>{t("skeletal.character.hint")}</p>
+          <div className="skeletal-character-picker">
+            <strong>{t("skeletal.character.chooseCharacter")}</strong>
+            <small>{t("skeletal.character.chooseCharacterHint")}</small>
+            {partSets.length ? <div className="skeletal-character-cards">
+              {partSets.map((set) => {
+                const status = getArticulatedPartSetStatus(set);
+                const previewMaterial = set.members.map((member) => materials.find((item) => item.id === member.materialId)).find(Boolean);
+                return <button key={set.id} type="button" className={`skeletal-character-card${set.id === partSetId ? " selected" : ""}`} aria-pressed={set.id === partSetId} onClick={() => setPartSetId(set.id)}>
+                  <span className="skeletal-character-card-icon">{previewMaterial ? <img src={materialImageUrl(previewMaterial.id, undefined, previewMaterial.processed_path ? "processed" : "raw", 64)} alt="" /> : <Boxes size={18} />}</span>
+                  <span><strong>{set.name}</strong><small>{set.members.length} · {status.complete ? t("skeletal.character.articulatedReady") : t("skeletal.character.articulatedMissing", { roles: status.missing.slice(0, 2).map((role) => t(`skeletal.partRole.${role}`)).join("、") })}</small></span>
+                </button>;
+              })}
+            </div> : <p className="animation-empty">{t("skeletal.character.noPartSets")}</p>}
+          </div>
           <label>{t("skeletal.character.template")}
             <PxSelect value={bindingTemplateId} options={bindingTemplates.map((item) => ({ value: item.id, label: item.name }))} onChange={setBindingTemplateId} placeholder={t("skeletal.character.chooseTemplate")} />
           </label>
@@ -316,7 +330,6 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
           </section>
           <button type="button" className="px-btn accent" disabled={busy || !bindingTemplateId} onClick={() => void importCharacter()}>{binding ? t("skeletal.character.replace") : t("skeletal.character.import")} </button>
           {!bindingTemplates.length && <p className="animation-empty">{t("skeletal.character.noTemplates")}</p>}
-          <button type="button" className="px-btn" onClick={onEditActionLibrary}>{t("skeletal.openActionLibrary")}</button>
         </section>
         <section className="pixel-panel skeletal-character-editor">
           {binding && skeleton ? <BindingEditor binding={binding} skeleton={skeleton} materials={assemblyMaterials} busy={busy} onSave={async (next: CharacterBinding) => {

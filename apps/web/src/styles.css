@@ -643,6 +643,16 @@ input[type="range"] {
 .skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
+.skeletal-character-picker { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
+.skeletal-character-picker > small { color: var(--text-muted); line-height: 1.45; }
+.skeletal-character-cards { display: grid; gap: 5px; max-height: 190px; overflow-y: auto; }
+.skeletal-character-card { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px; color: var(--text); text-align: left; border: 1px solid var(--border); background: var(--bg); }
+.skeletal-character-card:hover, .skeletal-character-card.selected { border-color: var(--accent); background: var(--selected); }
+.skeletal-character-card-icon { display: grid; width: 28px; height: 28px; place-items: center; color: var(--accent); background: var(--elevated); }
+.skeletal-character-card-icon img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.skeletal-character-card > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.skeletal-character-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skeletal-character-card small { overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .articulated-setup-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
 .articulated-setup-card.complete { border-color: var(--accent); background: var(--selected); }
 .articulated-setup-card > p { color: var(--text-muted); font-size: 11px; line-height: 1.55; }
