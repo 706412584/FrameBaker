@@ -5,7 +5,7 @@ import { api, materialImageUrl, type Project, type SkeletalProjectDocument } fro
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { exportSkeletalProjectPackage } from "../export";
-import { BUILTIN_MOTION_IDS, buildArticulatedAttackAssets, buildRetargetedBuiltinMotionClip, getArticulatedPartSetStatus, type BuiltinMotionId } from "../articulatedCharacter";
+import { BUILTIN_MOTION_IDS, buildArticulatedAttackAssets, buildRetargetedBuiltinMotionClip, getArticulatedPartSetStatus, measureArticulatedPartImages, type BuiltinMotionId } from "../articulatedCharacter";
 import { areSkeletonsRetargetCompatible, retargetMotionClip } from "../motionRetarget";
 import { BindingEditor, CharacterPreview } from "./AnimationAssetsWorkspace";
 import PxSelect from "./PxSelect";
@@ -148,14 +148,15 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const assembleArticulatedAttack = async () => {
     if (!document || !selectedPartSet || !articulatedPartSetStatus.complete || busy) return;
     if ((document.character || document.animations.length) && !(await askConfirm(t("skeletal.character.articulatedReplaceConfirm")))) return;
-    const made = buildArticulatedAttackAssets(selectedPartSet, {
-      skeleton: t("skeletal.character.articulatedSkeletonName", { name: selectedPartSet.name }),
-      binding: t("skeletal.character.articulatedBindingName", { name: selectedPartSet.name }),
-      clip: t("skeletal.character.articulatedAttackName"),
-    });
     const createdIds: string[] = [];
     setBusy(true);
     try {
+      const imageMetrics = await measureArticulatedPartImages(selectedPartSet, materials, (materialId, imageSlot) => materialImageUrl(materialId, undefined, imageSlot, undefined, true));
+      const made = buildArticulatedAttackAssets(selectedPartSet, {
+        skeleton: t("skeletal.character.articulatedSkeletonName", { name: selectedPartSet.name }),
+        binding: t("skeletal.character.articulatedBindingName", { name: selectedPartSet.name }),
+        clip: t("skeletal.character.articulatedAttackName"),
+      }, imageMetrics);
       await api.createAnimationAsset(made.skeleton); createdIds.push(made.skeleton.id);
       await api.createAnimationAsset(made.binding); createdIds.push(made.binding.id);
       await api.createAnimationAsset(made.clip); createdIds.push(made.clip.id);

@@ -9,6 +9,7 @@ import {
   type BuiltinMotionId,
   type CharacterBinding,
   type CharacterPartSet,
+  type Material,
   type MotionClip,
   type MotionTrack,
   type Skeleton,
@@ -29,6 +30,14 @@ export interface ArticulatedCharacterAssetNames {
   clip: string;
 }
 
+export interface ArticulatedPartImageMetric {
+  width: number;
+  height: number;
+  imageSlot: "raw" | "processed";
+}
+
+export type ArticulatedPartImageMetrics = Partial<Record<ArticulatedCharacterPartRole, ArticulatedPartImageMetric>>;
+
 const identity = (translation: [number, number, number] = [0, 0, 0]): Transform => ({
   translation,
   rotation: [0, 0, 0, 1],
@@ -43,11 +52,36 @@ export function getArticulatedPartSetStatus(partSet: CharacterPartSet | undefine
   return { complete: missing.length === 0 && duplicate.length === 0, missing, duplicate };
 }
 
+/** 组装前读取实际 PNG 尺寸；单张失败时保留默认几何，不阻断整套角色创建。 */
+export async function measureArticulatedPartImages(
+  partSet: CharacterPartSet,
+  materials: Material[],
+  imageUrl: (materialId: string, imageSlot: "raw" | "processed") => string,
+): Promise<ArticulatedPartImageMetrics> {
+  const entries = await Promise.all(ARTICULATED_CHARACTER_PART_ROLES.map(async (role) => {
+    const member = partSet.members.find((item) => item.role === role);
+    const material = member ? materials.find((item) => item.id === member.materialId) : undefined;
+    if (!member || !material) return [role, undefined] as const;
+    const imageSlot = material.processed_path ? "processed" as const : "raw" as const;
+    try {
+      const response = await fetch(imageUrl(material.id, imageSlot));
+      if (!response.ok) throw new Error(`${response.status}`);
+      const bitmap = await createImageBitmap(await response.blob());
+      const metric: ArticulatedPartImageMetric = { width: bitmap.width, height: bitmap.height, imageSlot };
+      bitmap.close();
+      return [role, metric] as const;
+    } catch {
+      return [role, { width: 0, height: 0, imageSlot }] as const;
+    }
+  }));
+  return Object.fromEntries(entries.filter((entry): entry is readonly [ArticulatedCharacterPartRole, ArticulatedPartImageMetric] => !!entry[1]));
+}
+
 /**
  * 把标准 12 分件集直接组装为可编辑的多关节角色，并重定向内置 Sword_Attack。
  * 手、脚节点作为关节/武器挂点存在，但不要求额外贴图。
  */
-export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: ArticulatedCharacterAssetNames): {
+export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: ArticulatedCharacterAssetNames, imageMetrics: ArticulatedPartImageMetrics = {}): {
   skeleton: Skeleton;
   binding: CharacterBinding;
   clip: MotionClip;
@@ -65,6 +99,48 @@ export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: A
     thighLeft: boneId("thigh-left"), shinLeft: boneId("shin-left"), footLeft: boneId("foot-left"),
     thighRight: boneId("thigh-right"), shinRight: boneId("shin-right"), footRight: boneId("foot-right"),
   };
+
+  const member = (role: ArticulatedCharacterPartRole) => partSet.members.find((item) => item.role === role)!;
+  const baseRegions: Array<{ role: ArticulatedCharacterPartRole; bone: string; canonicalSize: [number, number]; pivot: [number, number]; drawOrder: number; rotation?: number; overlap?: number }> = [
+    { role: "thigh-left", bone: ids.thighLeft, canonicalSize: [.43, .94], pivot: [.5, 1], drawOrder: 0, overlap: .045 },
+    { role: "shin-left", bone: ids.shinLeft, canonicalSize: [.37, .91], pivot: [.5, 1], drawOrder: 1, overlap: .035 },
+    { role: "upper-arm-left", bone: ids.upperArmLeft, canonicalSize: [.4, .73], pivot: [.5, 1], drawOrder: 2, overlap: .035 },
+    { role: "forearm-left", bone: ids.forearmLeft, canonicalSize: [.36, .66], pivot: [.5, 1], drawOrder: 3, overlap: .025 },
+    { role: "thigh-right", bone: ids.thighRight, canonicalSize: [.43, .94], pivot: [.5, 1], drawOrder: 4, overlap: .045 },
+    { role: "shin-right", bone: ids.shinRight, canonicalSize: [.37, .91], pivot: [.5, 1], drawOrder: 5, overlap: .035 },
+    { role: "torso", bone: ids.torso, canonicalSize: [1.12, 1.18], pivot: [.5, 0], drawOrder: 6 },
+    { role: "pelvis", bone: ids.pelvis, canonicalSize: [.88, .5], pivot: [.5, .5], drawOrder: 7 },
+    { role: "upper-arm-right", bone: ids.upperArmRight, canonicalSize: [.4, .73], pivot: [.5, 1], drawOrder: 8, overlap: .035 },
+    { role: "forearm-right", bone: ids.forearmRight, canonicalSize: [.36, .66], pivot: [.5, 1], drawOrder: 9, overlap: .025 },
+    { role: "head", bone: ids.head, canonicalSize: [.78, .78], pivot: [.5, 0], drawOrder: 10 },
+    // 分件约定武器握柄朝上；轴心使用 Y-up 坐标，因此握点约在距图片底部 82% 处。
+    { role: "weapon", bone: ids.weapon, canonicalSize: [.3, 1.56], pivot: [.5, .82], drawOrder: 11, rotation: -.12 },
+  ];
+  const scaleSamples = baseRegions.flatMap((region) => {
+    const metric = imageMetrics[region.role];
+    return metric && metric.height > 0 ? [region.canonicalSize[1] / metric.height] : [];
+  }).sort((a, b) => a - b);
+  const sharedPixelScale = scaleSamples.length
+    ? scaleSamples.length % 2
+      ? scaleSamples[Math.floor(scaleSamples.length / 2)]!
+      : (scaleSamples[scaleSamples.length / 2 - 1]! + scaleSamples[scaleSamples.length / 2]!) / 2
+    : undefined;
+  const regions = baseRegions.map((region) => {
+    const metric = imageMetrics[region.role];
+    if (!metric || !(metric.width > 0) || !(metric.height > 0)) return { ...region, size: region.canonicalSize };
+    const canonicalHeight = region.canonicalSize[1];
+    const measuredHeight = sharedPixelScale
+      ? Math.max(canonicalHeight * .78, Math.min(canonicalHeight * 1.22, metric.height * sharedPixelScale))
+      : canonicalHeight;
+    return { ...region, size: [measuredHeight * metric.width / metric.height, measuredHeight] as [number, number] };
+  });
+  const size = (role: ArticulatedCharacterPartRole) => regions.find((region) => region.role === role)!.size;
+  const [torsoWidth, torsoHeight] = size("torso"), [pelvisWidth, pelvisHeight] = size("pelvis"), [, headHeight] = size("head");
+  const [, upperArmLeftHeight] = size("upper-arm-left"), [, forearmLeftHeight] = size("forearm-left");
+  const [, upperArmRightHeight] = size("upper-arm-right"), [, forearmRightHeight] = size("forearm-right");
+  const [shinLeftWidth, thighLeftHeight] = [size("shin-left")[0], size("thigh-left")[1]], shinLeftHeight = size("shin-left")[1];
+  const [shinRightWidth, thighRightHeight] = [size("shin-right")[0], size("thigh-right")[1]], shinRightHeight = size("shin-right")[1];
+  const [, weaponHeight] = size("weapon");
   const bone = (id: string, name: string, parentId: string | null, translation: [number, number, number], tipOffset?: [number, number, number], semantic?: string) => ({
     id, name, parentId, rest: identity(translation), ...(tipOffset ? { tipOffset } : {}), ...(semantic ? { semantic } : {}),
   });
@@ -76,22 +152,22 @@ export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: A
     coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "normalized" },
     bones: [
       bone(ids.root, "根节点", null, [0, -1.65, 0], undefined, "root"),
-      bone(ids.pelvis, "骨盆", ids.root, [0, 0, 0], [0, .35, 0], "pelvis"),
-      bone(ids.torso, "躯干", ids.pelvis, [0, .18, 0], [0, 1.02, 0], "chest"),
-      bone(ids.head, "头部", ids.torso, [0, 1.04, 0], [0, .62, 0], "head"),
-      bone(ids.upperArmLeft, "左肩 / 左上臂", ids.torso, [-.48, .76, 0], [0, -.66, 0], "leftShoulder"),
-      bone(ids.forearmLeft, "左肘 / 左前臂", ids.upperArmLeft, [0, -.64, 0], [0, -.58, 0], "leftElbow"),
-      bone(ids.handLeft, "左腕", ids.forearmLeft, [0, -.56, 0], [0, -.16, 0], "leftWrist"),
-      bone(ids.upperArmRight, "右肩 / 右上臂", ids.torso, [.48, .76, 0], [0, -.66, 0], "rightShoulder"),
-      bone(ids.forearmRight, "右肘 / 右前臂", ids.upperArmRight, [0, -.64, 0], [0, -.58, 0], "rightElbow"),
-      bone(ids.handRight, "右腕", ids.forearmRight, [0, -.56, 0], [0, -.16, 0], "rightWrist"),
-      bone(ids.weapon, "武器挂点", ids.handRight, [0, -.06, 0], [0, 1.25, 0], "weapon"),
-      bone(ids.thighLeft, "左髋 / 左大腿", ids.pelvis, [-.23, -.08, 0], [0, -.86, 0], "leftHip"),
-      bone(ids.shinLeft, "左膝 / 左小腿", ids.thighLeft, [0, -.83, 0], [0, -.84, 0], "leftKnee"),
-      bone(ids.footLeft, "左踝", ids.shinLeft, [0, -.81, 0], [.32, -.08, 0], "leftAnkle"),
-      bone(ids.thighRight, "右髋 / 右大腿", ids.pelvis, [.23, -.08, 0], [0, -.86, 0], "rightHip"),
-      bone(ids.shinRight, "右膝 / 右小腿", ids.thighRight, [0, -.83, 0], [0, -.84, 0], "rightKnee"),
-      bone(ids.footRight, "右踝", ids.shinRight, [0, -.81, 0], [.32, -.08, 0], "rightAnkle"),
+      bone(ids.pelvis, "骨盆", ids.root, [0, 0, 0], [0, pelvisHeight * .7, 0], "pelvis"),
+      bone(ids.torso, "躯干", ids.pelvis, [0, pelvisHeight * .36, 0], [0, torsoHeight * .86, 0], "chest"),
+      bone(ids.head, "头部", ids.torso, [0, torsoHeight * .88, 0], [0, headHeight * .79, 0], "head"),
+      bone(ids.upperArmLeft, "左肩 / 左上臂", ids.torso, [-torsoWidth * .43, torsoHeight * .64, 0], [0, -upperArmLeftHeight * .9, 0], "leftShoulder"),
+      bone(ids.forearmLeft, "左肘 / 左前臂", ids.upperArmLeft, [0, -upperArmLeftHeight * .88, 0], [0, -forearmLeftHeight * .88, 0], "leftElbow"),
+      bone(ids.handLeft, "左腕", ids.forearmLeft, [0, -forearmLeftHeight * .85, 0], [0, -forearmLeftHeight * .24, 0], "leftWrist"),
+      bone(ids.upperArmRight, "右肩 / 右上臂", ids.torso, [torsoWidth * .43, torsoHeight * .64, 0], [0, -upperArmRightHeight * .9, 0], "rightShoulder"),
+      bone(ids.forearmRight, "右肘 / 右前臂", ids.upperArmRight, [0, -upperArmRightHeight * .88, 0], [0, -forearmRightHeight * .88, 0], "rightElbow"),
+      bone(ids.handRight, "右腕", ids.forearmRight, [0, -forearmRightHeight * .85, 0], [0, -forearmRightHeight * .24, 0], "rightWrist"),
+      bone(ids.weapon, "武器挂点", ids.handRight, [0, -forearmRightHeight * .09, 0], [0, weaponHeight * .8, 0], "weapon"),
+      bone(ids.thighLeft, "左髋 / 左大腿", ids.pelvis, [-pelvisWidth * .26, -pelvisHeight * .16, 0], [0, -thighLeftHeight * .91, 0], "leftHip"),
+      bone(ids.shinLeft, "左膝 / 左小腿", ids.thighLeft, [0, -thighLeftHeight * .88, 0], [0, -shinLeftHeight * .92, 0], "leftKnee"),
+      bone(ids.footLeft, "左踝", ids.shinLeft, [0, -shinLeftHeight * .89, 0], [Math.max(.16, shinLeftWidth * .86), -Math.max(.04, shinLeftHeight * .09), 0], "leftAnkle"),
+      bone(ids.thighRight, "右髋 / 右大腿", ids.pelvis, [pelvisWidth * .26, -pelvisHeight * .16, 0], [0, -thighRightHeight * .91, 0], "rightHip"),
+      bone(ids.shinRight, "右膝 / 右小腿", ids.thighRight, [0, -thighRightHeight * .88, 0], [0, -shinRightHeight * .92, 0], "rightKnee"),
+      bone(ids.footRight, "右踝", ids.shinRight, [0, -shinRightHeight * .89, 0], [Math.max(.16, shinRightWidth * .86), -Math.max(.04, shinRightHeight * .09), 0], "rightAnkle"),
     ],
     semanticProfile: {
       id: "humanoid-v1",
@@ -105,33 +181,18 @@ export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: A
       },
     },
   };
-
-  const member = (role: ArticulatedCharacterPartRole) => partSet.members.find((item) => item.role === role)!;
-  const regions: Array<{ role: ArticulatedCharacterPartRole; bone: string; size: [number, number]; pivot: [number, number]; drawOrder: number; rotation?: number; overlap?: number }> = [
-    { role: "thigh-left", bone: ids.thighLeft, size: [.43, .94], pivot: [.5, 1], drawOrder: 0, overlap: .045 },
-    { role: "shin-left", bone: ids.shinLeft, size: [.37, .91], pivot: [.5, 1], drawOrder: 1, overlap: .035 },
-    { role: "upper-arm-left", bone: ids.upperArmLeft, size: [.4, .73], pivot: [.5, 1], drawOrder: 2, overlap: .035 },
-    { role: "forearm-left", bone: ids.forearmLeft, size: [.36, .66], pivot: [.5, 1], drawOrder: 3, overlap: .025 },
-    { role: "thigh-right", bone: ids.thighRight, size: [.43, .94], pivot: [.5, 1], drawOrder: 4, overlap: .045 },
-    { role: "shin-right", bone: ids.shinRight, size: [.37, .91], pivot: [.5, 1], drawOrder: 5, overlap: .035 },
-    { role: "torso", bone: ids.torso, size: [1.12, 1.18], pivot: [.5, 0], drawOrder: 6 },
-    { role: "pelvis", bone: ids.pelvis, size: [.88, .5], pivot: [.5, .5], drawOrder: 7 },
-    { role: "upper-arm-right", bone: ids.upperArmRight, size: [.4, .73], pivot: [.5, 1], drawOrder: 8, overlap: .035 },
-    { role: "forearm-right", bone: ids.forearmRight, size: [.36, .66], pivot: [.5, 1], drawOrder: 9, overlap: .025 },
-    { role: "head", bone: ids.head, size: [.78, .78], pivot: [.5, 0], drawOrder: 10 },
-    { role: "weapon", bone: ids.weapon, size: [.3, 1.56], pivot: [.5, .18], drawOrder: 11, rotation: -.12 },
-  ];
   const attachments = regions.map((region) => {
     const part = member(region.role);
+    const overlap = (region.overlap ?? 0) * region.size[1] / region.canonicalSize[1];
     return {
       id: `region-${region.role}-${instance}`,
       name: part.name,
       type: "region" as const,
       materialId: part.materialId,
-      imageSlot: "raw" as const,
+      imageSlot: imageMetrics[region.role]?.imageSlot ?? "raw" as const,
       size: region.size,
       pivot: region.pivot,
-      rest: { ...identity([0, region.overlap ?? 0, 0]), rotation: quaternionFromZRotation(region.rotation ?? 0) },
+      rest: { ...identity([0, overlap, 0]), rotation: quaternionFromZRotation(region.rotation ?? 0) },
     };
   });
   const binding: CharacterBinding = {
@@ -239,8 +300,8 @@ export function buildArticulatedAttackAssets(partSet: CharacterPartSet, names: A
     provenance: {
       source: "import",
       adapter: "Quaternius UAL CC0 / Sword_Attack smooth articulated 12-part retarget",
-      adapterVersion: "2",
-      parameters: { sourceClip: "Sword_Attack", sourceSamples: rootX.length },
+      adapterVersion: "3",
+      parameters: { sourceClip: "Sword_Attack", sourceSamples: rootX.length, measuredParts: Object.values(imageMetrics).filter((metric) => metric && metric.width > 0 && metric.height > 0).length },
     },
   };
 
