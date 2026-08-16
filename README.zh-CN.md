@@ -22,6 +22,14 @@
 | --- | --- |
 | ![角色骨骼绑定](docs/media/skeletal-rigging.png) | ![骨骼动画编辑](docs/media/skeletal-animation.png) |
 
+### 人物骨骼分件工作流
+
+基于角色参考图生成并抠出人物分件表，再通过逐格移动、直接拖动分隔线、合并/细分、质量检查和逐格擦除编辑完成网格校正，最后创建骨骼部件素材。
+
+| 人物分件素材 | 可交互分件网格编辑器 |
+| --- | --- |
+| ![生成并抠图后的人物分件素材](docs/media/skeletal-parts-preview.png) | ![可交互人物骨骼分件网格编辑器](docs/media/skeletal-grid-editor.png) |
+
 | 帧编辑器 | 素材库 |
 | --- | --- |
 | ![帧编辑器](docs/media/editor.png) | ![素材库](docs/media/library.png) |

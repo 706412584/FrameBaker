@@ -6,11 +6,15 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Added
 
+- Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
+- Completed image-material context menus with direct crop, frame/skeletal split, character decomposition, multi-action/eight-direction generation, matting restore, import, layering, trim, export, and delete actions.
 - Motion events can now accept, validate, display, and persist an optional JSON payload.
 - Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.
 
 ### Changed
 
+- Refined skeletal-parts prompts to treat the requested grid as capacity, allow transparent surplus cells and rectangular multi-cell blocks for oversized parts, and forbid invented filler parts or weapons.
+- Limited divider dragging to the active cell and only the cells directly facing that edge, leaving lateral cells unchanged.
 - Unified skeletal project output on the `.fbanim` runtime package and removed the frame-project compatibility bake path, RenderProfile, and RasterSequence APIs.
 ## [0.3.1] - 2026-08-13
 

@@ -22,6 +22,14 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 | --- | --- |
 | ![Character skeletal binding](docs/media/skeletal-rigging.png) | ![Skeletal animation editor](docs/media/skeletal-animation.png) |
 
+### Skeletal Parts Workflow
+
+Generate and matte a reference-locked character parts sheet, then refine its grid with per-cell movement, direct divider resizing, merge/split controls, quality checks, and per-cell erase editing before creating skeletal materials.
+
+| Character parts material | Interactive parts-grid editor |
+| --- | --- |
+| ![Generated and matted character parts material](docs/media/skeletal-parts-preview.png) | ![Interactive skeletal parts-grid editor](docs/media/skeletal-grid-editor.png) |
+
 | Frame editor | Materials library |
 | --- | --- |
 | ![Frame editor](docs/media/editor.png) | ![Materials library](docs/media/library.png) |
