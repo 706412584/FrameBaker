@@ -77,8 +77,11 @@ export interface GeneratePayload {
   characterPartSetId?: string;
   /** 引用素材 id，仅用于产物谱系 metadata；实际执行只使用服务端解析后的 referencePaths。 */
   referenceMaterialId?: string;
+  /** 骨骼分件表网格；默认人形为 3 行 × 4 列。 */
+  gridRows?: number;
+  gridCols?: number;
   /** 第一阶段完整角色成功后，由调度层创建的第二阶段生成任务。 */
-  followUp?: { prompt: string; name?: string; autoMatting?: boolean };
+  followUp?: { prompt: string; name?: string; autoMatting?: boolean; gridRows?: number; gridCols?: number };
 }
 
 export function buildGeneratedFollowUp(source: GeneratePayload, referenceMaterialId: string, referencePath: string): GeneratePayload | null {
@@ -92,6 +95,8 @@ export function buildGeneratedFollowUp(source: GeneratePayload, referenceMateria
     mediaKind: "image",
     referenceMaterialId,
     referencePaths: [referencePath],
+    gridRows: source.followUp.gridRows,
+    gridCols: source.followUp.gridCols,
     intent: "skeletal-decompose",
     followUp: undefined,
   };
@@ -270,6 +275,8 @@ export async function generateFrames(
     intent: p.intent,
     characterPartSetId: p.characterPartSetId,
     referenceMaterialId: p.referenceMaterialId,
+    gridRows: p.gridRows,
+    gridCols: p.gridCols,
   });
   const committed: ArtifactCommitResult[] = [];
 

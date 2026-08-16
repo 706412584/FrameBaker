@@ -64,6 +64,8 @@ export function createGeneratedArtifactCommitter(options: {
   intent?: GenerationIntent;
   characterPartSetId?: string;
   referenceMaterialId?: string;
+  gridRows?: number;
+  gridCols?: number;
 }) {
   const ids: string[] = [];
   let finished = false;
@@ -83,6 +85,8 @@ export function createGeneratedArtifactCommitter(options: {
       intent: options.intent || undefined,
       characterPartSetId: options.characterPartSetId || undefined,
       referenceMaterialId: options.referenceMaterialId || undefined,
+      gridRows: options.gridRows || undefined,
+      gridCols: options.gridCols || undefined,
     });
 
   const allocate = (kind: MediaKind, index: number, requestedKind = kind): ArtifactAllocation => {

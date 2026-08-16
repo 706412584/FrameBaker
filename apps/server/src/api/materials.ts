@@ -27,11 +27,19 @@ function isPng(bytes: Uint8Array): boolean {
   return bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
 }
 
+export function createAutomaticCharacterPartSet(name: string | undefined, source: "generated" | "decomposed", referenceMaterialId?: string): string {
+  const id = uid();
+  const now = Date.now();
+  db.query("INSERT INTO character_part_sets (id,name,source,reference_material_id,created_at,updated_at) VALUES (?,?,?,?,?,?)")
+    .run(id, name?.trim() || "人物分件", source, referenceMaterialId ?? null, now, now);
+  return id;
+}
+
 function bindingUsingMaterial(ids: Set<string>): string | null {
-  const rows = db.query("SELECT data FROM animation_assets WHERE kind = 'character-binding'").all() as Array<{ data: string }>;
+  const rows = db.query("SELECT projects.name, skeletal_projects.document FROM skeletal_projects JOIN projects ON projects.id = skeletal_projects.project_id").all() as Array<{ name: string; document: string }>;
   for (const row of rows) {
-    const binding = JSON.parse(row.data) as CharacterBinding;
-    if (binding.attachments.some((attachment) => ids.has(attachment.materialId))) return binding.name;
+    const document = JSON.parse(row.document) as { character?: { binding?: CharacterBinding } | null };
+    if (document.character?.binding?.attachments.some((attachment) => ids.has(attachment.materialId))) return row.name;
   }
   return null;
 }
@@ -203,6 +211,11 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       if (ref.error) return status(400, ref.error);
       const videoErr = checkVideoSupport(body);
       if (videoErr) return status(400, videoErr);
+      const skeletalIntent = body.intent === "skeletal-character" || body.intent === "skeletal-parts" || body.intent === "skeletal-decompose";
+      const referenceMaterialId = body.referenceMaterialId ?? body.references?.find((item) => item.kind === "material")?.id;
+      const characterPartSetId = body.characterPartSetId ?? (skeletalIntent
+        ? createAutomaticCharacterPartSet(body.name, body.intent === "skeletal-decompose" ? "decomposed" : "generated", referenceMaterialId)
+        : undefined);
       const jobId = createJob("", "generate_frames", {
         generate: {
           prompt: body.prompt,
@@ -218,12 +231,14 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           fps: body.fps,
           folderId: body.folderId ?? null,
           intent: body.intent,
-          characterPartSetId: body.characterPartSetId,
-          referenceMaterialId: body.referenceMaterialId,
+          characterPartSetId,
+          referenceMaterialId,
+          gridRows: body.gridRows,
+          gridCols: body.gridCols,
           followUp: body.followUp,
         },
       });
-      return { jobId };
+      return { jobId, characterPartSetId };
     },
     {
       body: t.Object({
@@ -247,14 +262,17 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         folderId: t.Optional(t.Union([t.String(), t.Null()])),
         intent: t.Optional(t.Union([t.Literal("frame-image"), t.Literal("frame-sheet"), t.Literal("frame-video"), t.Literal("skeletal-character"), t.Literal("skeletal-parts"), t.Literal("skeletal-decompose"), t.Literal("skeletal-repair-part"), t.Literal("motion-clip")])),
         characterPartSetId: t.Optional(t.String()),
-        followUp: t.Optional(t.Object({ prompt: t.String({ minLength: 1 }), name: t.Optional(t.String()), autoMatting: t.Optional(t.Boolean()) })),
+        gridRows: t.Optional(t.Integer({ minimum: 1, maximum: 8 })),
+        gridCols: t.Optional(t.Integer({ minimum: 1, maximum: 8 })),
+        followUp: t.Optional(t.Object({ prompt: t.String({ minLength: 1 }), name: t.Optional(t.String()), autoMatting: t.Optional(t.Boolean()), gridRows: t.Optional(t.Integer({ minimum: 1, maximum: 8 })), gridCols: t.Optional(t.Integer({ minimum: 1, maximum: 8 })) })),
       }),
       beforeHandle({ body, status }) {
         if (body.followUp && body.intent !== "skeletal-character") return status(400, "后续生成任务仅用于完整角色两阶段分件");
+        if ((body.gridRows == null) !== (body.gridCols == null) || (body.followUp && ((body.followUp.gridRows == null) !== (body.followUp.gridCols == null)))) return status(400, "骨骼分件网格需要同时提供行数和列数");
         if (body.intent === "skeletal-character" || body.intent === "skeletal-parts" || body.intent === "skeletal-decompose") {
           if ((body.mediaKind ?? "image") !== "image") return status(400, "骨骼部件生成意图仅支持图片模式");
-          if (!body.characterPartSetId || !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "骨骼部件生成意图需要已存在的角色部件集");
-          if (body.intent === "skeletal-decompose" && !body.referenceMaterialId && !body.referenceFrameId) return status(400, "精灵拆分生成需要引用图片");
+          if (body.characterPartSetId && !db.query("SELECT 1 FROM character_part_sets WHERE id=?").get(body.characterPartSetId)) return status(400, "角色部件集不存在");
+          if (body.intent === "skeletal-decompose" && !body.referenceMaterialId && !body.referenceFrameId && !body.references?.length) return status(400, "精灵拆分生成需要引用图片");
           if (body.intent === "skeletal-character") {
             if (!body.followUp) return status(400, "完整角色生成需要配置后续分件任务");
             const referenceError = checkImageReferenceSupport(body.providerId);
@@ -453,7 +471,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     "/materials/batch-delete",
     ({ body, status }) => {
       const dependent = bindingUsingMaterial(new Set(body.ids));
-      if (dependent) return status(409, `素材仍被角色绑定「${dependent}」引用`);
+      if (dependent) return status(409, `素材仍被骨骼项目「${dependent}」引用`);
       const stmt = db.query("DELETE FROM materials WHERE id = ?");
       let deleted = 0;
       for (const id of body.ids) {

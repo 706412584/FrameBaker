@@ -28,13 +28,12 @@ function buildSkeletalGuidance(intent?: EnhancePromptIntent): string {
     case "skeletal-parts":
     case "skeletal-decompose":
       return `${shared}
-- 输出 strict 4x3 character parts sheet，固定从左到右逐行排列：row 1 head, torso, pelvis, weapon；row 2 upper-arm-left, forearm-left, upper-arm-right, forearm-right；row 3 thigh-left, shin-left, thigh-right, shin-right
+- 输出 strict character parts grid，严格服从用户随后选择的 rows × columns 和总部件数；每格从左到右、从上到下排列
 - 每格 exactly one isolated complete part，四周留安全边距；任何可见像素不得跨 cell boundary；部件不得接触、重叠、重复或缺失
-- pelvis 必须是腰胯，不能用 shoulder pad 冒充；upper arm 必须在肘部结束且绝不能带手，forearm 必须各带 exactly one hand；整张图只能有两只手
-- thigh 必须在膝部结束且不带小腿或脚，shin 从膝到脚；禁止 whole arm 或 whole leg，禁止重复肢体或用同一部件 mirror-copy 冒充左右侧
-- weapon 必须独占第一行最右格并与身体至少相隔约一个头宽；输出前逐格复核 12 项语义、两只手、一个骨盆、一个武器、没有重复肢体
+- 在真实关节处分段并保留少量连接重叠；左右肢体必须分开，禁止重复肢体或用同一部件 mirror-copy 冒充左右侧
+- 若用户采用默认人形 4×3、12 部件布局，则必须使用标准顺序：row 1 head, torso, pelvis, weapon；row 2 upper-arm-left, forearm-left, upper-arm-right, forearm-right；row 3 thigh-left, shin-left, thigh-right, shin-right
 - 严格保持参考角色的 identity, body proportions, outfit, palette, pixel density, lighting and facing；禁止重新设计、文字、标签、网格装饰或完整人物
-${intent === "skeletal-decompose" ? "- 参考图即使已经像分件表，也只提取目标十二部件，禁止 recursive parts sheet 或在单格内再次生成小型分件表" : "- 这是单层分件表，禁止在任意单格内再次生成小型分件表"}`;
+${intent === "skeletal-decompose" ? "- 参考图即使已经像分件表，也只提取所选网格数量的目标部件，禁止 recursive parts sheet 或在单格内再次生成小型分件表" : "- 这是单层分件表，禁止在任意单格内再次生成小型分件表"}`;
     case "skeletal-repair-part":
       return `${shared}
 - 只输出用户指定的 one missing or incorrect body part；禁止完整人物、完整分件表或任何其他部件

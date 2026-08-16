@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { characterPartSetsApi } from "../apps/server/src/api/characterPartSets";
+import { createAutomaticCharacterPartSet } from "../apps/server/src/api/materials";
 import { db, STORAGE_ROOT } from "../apps/server/src/db";
 import { buildGeneratedFollowUp } from "../apps/server/src/jobs/extract";
 import { createGeneratedArtifactCommitter } from "../apps/server/src/jobs/generatedArtifacts";
@@ -10,6 +11,7 @@ const materialId = `test-part-${crypto.randomUUID()}`;
 const secondMaterialId = `test-part-${crypto.randomUUID()}`;
 let setId = "";
 const generatedMaterialIds: string[] = [];
+const automaticSetIds: string[] = [];
 const call = (path: string, method = "GET", body?: unknown) => characterPartSetsApi.handle(new Request(`http://localhost/api${path}`, {
   method,
   headers: body === undefined ? undefined : { "Content-Type": "application/json" },
@@ -31,6 +33,7 @@ describe("CharacterPartSet API", () => {
       db.query("DELETE FROM materials WHERE id = ?").run(id);
       rmSync(join(STORAGE_ROOT, "materials", id), { recursive: true, force: true });
     }
+    for (const id of automaticSetIds) db.query("DELETE FROM character_part_sets WHERE id = ?").run(id);
     db.query("DELETE FROM materials WHERE id = ?").run(materialId);
     db.query("DELETE FROM materials WHERE id = ?").run(secondMaterialId);
   });
@@ -66,6 +69,16 @@ describe("CharacterPartSet API", () => {
     db.query("DELETE FROM character_part_sets WHERE id = ?").run(id);
   });
 
+  test("骨骼生成无需用户选择目标部件集，由服务端自动建立内部归属", () => {
+    const id = createAutomaticCharacterPartSet("Test generated parts", "decomposed", materialId);
+    automaticSetIds.push(id);
+    expect(db.query("SELECT name, source, reference_material_id FROM character_part_sets WHERE id = ?").get(id)).toEqual({
+      name: "Test generated parts",
+      source: "decomposed",
+      reference_material_id: materialId,
+    });
+  });
+
   test("骨骼部件表产物保留目标部件集关联但不冒充独立部件", async () => {
     const committer = createGeneratedArtifactCommitter({
       target: { kind: "materials" },
@@ -78,6 +91,8 @@ describe("CharacterPartSet API", () => {
       intent: "skeletal-parts",
       characterPartSetId: setId,
       referenceMaterialId: materialId,
+      gridRows: 3,
+      gridCols: 5,
       enqueueMatting() {},
     });
     const allocation = committer.allocate("image", 0);
@@ -92,6 +107,8 @@ describe("CharacterPartSet API", () => {
     expect(metadata.intent).toBe("skeletal-parts");
     expect(metadata.characterPartSetId).toBe(setId);
     expect(metadata.referenceMaterialId).toBe(materialId);
+    expect(metadata.gridRows).toBe(3);
+    expect(metadata.gridCols).toBe(5);
   });
 
   test("完整人物成功后构建单次引用分件任务并终止递归", () => {
@@ -103,14 +120,16 @@ describe("CharacterPartSet API", () => {
       providerId: "provider",
       characterPartSetId: setId,
       intent: "skeletal-character",
-      followUp: { prompt: "decompose exact character", name: "12 parts", autoMatting: false },
+      followUp: { prompt: "decompose exact character", name: "15 parts", autoMatting: false, gridRows: 3, gridCols: 5 },
     }, materialId, "/safe/material/raw.png");
 
     expect(next).toMatchObject({
       prompt: "decompose exact character",
-      name: "12 parts",
+      name: "15 parts",
       count: 1,
       autoMatting: false,
+      gridRows: 3,
+      gridCols: 5,
       referenceMaterialId: materialId,
       referencePaths: ["/safe/material/raw.png"],
       intent: "skeletal-decompose",

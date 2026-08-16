@@ -142,6 +142,16 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("Extra requirements: red cape");
   });
 
+  test("自定义行列数决定部件数量且不套用固定人形槽位", () => {
+    const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 5, extra: "include a tail and two shoulder plates" });
+    expect(prompt).toContain("exactly 15 isolated pieces");
+    expect(prompt).toContain("5 columns by 3 rows");
+    expect(prompt).toContain("split at real joints");
+    expect(prompt).toContain("all 15 cells");
+    expect(prompt).not.toContain("row 1 = head, torso, pelvis");
+    expect(prompt).toContain("Extra requirements: include a tail and two shoulder plates");
+  });
+
   test("角色 8 向图使用中心留空的 3×3 环形布局并锁定角色一致性", () => {
     const prompt = buildCharacterDirectionSheetPrompt({ characterPrompt: "red knight", extra: "pixel art" });
     expect(CHARACTER_DIRECTION_PRESETS.map((direction) => direction.id)).toEqual([

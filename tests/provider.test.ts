@@ -118,15 +118,14 @@ describe("提示词加强器关联", () => {
     expect(character).toContain("parts sheet");
 
     const parts = buildEnhanceSystem("pixel", "image", "skeletal-decompose");
-    expect(parts).toContain("strict 4x3 character parts sheet");
+    expect(parts).toContain("strict character parts grid");
+    expect(parts).toContain("rows × columns");
+    expect(parts).toContain("默认人形 4×3、12 部件布局");
     expect(parts).toContain("head, torso, pelvis, weapon");
     expect(parts).toContain("upper-arm-left, forearm-left, upper-arm-right, forearm-right");
     expect(parts).toContain("thigh-left, shin-left, thigh-right, shin-right");
     expect(parts).toContain("不得跨 cell boundary");
-    expect(parts).toContain("禁止 whole arm 或 whole leg");
-    expect(parts).toContain("upper arm 必须在肘部结束且绝不能带手");
-    expect(parts).toContain("整张图只能有两只手");
-    expect(parts).toContain("pelvis 必须是腰胯");
+    expect(parts).toContain("真实关节处分段");
     expect(parts).toContain("mirror-copy");
     expect(parts).toContain("recursive parts sheet");
 
