@@ -2738,7 +2738,7 @@ input[type="range"] {
 /* ===== 网格切分（GridSplitModal） ===== */
 .gs-modal {
   width: min(1600px, calc(100vw - 24px));
-  height: min(980px, calc(100dvh - 24px));
+  height: calc(100dvh - 24px);
   max-height: none;
   padding: 18px;
   display: grid;
@@ -2813,7 +2813,7 @@ input[type="range"] {
 }
 .gs-wrap img {
   max-width: 100%;
-  max-height: clamp(300px, calc(100dvh - 390px), 680px);
+  max-height: clamp(300px, calc(100dvh - 300px), 1080px);
   display: block;
   image-rendering: pixelated;
   pointer-events: none;
@@ -2827,6 +2827,12 @@ input[type="range"] {
 }
 .gs-region.skeletal-cells {
   pointer-events: auto;
+}
+.gs-region.skeletal-cells.grid-drag-mode {
+  cursor: move;
+}
+.gs-region.skeletal-cells.grid-drag-mode .gs-cell-window {
+  pointer-events: none;
 }
 .gs-cell-window {
   position: absolute;
@@ -2878,6 +2884,12 @@ input[type="range"] {
 .gs-tools {
   flex-wrap: wrap;
   gap: 7px;
+}
+.gs-drag-mode {
+  display: inline-flex;
+  gap: 4px;
+  padding-right: 7px;
+  border-right: 1px solid var(--border);
 }
 .gs-preview-controls {
   display: grid;

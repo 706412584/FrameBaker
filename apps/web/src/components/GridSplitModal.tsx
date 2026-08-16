@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Bone, Grid3x3, Scan, X } from "lucide-react";
+import { Bone, Grid3x3, Move, Scan, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { analyzeImage, cropImage, findOpaqueBounds } from "../imageops/client";
@@ -68,6 +68,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialLine ?? (guidedSkeletalSplit ? "skeletal" : "frame"));
+  const [dragMode, setDragMode] = useState<"grid" | "cell">("cell");
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
   const [partSetId, setPartSetId] = useState(hintedPartSetId);
   const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
@@ -198,7 +199,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   };
 
   const onCellPointerDown = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
-    if (busy) return;
+    if (busy || dragMode !== "cell") return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     const offset = cellOffsets[index] ?? { x: 0, y: 0 };
@@ -228,7 +229,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (!region || busy) return;
+    if (!region || busy || (splitLine === "skeletal" && dragMode !== "grid")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { ax: e.clientX, ay: e.clientY, rx: region.x, ry: region.y };
   };
@@ -512,7 +513,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 onLoad={syncDisp}
               />
               {regionStyle && (
-                <div className={`gs-region${splitLine === "skeletal" ? " skeletal-cells" : ""}`} style={regionStyle}>
+                <div className={`gs-region${splitLine === "skeletal" ? ` skeletal-cells ${dragMode}-drag-mode` : ""}`} style={regionStyle}>
                   {splitLine === "skeletal" ? Array.from({ length: rows * cols }, (_, index) => {
                     const base = baseCellRect(index)!;
                     const adjusted = adjustedCellRect(index)!;
@@ -558,6 +559,14 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
 
             <div className="gs-preview-controls">
               <div className="form-inline gs-tools">
+                {splitLine === "skeletal" && <div className="gs-drag-mode" role="group" aria-label={t("skeletal.split.dragMode")}>
+                  <button type="button" className={`px-btn mini${dragMode === "grid" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("grid")}>
+                    <Move size={14} /> {t("skeletal.split.dragWholeGrid")}
+                  </button>
+                  <button type="button" className={`px-btn mini${dragMode === "cell" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("cell")}>
+                    <Grid3x3 size={14} /> {t("skeletal.split.dragSingleCell")}
+                  </button>
+                </div>}
                 <IconBtn title={t("msg.fit_opaque_bounds")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
                   <Scan size={14} />
                 </IconBtn>
