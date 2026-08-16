@@ -2903,6 +2903,22 @@ input[type="range"] {
   background: var(--surface);
   color: var(--text);
 }
+.gs-cell-size-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+}
+.gs-cell-size-settings .px-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.gs-cell-size-settings .px-input {
+  width: 100%;
+}
+.gs-cell-size-settings > .hint {
+  grid-column: 1 / -1;
+}
 .gs-options {
   display: grid;
   grid-template-columns: minmax(190px, .8fr) minmax(250px, 1.2fr);
@@ -3105,6 +3121,7 @@ input[type="range"] {
     padding: 8px;
   }
   .gs-grid-settings,
+  .gs-cell-size-settings,
   .gs-options {
     grid-template-columns: 1fr;
   }

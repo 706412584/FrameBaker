@@ -76,6 +76,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [region, setRegion] = useState<CropRect | null>(null);
+  const [cellViewportSize, setCellViewportSize] = useState<{ w: number; h: number } | null>(null);
   const [cellOffsets, setCellOffsets] = useState<CellOffset[]>([]);
   const [disp, setDisp] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -96,7 +97,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setSkeletalReview(null);
     setReviewConfirmed(false);
     setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
-  }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot]);
+  }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot, cellViewportSize?.w, cellViewportSize?.h]);
 
   useEffect(() => setReviewConfirmed(false), [partSetId]);
 
@@ -129,6 +130,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
         }
         setImgSize({ w: bmp.width, h: bmp.height });
         setRegion({ x: 0, y: 0, w: bmp.width, h: bmp.height });
+        setCellViewportSize(null);
         bmp.close();
       } catch (e) {
         notify(t("msg.failed_to_read_material_image") + `: ${(e as Error).message}`);
@@ -160,11 +162,20 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     const col = index % cols;
     const cellWidth = Math.floor(region.w / cols);
     const cellHeight = Math.floor(region.h / rows);
-    return {
+    const slot = {
       x: region.x + cellWidth * col,
       y: region.y + cellHeight * row,
       w: col === cols - 1 ? region.w - cellWidth * col : cellWidth,
       h: row === rows - 1 ? region.h - cellHeight * row : cellHeight,
+    };
+    if (splitLine !== "skeletal" || !cellViewportSize || !imgSize) return slot;
+    const w = Math.max(1, Math.min(cellViewportSize.w, imgSize.w));
+    const h = Math.max(1, Math.min(cellViewportSize.h, imgSize.h));
+    return {
+      x: Math.max(0, Math.min(imgSize.w - w, Math.round(slot.x + slot.w / 2 - w / 2))),
+      y: Math.max(0, Math.min(imgSize.h - h, Math.round(slot.y + slot.h / 2 - h / 2))),
+      w,
+      h,
     };
   };
 
@@ -273,6 +284,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
 
   const selectSplitLine = (line: "frame" | "skeletal") => {
     setSplitLine(line);
+    setCellViewportSize(null);
     setSkeletalReview(null);
     setReviewConfirmed(false);
     if (line === "skeletal") {
@@ -378,7 +390,10 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 col: c + 1,
                 sourceSlot: slot,
                 autoTrim,
-                ...(splitLine === "skeletal" ? { offset: cellOffsets[cellIndex] ?? { x: 0, y: 0 } } : {}),
+                ...(splitLine === "skeletal" ? {
+                  offset: cellOffsets[cellIndex] ?? { x: 0, y: 0 },
+                  viewport: { w: cellRect.w, h: cellRect.h },
+                } : {}),
               },
             }));
             if (m.folder_id) fd.append("folderId", m.folder_id);
@@ -595,6 +610,43 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 </label>
                 <strong className="gs-total">{t("msg.total_cells", { total })}</strong>
               </div>
+
+              {splitLine === "skeletal" && region && imgSize && <div className="gs-cell-size-settings">
+                <label className="px-check">
+                  {t("skeletal.split.cellWidthPx")}
+                  <input
+                    className="px-input num"
+                    type="number"
+                    min={1}
+                    max={imgSize.w}
+                    value={cellViewportSize?.w ?? Math.max(1, Math.floor(region.w / cols))}
+                    disabled={busy}
+                    onChange={(event) => setCellViewportSize((size) => ({
+                      w: Math.max(1, Math.min(imgSize.w, Math.round(Number(event.target.value)) || 1)),
+                      h: size?.h ?? Math.max(1, Math.floor(region.h / rows)),
+                    }))}
+                  />
+                </label>
+                <label className="px-check">
+                  {t("skeletal.split.cellHeightPx")}
+                  <input
+                    className="px-input num"
+                    type="number"
+                    min={1}
+                    max={imgSize.h}
+                    value={cellViewportSize?.h ?? Math.max(1, Math.floor(region.h / rows))}
+                    disabled={busy}
+                    onChange={(event) => setCellViewportSize((size) => ({
+                      w: size?.w ?? Math.max(1, Math.floor(region.w / cols)),
+                      h: Math.max(1, Math.min(imgSize.h, Math.round(Number(event.target.value)) || 1)),
+                    }))}
+                  />
+                </label>
+                <button type="button" className="px-btn mini" disabled={busy || !cellViewportSize} onClick={() => setCellViewportSize(null)}>
+                  {t("skeletal.split.resetCellSize")}
+                </button>
+                <span className="hint">{t("skeletal.split.cellSizeHint")}</span>
+              </div>}
 
               <div className="gs-options">
                 <label className="px-check">
