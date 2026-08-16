@@ -135,6 +135,8 @@ export const zh = {
   "animation.binding.translationX": "附件位移 X", "animation.binding.translationY": "附件位移 Y", "animation.binding.rotation": "附件旋转 Z（度）",
   "animation.binding.scaleX": "附件缩放 X", "animation.binding.scaleY": "附件缩放 Y",
   "animation.binding.basic": "基础绑定", "animation.binding.material": "素材库图片", "animation.binding.imageSlot": "图片槽位",
+  "animation.binding.materialFolder": "素材文件夹",
+  "animation.binding.currentMaterial": "当前：{name}",
   "animation.binding.geometry": "区域几何", "animation.binding.restTransform": "附件静止变换", "animation.binding.empty": "尚无插槽，请添加插槽与区域附件。", "animation.binding.skeleton": "骨架",
   "msg.action_reference_optional": "动作参考图（可选）",
   "msg.action_reference_description": "从素材库选择姿态表、骨架表或动作截图。它仅用于姿态和布局；当前素材仍作为角色外观参考。",

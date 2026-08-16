@@ -292,12 +292,14 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
   </svg>;
 }
 
-export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
+export function BindingEditor({ binding, skeleton, materials, materialFolders, busy, onSave }: { binding: CharacterBinding; skeleton: Skeleton; materials: Material[]; materialFolders: Folder[]; busy: boolean; onSave: (value: CharacterBinding) => Promise<void> }) {
   const firstSlot = binding.slots[0];
   const t = useT();
   const [draft, setDraft] = useState(binding), [selectedAttachmentId, setSelectedAttachmentId] = useState(binding.attachments[0]?.id ?? ""), [selectedBoneId, setSelectedBoneId] = useState(firstSlot?.boneId ?? skeleton.bones[0]?.id ?? "");
   const [transformTool, setTransformTool] = useState<BindingTransformTool>("translate"), [undoDrafts, setUndoDrafts] = useState<CharacterBinding[]>([]), [redoDrafts, setRedoDrafts] = useState<CharacterBinding[]>([]);
   const [testAngle, setTestAngle] = useState(0), [fittingAspect, setFittingAspect] = useState(false);
+  const initialMaterial = materials.find((item) => item.id === binding.attachments[0]?.materialId);
+  const [materialFolder, setMaterialFolder] = useState<FolderSelection>(initialMaterial?.folder_id ?? (initialMaterial ? "ungrouped" : "all"));
   const draftRef = useRef(draft), continuousEditRef = useRef<CharacterBinding | undefined>(undefined), fitRequestRef = useRef(0);
   draftRef.current = draft;
   const restPose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-editor-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [skeleton]);
@@ -371,6 +373,38 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
   const selectedSlotIndex = draft.slots.findIndex((item) => item.attachmentId === selectedAttachmentId);
   const selectedSlot = selectedSlotIndex >= 0 ? draft.slots[selectedSlotIndex] : undefined;
   const selectedMaterial = materials.find((item) => item.id === selectedAttachment?.materialId);
+  const materialFolderOptions = useMemo(() => {
+    const byId = new Map(materialFolders.map((folder) => [folder.id, folder]));
+    const pathOf = (folder: Folder) => {
+      const names = [folder.name];
+      const seen = new Set([folder.id]);
+      let parentId = folder.parent_id;
+      while (parentId && !seen.has(parentId)) {
+        seen.add(parentId);
+        const parent = byId.get(parentId);
+        if (!parent) break;
+        names.unshift(parent.name);
+        parentId = parent.parent_id;
+      }
+      return names.join(" / ");
+    };
+    return [
+      { value: "all", label: t("msg.all") },
+      { value: "ungrouped", label: t("msg.ungrouped") },
+      ...materialFolders.map((folder) => ({ value: folder.id, label: pathOf(folder) })),
+    ];
+  }, [materialFolders, t]);
+  const visibleMaterials = useMemo(() => {
+    if (materialFolder === "all") return materials;
+    if (materialFolder === "ungrouped") return materials.filter((item) => !item.folder_id);
+    return materials.filter((item) => item.folder_id === materialFolder);
+  }, [materialFolder, materials]);
+  const materialOptions = useMemo(() => {
+    const options = visibleMaterials.map((item) => ({ value: item.id, label: item.name }));
+    return selectedMaterial && !visibleMaterials.some((item) => item.id === selectedMaterial.id)
+      ? [{ value: selectedMaterial.id, label: t("animation.binding.currentMaterial", { name: selectedMaterial.name }) }, ...options]
+      : options;
+  }, [selectedMaterial, t, visibleMaterials]);
   const selectedBone = skeleton.bones.find((bone) => bone.id === selectedBoneId);
   const jointTestClip = useMemo<MotionClip | undefined>(() => selectedBone && testAngle !== 0 ? {
     schemaVersion: 1,
@@ -501,7 +535,7 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
       </article>
       <aside className="binding-inspector">{selectedAttachment && selectedSlot ? <>
         <header><div><span>{t("animation.binding.selectedPart")}</span><h3>{selectedAttachment.name}</h3><small>{t("animation.binding.boundTo", { bone: skeleton.bones.find((bone) => bone.id === selectedSlot.boneId)?.name ?? selectedSlot.boneId })}</small></div><button className="px-btn icon danger" title={t("common.delete")} onClick={removeSelected}><Trash2 size={13} /></button></header>
-        <section className="binding-inspector-basics"><label>{t("animation.binding.slotName")}<input className="px-input" value={selectedSlot.name} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { name: event.target.value })} /></label><label>{t("animation.bone")}<PxSelect value={selectedSlot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: bone.name }))} onChange={bindSelectedToBone} /></label><label>{t("animation.binding.material")}<PxSelect value={selectedAttachment.materialId} options={materials.map((item) => ({ value: item.id, label: item.name }))} onChange={(materialId) => { const imageSlot = materials.find((item) => item.id === materialId)?.processed_path ? "processed" : "raw"; rememberDraft(); patchRegion(selectedAttachment.id, { materialId, imageSlot }); void fitRegionToMaterial(selectedAttachment, materialId, imageSlot, false); }} /></label><label>{t("animation.binding.imageSlot")}<PxSelect value={selectedAttachment.imageSlot} options={[{ value: "raw", label: t("animation.binding.originalImage") }, { value: "processed", label: t("animation.binding.cutoutImage"), disabled: !selectedMaterial?.processed_path }]} onChange={(value) => { const imageSlot = value as "raw" | "processed"; rememberDraft(); patchRegion(selectedAttachment.id, { imageSlot }); void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, imageSlot, false); }} /></label><button type="button" className="px-btn binding-fit-aspect" disabled={fittingAspect || !selectedAttachment.materialId} onClick={() => void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, selectedAttachment.imageSlot)}>{t(fittingAspect ? "animation.binding.fittingImageAspect" : "animation.binding.fitImageAspect")}</button></section>
+        <section className="binding-inspector-basics"><label>{t("animation.binding.slotName")}<input className="px-input" value={selectedSlot.name} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { name: event.target.value })} /></label><label>{t("animation.bone")}<PxSelect value={selectedSlot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: bone.name }))} onChange={bindSelectedToBone} /></label><label>{t("animation.binding.materialFolder")}<PxSelect value={materialFolder} options={materialFolderOptions} onChange={setMaterialFolder} /></label><label>{t("animation.binding.material")}<PxSelect value={selectedAttachment.materialId} options={materialOptions} onChange={(materialId) => { const imageSlot = materials.find((item) => item.id === materialId)?.processed_path ? "processed" : "raw"; rememberDraft(); patchRegion(selectedAttachment.id, { materialId, imageSlot }); void fitRegionToMaterial(selectedAttachment, materialId, imageSlot, false); }} /></label><label>{t("animation.binding.imageSlot")}<PxSelect value={selectedAttachment.imageSlot} options={[{ value: "raw", label: t("animation.binding.originalImage") }, { value: "processed", label: t("animation.binding.cutoutImage"), disabled: !selectedMaterial?.processed_path }]} onChange={(value) => { const imageSlot = value as "raw" | "processed"; rememberDraft(); patchRegion(selectedAttachment.id, { imageSlot }); void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, imageSlot, false); }} /></label><button type="button" className="px-btn binding-fit-aspect" disabled={fittingAspect || !selectedAttachment.materialId} onClick={() => void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, selectedAttachment.imageSlot)}>{t(fittingAspect ? "animation.binding.fittingImageAspect" : "animation.binding.fitImageAspect")}</button></section>
         <section className="binding-tuning"><h4>{t("animation.binding.restTransform")}</h4>{sliderField(t("animation.binding.translationX"), selectedAttachment.rest.translation[0], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.translationY"), selectedAttachment.rest.translation[1], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.rotation"), zRotationFromQuaternion(selectedAttachment.rest.rotation) * 180 / Math.PI, -180, 180, 1, (value) => patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, rotation: quaternionFromZRotation(value * Math.PI / 180) } }))}{sliderField(t("animation.binding.scaleX"), selectedAttachment.rest.scale[0], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}{sliderField(t("animation.binding.scaleY"), selectedAttachment.rest.scale[1], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}</section>
         <details className="binding-geometry"><summary>{t("animation.binding.geometry")}</summary>{sliderField(t("animation.binding.pivotX"), selectedAttachment.pivot[0], 0, 1, .01, (value) => setSelectedPivot(0, value))}{sliderField(t("animation.binding.pivotY"), selectedAttachment.pivot[1], 0, 1, .01, (value) => setSelectedPivot(1, value))}{sliderField(t("animation.binding.width"), selectedAttachment.size[0], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [value, selectedAttachment.size[1]] }))}{sliderField(t("animation.binding.height"), selectedAttachment.size[1], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [selectedAttachment.size[0], value] }))}<label className="binding-order-field">{t("animation.binding.drawOrder")}<input className="px-input" type="number" step="1" value={selectedSlot.drawOrder} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { drawOrder: Number(event.target.value) })} /></label></details>
         <button className="px-btn" title={t("animation.binding.resetTransform")} onClick={() => { const original = binding.attachments.find((item) => item.id === selectedAttachment.id); if (original) { rememberDraft(); patchRegion(selectedAttachment.id, { rest: structuredClone(original.rest), pivot: [...original.pivot], size: [...original.size] }); } }}><Redo2 size={13} />{t("animation.binding.resetTransform")}</button>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AnimationAssetSummary, type CharacterBinding, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Download, Pause, Pencil, Play, Plus, Trash2, Upload, X } from "lucide-react";
-import { api, type Project, type SkeletalProjectDocument } from "../api";
+import { api, type Folder, type Project, type SkeletalProjectDocument } from "../api";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
@@ -18,6 +18,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const [document, setDocument] = useState<SkeletalProjectDocument>();
   const [assets, setAssets] = useState<AnimationAssetSummary[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [materialFolders, setMaterialFolders] = useState<Folder[]>([]);
   const [skeleton, setSkeleton] = useState<Skeleton>();
   const [clip, setClip] = useState<MotionClip>();
   const [skeletonToUse, setSkeletonToUse] = useState("");
@@ -47,8 +48,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
 
   useEffect(() => {
     let active = true;
-    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials()])
-      .then(([nextDocument, nextAssets, nextMaterials]) => {
+    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listFolders("material")])
+      .then(([nextDocument, nextAssets, nextMaterials, nextMaterialFolders]) => {
         if (!active) return;
         documentRef.current = nextDocument;
         setDocument(nextDocument);
@@ -56,6 +57,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
         setTab(nextDocument.character ? "animations" : "character");
         setAssets(nextAssets);
         setMaterials(nextMaterials.filter((item) => item.kind === "image"));
+        setMaterialFolders(nextMaterialFolders);
       })
       .catch((e) => active && notify(t("skeletal.loadFailed", { msg: (e as Error).message })));
     return () => { active = false; };
@@ -269,7 +271,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
               <button type="button" className="px-btn icon" title={t("common.close")} aria-label={t("common.close")} onClick={closeBindingEditor}><X size={17} /></button>
             </div>
           </header>
-          <BindingEditor binding={binding} skeleton={skeleton} materials={materials} busy={busy} onSave={async (next: CharacterBinding) => {
+          <BindingEditor binding={binding} skeleton={skeleton} materials={materials} materialFolders={materialFolders} busy={busy} onSave={async (next: CharacterBinding) => {
             if (await save({ ...document, character: { binding: next } })) setBindingEditorOpen(false);
           }} />
         </section>

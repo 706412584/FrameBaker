@@ -90,6 +90,8 @@ export const en = {
   "animation.binding.translationX": "Attachment translation X", "animation.binding.translationY": "Attachment translation Y", "animation.binding.rotation": "Attachment rotation Z (deg)",
   "animation.binding.scaleX": "Attachment scale X", "animation.binding.scaleY": "Attachment scale Y",
   "animation.binding.basic": "Basic binding", "animation.binding.material": "Library image", "animation.binding.imageSlot": "Image slot",
+  "animation.binding.materialFolder": "Material folder",
+  "animation.binding.currentMaterial": "Current: {name}",
   "animation.binding.geometry": "Region geometry", "animation.binding.restTransform": "Attachment rest transform", "animation.binding.empty": "No slots yet. Add a Slot + Region to begin.", "animation.binding.skeleton": "Skeleton",
   "animation.bone": "Bone",
   "animation.translationX": "Translation X", "animation.translationY": "Translation Y",
