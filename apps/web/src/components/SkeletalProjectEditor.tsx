@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type AnimationAssetSummary, type CharacterBinding, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Download, Pause, Pencil, Play, Plus, Trash2, Upload, X } from "lucide-react";
 import { api, type Folder, type Project, type SkeletalProjectDocument } from "../api";
+import { localizeSkeletonName } from "../builtinAnimationLabels";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
@@ -243,7 +244,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
           <h2>{t("skeletal.character.title")}</h2>
           <p>{t("skeletal.character.hint")}</p>
           <label>{t("skeletal.character.skeleton")}
-            <PxSelect value={skeletonToUse} options={skeletonAssets.map((item) => ({ value: item.id, label: item.name }))} onChange={setSkeletonToUse} placeholder={t("skeletal.character.chooseSkeleton")} />
+            <PxSelect value={skeletonToUse} options={skeletonAssets.map((item) => ({ value: item.id, label: localizeSkeletonName(item.id, item.name, t) }))} onChange={setSkeletonToUse} placeholder={t("skeletal.character.chooseSkeleton")} />
           </label>
           <button type="button" className="px-btn accent" disabled={busy || !skeletonToUse} onClick={() => void createCharacter()}>{binding ? t("skeletal.character.resetBinding") : t("skeletal.character.createBinding")} </button>
           {!skeletonAssets.length && <p className="animation-empty">{t("skeletal.character.noSkeletons")}</p>}

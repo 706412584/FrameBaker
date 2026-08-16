@@ -15,6 +15,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Changed
 
+- Localized the built-in humanoid skeleton and its joint labels throughout skeleton selection, motion editing, canvas hints, timelines, and character binding while preserving custom names verbatim.
 - Refined skeletal-parts prompts to treat the requested grid as capacity, allow transparent surplus cells and rectangular multi-cell blocks for oversized parts, and forbid invented filler parts or weapons.
 - Limited divider dragging to the active cell and only the cells directly facing that edge, leaving lateral cells unchanged.
 - Unified skeletal project output on the `.fbanim` runtime package and removed the frame-project compatibility bake path, RenderProfile, and RasterSequence APIs.
