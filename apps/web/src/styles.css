@@ -2737,8 +2737,8 @@ input[type="range"] {
 
 /* ===== 网格切分（GridSplitModal） ===== */
 .gs-modal {
-  width: min(1320px, calc(100vw - 48px));
-  height: min(880px, calc(100dvh - 48px));
+  width: min(1600px, calc(100vw - 24px));
+  height: min(980px, calc(100dvh - 24px));
   max-height: none;
   padding: 18px;
   display: grid;
@@ -2775,7 +2775,7 @@ input[type="range"] {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(430px, 1fr) minmax(560px, 1fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(480px, .85fr);
   gap: 14px;
   overflow: hidden;
 }
@@ -2813,7 +2813,7 @@ input[type="range"] {
 }
 .gs-wrap img {
   max-width: 100%;
-  max-height: clamp(250px, calc(100dvh - 435px), 480px);
+  max-height: clamp(300px, calc(100dvh - 390px), 680px);
   display: block;
   image-rendering: pixelated;
   pointer-events: none;
