@@ -199,12 +199,12 @@ export function imageAnalysisSimilarity(a: ImageAnalysis, b: ImageAnalysis, mirr
 }
 
 /**
- * 4×3 骨骼分件硬性质量闸门。这里只拦截可由像素证实的错误；
+ * 骨骼分件硬性质量闸门。这里只拦截可由像素证实的错误；
  * 头/骨盆/手等语义仍需在提交前由逐格人工复核。
  */
-export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[]): SkeletalPartQualityIssue[] {
+export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standardHumanoidLayout = true): SkeletalPartQualityIssue[] {
   const issues: SkeletalPartQualityIssue[] = [];
-  const oppositeSidePairs = new Set(["4:6", "5:7", "8:10", "9:11"]);
+  const oppositeSidePairs = standardHumanoidLayout ? new Set(["4:6", "5:7", "8:10", "9:11"]) : new Set<string>();
   analyses.forEach((analysis, index) => {
     const cell = index + 1;
     if (!analysis.bounds) {

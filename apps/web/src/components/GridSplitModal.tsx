@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Bone, Grid3x3, Move, Scan, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
@@ -68,7 +68,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialLine ?? (guidedSkeletalSplit ? "skeletal" : "frame"));
-  const [dragMode, setDragMode] = useState<"grid" | "cell">("cell");
+  const [dragMode, setDragMode] = useState<"grid" | "cell" | "merge">("cell");
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
   const [partSetId, setPartSetId] = useState(hintedPartSetId);
   const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
@@ -79,16 +79,31 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [region, setRegion] = useState<CropRect | null>(null);
   const [cellViewportSize, setCellViewportSize] = useState<{ w: number; h: number } | null>(null);
   const [cellOffsets, setCellOffsets] = useState<CellOffset[]>([]);
+  const [mergedCellGroups, setMergedCellGroups] = useState<number[][]>([]);
+  const [selectedCells, setSelectedCells] = useState<number[]>([]);
   const [disp, setDisp] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ ax: number; ay: number; rx: number; ry: number } | null>(null);
-  const cellDragRef = useRef<{ index: number; ax: number; ay: number; ox: number; oy: number } | null>(null);
+  const cellDragRef = useRef<{ group: number[]; ax: number; ay: number; ox: number; oy: number } | null>(null);
   useModalEscClose(onClose);
 
   const skipCenter = splitLine === "frame" && /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
-  const total = rows * cols - (skipCenter ? 1 : 0);
   const standardHumanoidGrid = splitLine === "skeletal" && rows === 3 && cols === 4;
+  const cellGroups = useMemo(() => {
+    if (splitLine !== "skeletal") return Array.from({ length: rows * cols }, (_, index) => [index]);
+    const owner = new Map<number, number[]>();
+    for (const group of mergedCellGroups) for (const index of group) owner.set(index, group);
+    const groups: number[][] = [];
+    for (let index = 0; index < rows * cols; index++) {
+      const group = owner.get(index) ?? [index];
+      if (group[0] === index) groups.push(group);
+    }
+    return groups;
+  }, [cols, mergedCellGroups, rows, splitLine]);
+  const cellGroupsKey = cellGroups.map((group) => group.join(",")).join("|");
+  const total = splitLine === "skeletal" ? cellGroups.length : rows * cols - (skipCenter ? 1 : 0);
+  const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0;
 
   useEffect(() => () => {
     skeletalReview?.previews.forEach((url) => URL.revokeObjectURL(url));
@@ -100,6 +115,11 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
   }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot, cellViewportSize?.w, cellViewportSize?.h]);
 
+  useEffect(() => {
+    setMergedCellGroups([]);
+    setSelectedCells([]);
+  }, [cols, rows, slot]);
+
   useEffect(() => setReviewConfirmed(false), [partSetId]);
 
   useEffect(() => {
@@ -110,11 +130,14 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   }, [hintedPartSetId]);
 
   useEffect(() => {
-    setPartDrafts(Array.from({ length: total }, (_, index) => ({
-      role: standardHumanoidGrid ? DEFAULT_PART_ROLES[index] ?? "custom" : "custom",
-      name: standardHumanoidGrid ? t(`skeletal.partRole.${DEFAULT_PART_ROLES[index] ?? "custom"}`) : t("skeletal.split.customPartName", { index: index + 1 }),
-    })));
-  }, [standardHumanoidGrid, total, t]);
+    setPartDrafts(cellGroups.map((group, index) => {
+      const role = standardHumanoidGrid ? DEFAULT_PART_ROLES[group[0]] ?? "custom" : "custom";
+      return {
+        role,
+        name: standardHumanoidGrid ? t(`skeletal.partRole.${role}`) : t("skeletal.split.customPartName", { index: index + 1 }),
+      };
+    }));
+  }, [cellGroupsKey, standardHumanoidGrid, t]);
 
   // 载入尺寸，默认网格盖住整图
   useEffect(() => {
@@ -187,8 +210,19 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     return { ...base, x: base.x + offset.x, y: base.y + offset.y };
   };
 
-  const clampCellOffset = (index: number, offset: CellOffset): CellOffset => {
-    const base = baseCellRect(index);
+  const cellGroupRect = (group: number[], adjusted = true): CropRect | null => {
+    const rects = group.map(baseCellRect).filter((rect): rect is CropRect => rect != null);
+    if (!rects.length) return null;
+    const x = Math.min(...rects.map((rect) => rect.x));
+    const y = Math.min(...rects.map((rect) => rect.y));
+    const right = Math.max(...rects.map((rect) => rect.x + rect.w));
+    const bottom = Math.max(...rects.map((rect) => rect.y + rect.h));
+    const offset = adjusted ? cellOffsets[group[0]] ?? { x: 0, y: 0 } : { x: 0, y: 0 };
+    return { x: x + offset.x, y: y + offset.y, w: right - x, h: bottom - y };
+  };
+
+  const clampCellOffset = (group: number[], offset: CellOffset): CellOffset => {
+    const base = cellGroupRect(group, false);
     if (!base || !imgSize) return { x: 0, y: 0 };
     const maxX = Math.max(1, Math.round(base.w * MAX_CELL_SHIFT_RATIO));
     const maxY = Math.max(1, Math.round(base.h * MAX_CELL_SHIFT_RATIO));
@@ -198,12 +232,26 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     };
   };
 
-  const onCellPointerDown = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
-    if (busy || dragMode !== "cell") return;
+  const toggleGroupSelection = (group: number[]) => {
+    setSelectedCells((current) => {
+      const selected = new Set(current);
+      const remove = group.every((index) => selected.has(index));
+      group.forEach((index) => remove ? selected.delete(index) : selected.add(index));
+      return [...selected].sort((a, b) => a - b);
+    });
+  };
+
+  const onCellPointerDown = (group: number[], e: React.PointerEvent<HTMLDivElement>) => {
+    if (busy) return;
     e.stopPropagation();
+    if (dragMode === "merge") {
+      toggleGroupSelection(group);
+      return;
+    }
+    if (dragMode !== "cell") return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    const offset = cellOffsets[index] ?? { x: 0, y: 0 };
-    cellDragRef.current = { index, ax: e.clientX, ay: e.clientY, ox: offset.x, oy: offset.y };
+    const offset = cellOffsets[group[0]] ?? { x: 0, y: 0 };
+    cellDragRef.current = { group, ax: e.clientX, ay: e.clientY, ox: offset.x, oy: offset.y };
     setSkeletalReview(null);
     setReviewConfirmed(false);
   };
@@ -214,8 +262,8 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     e.stopPropagation();
     const dx = (e.clientX - drag.ax) / scaleX;
     const dy = (e.clientY - drag.ay) / scaleY;
-    const next = clampCellOffset(drag.index, { x: drag.ox - dx, y: drag.oy - dy });
-    setCellOffsets((items) => items.map((item, index) => index === drag.index ? next : item));
+    const next = clampCellOffset(drag.group, { x: drag.ox - dx, y: drag.oy - dy });
+    setCellOffsets((items) => items.map((item, index) => index === drag.group[0] ? next : item));
   };
 
   const onCellPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -232,6 +280,45 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     if (!region || busy || (splitLine === "skeletal" && dragMode !== "grid")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { ax: e.clientX, ay: e.clientY, rx: region.x, ry: region.y };
+  };
+
+  const mergeSelectedCells = () => {
+    if (selectedCells.length < 2) {
+      notify(t("skeletal.split.selectCellsToMerge"), "info");
+      return;
+    }
+    const selected = new Set(selectedCells);
+    const selectedRows = selectedCells.map((index) => Math.floor(index / cols));
+    const selectedCols = selectedCells.map((index) => index % cols);
+    const minRow = Math.min(...selectedRows);
+    const maxRow = Math.max(...selectedRows);
+    const minCol = Math.min(...selectedCols);
+    const maxCol = Math.max(...selectedCols);
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        if (!selected.has(row * cols + col)) {
+          notify(t("skeletal.split.mergeRectangleOnly"));
+          return;
+        }
+      }
+    }
+    setMergedCellGroups((groups) => [
+      ...groups.filter((group) => !group.some((index) => selected.has(index))),
+      [...selectedCells],
+    ].sort((a, b) => a[0] - b[0]));
+    setCellOffsets((offsets) => offsets.map((offset, index) => selected.has(index) ? { x: 0, y: 0 } : offset));
+    setSelectedCells([]);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const unmergeSelectedCells = () => {
+    if (!selectedCells.length) return;
+    const selected = new Set(selectedCells);
+    setMergedCellGroups((groups) => groups.filter((group) => !group.some((index) => selected.has(index))));
+    setSelectedCells([]);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -303,12 +390,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
       const cells: Blob[] = [];
-      for (let index = 0; index < rows * cols; index++) {
-        const rect = adjustedCellRect(index);
+      for (const group of cellGroups) {
+        const rect = cellGroupRect(group);
         if (rect) cells.push(await cropImage(blob, rect));
       }
       const analyses = await Promise.all(cells.map(analyzeImage));
-      const issues = findSkeletalPartQualityIssues(analyses);
+      const issues = findSkeletalPartQualityIssues(analyses, standardSemanticLayout);
       setSkeletalReview({ cells, issues, previews: cells.map((cell) => URL.createObjectURL(cell)) });
       setReviewConfirmed(false);
       if (issues.length > 0) notify(t("skeletal.split.qualityBlocked", { count: issues.length }));
@@ -356,14 +443,18 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       }
       const preparedCells = splitLine === "skeletal" ? skeletalReview!.cells : null;
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (skipCenter && r === 1 && c === 1) continue;
-          const i = r * cols + c + 1 - (skipCenter && r > 1 ? 1 : 0);
+      const targets = splitLine === "skeletal"
+        ? cellGroups.map((group) => ({ group, rect: cellGroupRect(group)! }))
+        : Array.from({ length: rows * cols }, (_, index) => ({ group: [index], rect: baseCellRect(index)! }))
+          .filter(({ group }) => !(skipCenter && group[0] === 4));
+      for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+          const { group, rect: cellRect } = targets[targetIndex];
+          const cellIndex = group[0];
+          const r = Math.floor(cellIndex / cols);
+          const c = cellIndex % cols;
+          const i = targetIndex + 1;
           setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
-            const cellIndex = r * cols + c;
-            const cellRect = splitLine === "skeletal" ? adjustedCellRect(cellIndex)! : baseCellRect(cellIndex)!;
             const { w, h } = cellRect;
             let cell = preparedCells?.[i - 1] ?? await cropImage(blob, cellRect);
             let rawCell = m.processed_path ? await cropImage(rawBlob, cellRect) : cell;
@@ -394,6 +485,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 ...(splitLine === "skeletal" ? {
                   offset: cellOffsets[cellIndex] ?? { x: 0, y: 0 },
                   viewport: { w: cellRect.w, h: cellRect.h },
+                  cells: group.map((index) => index + 1),
                 } : {}),
               },
             }));
@@ -408,7 +500,6 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
             fail++;
             firstError ||= (e as Error).message;
           }
-        }
       }
       if (splitLine === "skeletal" && (fail > 0 || createdMembers.length !== total)) {
         throw new Error(t("skeletal.split.partialUploadBlocked", { ok, fail }));
@@ -514,23 +605,24 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
               />
               {regionStyle && (
                 <div className={`gs-region${splitLine === "skeletal" ? ` skeletal-cells ${dragMode}-drag-mode` : ""}`} style={regionStyle}>
-                  {splitLine === "skeletal" ? Array.from({ length: rows * cols }, (_, index) => {
-                    const base = baseCellRect(index)!;
-                    const adjusted = adjustedCellRect(index)!;
+                  {splitLine === "skeletal" ? cellGroups.map((group) => {
+                    const base = cellGroupRect(group, false)!;
+                    const adjusted = cellGroupRect(group)!;
+                    const selected = group.every((index) => selectedCells.includes(index));
                     return <div
-                      className="gs-cell-window"
-                      key={index}
+                      className={`gs-cell-window${selected ? " selected" : ""}${group.length > 1 ? " merged" : ""}`}
+                      key={group.join("-")}
                       style={{
                         left: (base.x - region!.x) * scaleX,
                         top: (base.y - region!.y) * scaleY,
                         width: base.w * scaleX,
                         height: base.h * scaleY,
                       }}
-                      onPointerDown={(event) => onCellPointerDown(index, event)}
+                      onPointerDown={(event) => onCellPointerDown(group, event)}
                       onPointerMove={onCellPointerMove}
                       onPointerUp={onCellPointerUp}
                       onPointerCancel={onCellPointerUp}
-                      onDoubleClick={() => setCellOffsets((items) => items.map((item, itemIndex) => itemIndex === index ? { x: 0, y: 0 } : item))}
+                      onDoubleClick={() => setCellOffsets((items) => items.map((item, itemIndex) => itemIndex === group[0] ? { x: 0, y: 0 } : item))}
                     >
                       <img
                         src={materialImageUrl(m.id, v, slot)}
@@ -543,7 +635,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                           top: -adjusted.y * scaleY,
                         }}
                       />
-                      <span>{index + 1}</span>
+                      <span>{group.map((index) => index + 1).join("+")}</span>
                     </div>;
                   }) : <>
                     {Array.from({ length: cols - 1 }, (_, i) => (
@@ -566,7 +658,18 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                   <button type="button" className={`px-btn mini${dragMode === "cell" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("cell")}>
                     <Grid3x3 size={14} /> {t("skeletal.split.dragSingleCell")}
                   </button>
+                  <button type="button" className={`px-btn mini${dragMode === "merge" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("merge")}>
+                    {t("skeletal.split.selectToMerge")}
+                  </button>
                 </div>}
+                {splitLine === "skeletal" && dragMode === "merge" && <>
+                  <button type="button" className="px-btn mini accent" disabled={busy || selectedCells.length < 2} onClick={mergeSelectedCells}>
+                    {t("skeletal.split.mergeSelected")}
+                  </button>
+                  <button type="button" className="px-btn mini" disabled={busy || !selectedCells.length || !mergedCellGroups.some((group) => group.some((index) => selectedCells.includes(index)))} onClick={unmergeSelectedCells}>
+                    {t("skeletal.split.unmergeSelected")}
+                  </button>
+                </>}
                 <IconBtn title={t("msg.fit_opaque_bounds")} disabled={busy || !imgSize} onClick={() => void fitOpaque()}>
                   <Scan size={14} />
                 </IconBtn>
@@ -706,7 +809,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                         ? <img src={skeletalReview.previews[index]} alt={draft.name} />
                         : <span>{index + 1}</span>}
                     </div>
-                    <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
+                    <span>{t("skeletal.split.cell", { index: (cellGroups[index] ?? [index]).map((cell) => cell + 1).join("+") })}</span>
                     <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
                     <input
                       className="px-input"
@@ -721,7 +824,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
               </div>
               {skeletalReview && skeletalReview.issues.length === 0 && <label className="px-check skeletal-review-confirm">
                 <input type="checkbox" checked={reviewConfirmed} disabled={busy} onChange={(event) => setReviewConfirmed(event.target.checked)} />
-                <span>{t(standardHumanoidGrid ? "skeletal.split.semanticConfirmation" : "skeletal.split.customConfirmation", { count: total })}</span>
+                <span>{t(standardSemanticLayout ? "skeletal.split.semanticConfirmation" : "skeletal.split.customConfirmation", { count: total })}</span>
               </label>}
             </aside>
           )}

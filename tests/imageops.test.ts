@@ -72,5 +72,6 @@ describe("骨骼分件图像质量检查", () => {
     cells[4] = leftUpperArm;
     cells[6] = reusedRightUpperArm;
     expect(findSkeletalPartQualityIssues(cells)).toContainEqual({ code: "duplicate", cells: [5, 7] });
+    expect(findSkeletalPartQualityIssues(cells, false)).not.toContainEqual({ code: "duplicate", cells: [5, 7] });
   });
 });

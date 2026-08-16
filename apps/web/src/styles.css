@@ -2831,6 +2831,9 @@ input[type="range"] {
 .gs-region.skeletal-cells.grid-drag-mode .gs-cell-window {
   pointer-events: none;
 }
+.gs-region.skeletal-cells.merge-drag-mode .gs-cell-window {
+  cursor: pointer;
+}
 .gs-cell-window {
   position: absolute;
   overflow: hidden;
@@ -2841,6 +2844,13 @@ input[type="range"] {
 }
 .gs-cell-window:active {
   cursor: grabbing;
+}
+.gs-cell-window.merged {
+  border-width: 2px;
+}
+.gs-cell-window.selected {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 0 2px var(--cyan);
 }
 .gs-wrap .gs-cell-window img {
   position: absolute;
