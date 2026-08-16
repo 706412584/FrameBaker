@@ -972,6 +972,7 @@ export const en = {
   "materialEdit.eraser": "Eraser",
   "materialEdit.rotateLeft": "Rotate left 90°",
   "materialEdit.rotateRight": "Rotate right 90°",
+  "materialEdit.flipHorizontal": "Flip horizontally",
   "materialEdit.undo": "Undo last stroke (Cmd/Ctrl+Z)",
   "materialEdit.reset": "Reset all",
   "materialEdit.hint": "Drag to erase · Space/Alt/middle-drag to pan",

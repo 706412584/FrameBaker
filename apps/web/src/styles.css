@@ -3705,6 +3705,10 @@ body.resizing-row * {
 .material-editor-toolbar input[type="range"] {
   width: min(180px, 24vw);
 }
+.material-editor-toolbar .icon-btn.active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
 .material-editor-tool-label {
   display: inline-flex;
   align-items: center;

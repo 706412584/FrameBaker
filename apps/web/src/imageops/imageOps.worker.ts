@@ -45,7 +45,7 @@ function eraseStrokes(ctx: OffscreenCanvasRenderingContext2D, strokes: EraseStro
   ctx.restore();
 }
 
-async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quarterTurns: number) {
+async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quarterTurns: number, flipHorizontal: boolean) {
   const source = new OffscreenCanvas(bitmap.width, bitmap.height);
   const sourceCtx = source.getContext("2d")!;
   sourceCtx.drawImage(bitmap, 0, 0);
@@ -57,12 +57,13 @@ async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quart
   ctx.imageSmoothingEnabled = false;
   ctx.translate(output.width / 2, output.height / 2);
   ctx.rotate(turns * Math.PI / 2);
+  ctx.scale(flipHorizontal ? -1 : 1, 1);
   ctx.drawImage(source, -bitmap.width / 2, -bitmap.height / 2);
   return output.convertToBlob({ type: "image/png" });
 }
 
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect, strokes, quarterTurns } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
@@ -81,7 +82,7 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
       postMessage({ id, ok: true, analysis: computeImageAnalysis(imageData.data, imageData.width, imageData.height) });
     } else {
 
-      const out = await editFromBitmap(bitmap, strokes ?? [], quarterTurns ?? 0);
+      const out = await editFromBitmap(bitmap, strokes ?? [], quarterTurns ?? 0, flipHorizontal ?? false);
       postMessage({ id, ok: true, blob: out });
 
     }

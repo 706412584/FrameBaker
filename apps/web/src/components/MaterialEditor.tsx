@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
-import { Eraser, Maximize, Minus, Plus, RotateCcw, RotateCw, Save, Undo2, X } from "lucide-react";
+import { Eraser, FlipHorizontal2, Maximize, Minus, Plus, RotateCcw, RotateCw, Save, Undo2, X } from "lucide-react";
 import { api, materialImageUrl } from "../api";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import { editImage } from "../imageops/client";
@@ -77,6 +77,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
   const [saving, setSaving] = useState(false);
   const [brushSize, setBrushSize] = useState(16);
   const [quarterTurns, setQuarterTurns] = useState(0);
+  const [flipHorizontal, setFlipHorizontal] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
   const [revision, setRevision] = useState(0);
@@ -126,6 +127,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
         setBitmap(nextBitmap);
         setBrushSize(Math.max(1, Math.min(64, Math.round(Math.min(nextBitmap.width, nextBitmap.height) / 12))));
         setQuarterTurns(0);
+        setFlipHorizontal(false);
         setZoom(1);
         panRef.current = { x: 0, y: 0 };
         setRevision((value) => value + 1);
@@ -202,7 +204,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
     ctx.save();
     ctx.translate(canvasSize.w / 2 + panRef.current.x, canvasSize.h / 2 + panRef.current.y);
     ctx.rotate(quarterTurns * Math.PI / 2);
-    ctx.scale(scale, scale);
+    ctx.scale(flipHorizontal ? -scale : scale, scale);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(work, -imgW / 2, -imgH / 2);
     ctx.strokeStyle = colors.border;
@@ -222,15 +224,17 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
   useEffect(() => {
     scheduleDraw();
     return () => cancelAnimationFrame(rafRef.current);
-  }, [bitmap, brushSize, canvasSize, colors, quarterTurns, revision, scale]);
+  }, [bitmap, brushSize, canvasSize, colors, flipHorizontal, quarterTurns, revision, scale]);
 
   const toImage = (sx: number, sy: number): EditPoint => {
     const dx = sx - canvasSize.w / 2 - panRef.current.x;
     const dy = sy - canvasSize.h / 2 - panRef.current.y;
     const angle = -quarterTurns * Math.PI / 2;
+    const rotatedX = dx * Math.cos(angle) - dy * Math.sin(angle);
+    const rotatedY = dx * Math.sin(angle) + dy * Math.cos(angle);
     return {
-      x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / scale + imgW / 2,
-      y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / scale + imgH / 2,
+      x: rotatedX / (flipHorizontal ? -scale : scale) + imgW / 2,
+      y: rotatedY / scale + imgH / 2,
     };
   };
 
@@ -320,6 +324,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
     if (busy) return;
     strokesRef.current = [];
     setQuarterTurns(0);
+    setFlipHorizontal(false);
     setZoom(1);
     panRef.current = { x: 0, y: 0 };
     rebuildWork();
@@ -333,7 +338,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
   };
 
   const save = async () => {
-    if (!image || busy || (!strokesRef.current.length && quarterTurns % 4 === 0)) return;
+    if (!image || busy || (!strokesRef.current.length && quarterTurns % 4 === 0 && !flipHorizontal)) return;
     setBusy(true);
     setSaving(true);
     try {
@@ -342,7 +347,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
         points: points.map(({ x, y }) => ({ x, y })),
       }));
       const turns = quarterTurns;
-      const output = await editImage(image, strokes, turns);
+      const output = await editImage(image, strokes, turns, flipHorizontal);
       await api.replaceMaterialImage(request.id, output, "processed");
       request.onSaved?.();
       notify(t("materialEdit.saved"), "info");
@@ -381,6 +386,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
           <span className="tb-sep" />
           <IconBtn title={t("materialEdit.rotateLeft")} disabled={busy} onClick={() => rotate(-1)}><RotateCcw size={14} /></IconBtn>
           <IconBtn title={t("materialEdit.rotateRight")} disabled={busy} onClick={() => rotate(1)}><RotateCw size={14} /></IconBtn>
+          <IconBtn title={t("materialEdit.flipHorizontal")} className={flipHorizontal ? "active" : ""} aria-pressed={flipHorizontal} disabled={busy} onClick={() => setFlipHorizontal((value) => !value)}><FlipHorizontal2 size={14} /></IconBtn>
           <IconBtn title={t("materialEdit.undo")} disabled={busy || !strokesRef.current.length} onClick={undo}><Undo2 size={14} /></IconBtn>
           <span className="tb-sep" />
           <IconBtn title={t("msg.zoom_out")} disabled={busy} onClick={() => setZoom((value) => Math.max(0.25, value / 1.25))}><Minus size={14} /></IconBtn>
@@ -392,7 +398,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
         <div className="modal-actions">
           <button type="button" className="px-btn" disabled={busy} onClick={reset}>{t("materialEdit.reset")}</button>
           <button type="button" className="px-btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
-          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy || !image || (!strokesRef.current.length && quarterTurns % 4 === 0)} onClick={() => void save()}>
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy || !image || (!strokesRef.current.length && quarterTurns % 4 === 0 && !flipHorizontal)} onClick={() => void save()}>
             <Save size={14} /> {busy ? t("materialEdit.saving") : t("materialEdit.saveProcessed")}
           </motion.button>
         </div>

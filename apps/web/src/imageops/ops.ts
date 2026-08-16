@@ -44,6 +44,7 @@ export interface ImageOpRequest {
   rect?: CropRect;
   strokes?: EraseStroke[];
   quarterTurns?: number;
+  flipHorizontal?: boolean;
 }
 
 export interface ImageOpResponse {

@@ -972,6 +972,7 @@ export const zh = {
   "materialEdit.eraser": "橡皮擦",
   "materialEdit.rotateLeft": "向左旋转 90°",
   "materialEdit.rotateRight": "向右旋转 90°",
+  "materialEdit.flipHorizontal": "水平镜像",
   "materialEdit.undo": "撤销上一笔（Cmd/Ctrl+Z）",
   "materialEdit.reset": "重置全部",
   "materialEdit.hint": "拖动擦除 · 空格/Alt/中键拖动平移",
