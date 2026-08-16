@@ -22,6 +22,8 @@
 | --- | --- |
 | ![角色骨骼绑定](docs/media/skeletal-rigging.png) | ![骨骼动画编辑](docs/media/skeletal-animation.png) |
 
+[观看披甲战士绑定、披风弯曲与跑动流程录制](docs/media/warrior-run-workflow.mp4)
+
 ### 人物骨骼分件工作流
 
 基于角色参考图生成并抠出人物分件表，再通过逐格移动、直接拖动分隔线、合并/细分、质量检查和逐格擦除编辑完成网格校正，最后创建骨骼部件素材。

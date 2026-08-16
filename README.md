@@ -22,6 +22,8 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 | --- | --- |
 | ![Character skeletal binding](docs/media/skeletal-rigging.png) | ![Skeletal animation editor](docs/media/skeletal-animation.png) |
 
+[Watch the armored-warrior rigging, cape-warp, and run workflow](docs/media/warrior-run-workflow.mp4)
+
 ### Skeletal Parts Workflow
 
 Generate and matte a reference-locked character parts sheet, then refine its grid with per-cell movement, direct divider resizing, merge/split controls, quality checks, and per-cell erase editing before creating skeletal materials.
