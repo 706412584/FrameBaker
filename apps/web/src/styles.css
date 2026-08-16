@@ -700,7 +700,7 @@ input[type="range"] {
 .skeletal-action-settings > label:not(.px-check) { display: grid; gap: 4px; color: var(--text-muted); }
 .skeletal-action-settings .px-check { align-self: center; }
 .generation-advanced { padding: 8px; border: 1px solid var(--border); }
-.generation-advanced summary { cursor: pointer; color: var(--text-muted); }
+.generation-advanced-title { margin: 0; color: var(--text-muted); font-size: 14px; }
 .generation-advanced-content { display: grid; gap: 14px; padding-top: 14px; }
 .skeletal-event-strip { height: 82px; margin: 10px 10px 0; position: relative; border: 1px solid var(--border); border-top: 3px solid var(--accent); background: color-mix(in srgb, var(--surface) 84%, transparent); }
 .skeletal-event-strip > strong { position: absolute; top: 7px; left: 10px; color: var(--text); font-size: 14px; }

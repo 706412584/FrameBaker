@@ -332,8 +332,8 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
               <div className="hint">{t("msg.ref_image_bailian_happyhorse_i2v_r2v_as_first_ref_frame")}</div>
             )}
             {!hasProvider && <div className="hint warn">{t("msg.no_gen_provider_add_cli_api_providers_in_settings")}</div>}
-            <details className="generation-advanced">
-              <summary>{t("skeletal.generate.advanced")}</summary>
+            <section className="generation-advanced">
+              <h3 className="generation-advanced-title">{t("skeletal.generate.advanced")}</h3>
               <div className="generation-advanced-content">
                 <ProviderModelPicker
                   providerId={providerId}
@@ -355,7 +355,7 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
                   {t("msg.video_gen_cli_bailian_minimax_only_async_extract_frames")}
                 </div>
               </div>
-            </details>
+            </section>
             <div className="modal-actions">
               <motion.button
                 type="button"
