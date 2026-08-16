@@ -139,6 +139,12 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("stops at the hip sockets");
     expect(prompt).toContain("no upper-leg or thigh segment");
     expect(prompt).toContain("weapon must not touch either arm");
+    expect(prompt).toContain("4 × 3 equal-sized cells");
+    expect(prompt).toContain("one global scale factor");
+    expect(prompt).toContain("opaque bounding-box center of each piece exactly on its cell center");
+    expect(prompt).toContain("at least 10% of the cell width and height clear");
+    expect(prompt).toContain("no packed layout, staggered parts, variable gutters");
+    expect(prompt).toContain("reduce the whole sheet uniformly");
     expect(prompt).toContain("Extra requirements: red cape");
   });
 
@@ -148,6 +154,8 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("5 columns by 3 rows");
     expect(prompt).toContain("split at real joints");
     expect(prompt).toContain("all 15 cells");
+    expect(prompt).toContain("5 × 3 equal-sized cells");
+    expect(prompt).toContain("Cell dimensions, center spacing, row pitch, column pitch, and safe padding must be identical");
     expect(prompt).not.toContain("row 1 = head, torso, pelvis");
     expect(prompt).toContain("Extra requirements: include a tail and two shoulder plates");
   });

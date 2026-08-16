@@ -29,7 +29,9 @@ function buildSkeletalGuidance(intent?: EnhancePromptIntent): string {
     case "skeletal-decompose":
       return `${shared}
 - 输出 strict character parts grid，严格服从用户随后选择的 rows × columns 和总部件数；每格从左到右、从上到下排列
-- 每格 exactly one isolated complete part，四周留安全边距；任何可见像素不得跨 cell boundary；部件不得接触、重叠、重复或缺失
+- 画布必须严格等分为 identical equal-sized cells，所有 cell centers、row/column pitch 与 gutters 完全一致，但禁止画出网格线；禁止 packed layout、staggered parts 或 variable spacing
+- 每格 exactly one isolated complete part，部件不透明包围盒必须对准 cell center，对边留白平衡，并在四边至少保留 cell 宽高 10% 的统一安全边距；任何可见像素不得跨 cell boundary；部件不得接触、重叠、重复或缺失
+- 整张表只允许 one global scale factor，所有部件保持彼此相对尺寸；如果最大部件放不下，统一缩小整张表，禁止单独缩放某一格或挤压某格间距
 - 在真实关节处分段并保留少量连接重叠；左右肢体必须分开，禁止重复肢体或用同一部件 mirror-copy 冒充左右侧
 - 若用户采用默认人形 4×3、12 部件布局，则必须使用标准顺序：row 1 head, torso, pelvis, weapon；row 2 upper-arm-left, forearm-left, upper-arm-right, forearm-right；row 3 thigh-left, shin-left, thigh-right, shin-right
 - 严格保持参考角色的 identity, body proportions, outfit, palette, pixel density, lighting and facing；禁止重新设计、文字、标签、网格装饰或完整人物
