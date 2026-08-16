@@ -623,7 +623,11 @@ input[type="range"] {
 .generation-line-tabs button { padding: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 2px solid var(--border); background: var(--bg); color: var(--text-muted); }
 .generation-line-tabs button:hover, .generation-line-tabs button.active { border-color: var(--accent); background: var(--selected); color: var(--text); }
 .skeletal-parts-setup { padding: 11px; border: 2px solid var(--accent); background: var(--selected); display: grid; gap: 10px; }
-.skeletal-parts-setup > label { display: grid; gap: 5px; color: var(--text-muted); }
+.skeletal-grid-config { display: grid; grid-template-columns: minmax(150px, 1fr) auto auto auto auto auto; align-items: end; gap: 8px; padding: 10px; border: 1px solid var(--border); background: var(--bg); }
+.skeletal-grid-config > div, .skeletal-grid-config label { display: grid; gap: 4px; }
+.skeletal-grid-config > div span { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.skeletal-grid-config label { color: var(--text-muted); font-size: 11px; }
+.skeletal-grid-config input { width: 64px; }
 .skeletal-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .skeletal-mode-tabs button { padding: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); }
 .skeletal-mode-tabs button:hover, .skeletal-mode-tabs button.active { border-color: var(--accent); color: var(--text); background: var(--selected); }
@@ -632,6 +636,12 @@ input[type="range"] {
 .skeletal-generation-flow b { flex: 0 0 24px; display: grid; width: 24px; height: 24px; place-items: center; color: var(--accent-contrast); background: var(--accent); }
 .skeletal-generation-flow span { min-width: 0; display: grid; gap: 3px; }
 .skeletal-generation-flow small { color: var(--text-muted); line-height: 1.4; }
+@media (max-width: 560px) {
+  .skeletal-mode-tabs { grid-template-columns: 1fr; }
+  .skeletal-grid-config { grid-template-columns: 1fr; align-items: stretch; }
+  .skeletal-grid-config input { width: 100%; }
+  .skeletal-grid-config > span { display: none; }
+}
 .skeletal-project-tabs { width: 100%; margin: 0 0 10px; display: flex; border-bottom: 2px solid var(--border); }
 .skeletal-project-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-muted); transform: translateY(2px); }
 .skeletal-project-tabs button:hover:not(:disabled), .skeletal-project-tabs button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--selected); }
@@ -643,26 +653,25 @@ input[type="range"] {
 .skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
-.skeletal-character-picker { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
-.skeletal-character-picker > small { color: var(--text-muted); line-height: 1.45; }
-.skeletal-character-cards { display: grid; gap: 5px; max-height: 190px; overflow-y: auto; }
-.skeletal-character-card { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px; color: var(--text); text-align: left; border: 1px solid var(--border); background: var(--bg); }
-.skeletal-character-card:hover, .skeletal-character-card.selected { border-color: var(--accent); background: var(--selected); }
-.skeletal-character-card-icon { display: grid; width: 28px; height: 28px; place-items: center; color: var(--accent); background: var(--elevated); }
-.skeletal-character-card-icon img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
-.skeletal-character-card > span:last-child { min-width: 0; display: grid; gap: 3px; }
-.skeletal-character-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skeletal-character-card small { overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
-.articulated-setup-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); background: var(--surface); }
-.articulated-setup-card.complete { border-color: var(--accent); background: var(--selected); }
-.articulated-setup-card > p { color: var(--text-muted); font-size: 11px; line-height: 1.55; }
-.articulated-setup-card.incomplete > p { color: var(--warning); }
-.articulated-setup-card .px-btn { width: 100%; justify-content: center; }
 .skeletal-character-editor, .skeletal-sequence-editor { min-height: calc(100dvh - 186px); padding: 12px; }
-.skeletal-character-editor .binding-editor { border-top: 0; padding-top: 0; }
-.skeletal-character-editor .binding-calibration-workspace { grid-template-columns: minmax(0, 1fr) minmax(360px, 400px); }
-.skeletal-character-editor .binding-preview { height: clamp(460px, calc(100dvh - 430px), 640px); min-height: 0; }
-.skeletal-character-editor .binding-inspector { position: sticky; top: 0; max-height: calc(100dvh - 84px); overflow-y: auto; }
+.skeletal-binding-overview { min-height: calc(100dvh - 212px); display: grid; align-content: start; gap: 10px; }
+.skeletal-binding-overview > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.skeletal-binding-overview > header p, .skeletal-material-source-hint { margin-top: 5px; color: var(--text-muted); line-height: 1.55; }
+.skeletal-binding-preview { height: clamp(360px, calc(100dvh - 430px), 620px); overflow: hidden; border: 1px solid var(--border); background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 16px 16px; }
+.skeletal-binding-preview .binding-preview { width: 100%; height: 100%; min-height: 360px; background: transparent; }
+.skeletal-binding-summary { display: flex; gap: 8px; }
+.skeletal-binding-summary span { display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 9px; color: var(--text-muted); border: 1px solid var(--border); background: var(--surface); }
+.skeletal-binding-summary strong { color: var(--accent); font-size: 17px; }
+.skeletal-material-source-hint { margin: 0; padding: 9px; border-left: 3px solid var(--accent); background: var(--selected); }
+.skeletal-binding-editor-mask { padding: 0; align-items: stretch; justify-content: stretch; }
+.modal.skeletal-binding-editor-modal { box-sizing: border-box; width: 100vw; height: 100dvh; max-height: none; padding: 14px; gap: 10px; overflow: hidden; border: 0; box-shadow: none; }
+.skeletal-binding-editor-titlebar { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.skeletal-binding-editor-titlebar p { margin-top: 4px; color: var(--text-muted); line-height: 1.45; }
+.skeletal-binding-editor-titlebar > div:last-child { display: flex; gap: 7px; }
+.skeletal-binding-editor-modal > .binding-editor { min-height: 0; overflow-y: auto; border-top: 0; padding-top: 0; scrollbar-gutter: stable; }
+.skeletal-binding-editor-modal .binding-calibration-workspace { grid-template-columns: minmax(0, 1fr) minmax(370px, 420px); }
+.skeletal-binding-editor-modal .binding-preview { height: clamp(560px, calc(100dvh - 355px), 820px); min-height: 0; }
+.skeletal-binding-editor-modal .binding-inspector { position: sticky; top: 0; max-height: calc(100dvh - 190px); overflow-y: auto; }
 .skeletal-empty-state { min-height: 500px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; color: var(--text-muted); }
 .skeletal-empty-state h2 { color: var(--text); }
 .skeletal-empty-state p { max-width: 460px; line-height: 1.7; }
@@ -698,8 +707,8 @@ input[type="range"] {
 .skeletal-event-strip button span { position: absolute; z-index: 2; top: 25px; left: 50%; padding: 2px 5px; transform: translateX(-50%); color: var(--text); font-size: 11px; white-space: nowrap; border: 1px solid var(--border); background: var(--surface); }
 .skeletal-event-strip i { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--error); pointer-events: none; }
 @media (max-width: 1050px) {
-  .skeletal-character-editor .binding-calibration-workspace { grid-template-columns: 1fr; }
-  .skeletal-character-editor .binding-inspector { position: static; max-height: none; }
+  .skeletal-binding-editor-modal .binding-calibration-workspace { grid-template-columns: 1fr; }
+  .skeletal-binding-editor-modal .binding-inspector { position: static; max-height: none; }
   .skeletal-action-settings { grid-template-columns: 2fr 1fr 1fr; }
 }
 @media (max-width: 700px) {
@@ -715,8 +724,12 @@ input[type="range"] {
   .skeletal-character-workspace, .skeletal-animation-workspace { grid-template-columns: 1fr; }
   .skeletal-setup-panel, .skeletal-action-list { position: static; max-height: none; }
   .skeletal-character-editor, .skeletal-sequence-editor { min-height: 0; }
-  .skeletal-character-editor .binding-inspector { position: static; max-height: none; }
-  .skeletal-character-editor .binding-preview { height: 440px; }
+  .skeletal-binding-overview { min-height: 0; }
+  .skeletal-binding-overview > header, .skeletal-binding-editor-titlebar { flex-direction: column; }
+  .skeletal-binding-editor-titlebar > div:last-child { width: 100%; }
+  .skeletal-binding-editor-titlebar > div:last-child .px-btn:first-child { flex: 1; justify-content: center; }
+  .skeletal-binding-editor-modal .binding-inspector { position: static; max-height: none; }
+  .skeletal-binding-editor-modal .binding-preview { height: 520px; }
   .skeletal-action-settings { grid-template-columns: 1fr 1fr; }
   .skeletal-playback-controls { grid-template-columns: auto 1fr; }
   .skeletal-playback-controls span { grid-column: 1 / -1; }
@@ -807,6 +820,11 @@ input[type="range"] {
 .modal h2 {
   font-size: 20px;
   color: var(--accent);
+}
+.animation-create-action-modal > label:not(.px-check) {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
 }
 .modal-actions {
   display: flex;
@@ -4327,11 +4345,12 @@ body.resizing-row * {
 }
 
 /* ===== 正式动画资产工作台 ===== */
-.animation-assets-page { width: 100%; max-width: none; margin: 0; padding: 72px 12px 12px; overflow-x: hidden; overflow-y: auto; }
+.animation-assets-page { width: 100%; max-width: none; margin: 0; padding: 72px 12px 12px; overflow-x: hidden; overflow-y: auto; overscroll-behavior-x: none; }
 .motion-mode-switch { display: flex; gap: 8px; margin-bottom: 12px; }
 .motion-heading-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .motion-heading-side p { margin: 0; }
-.animation-workspace { height: calc(100dvh - 148px); min-height: 560px; display: grid; grid-template-columns: clamp(190px, 14vw, 230px) clamp(300px, 23vw, 400px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px 10px; }
+.animation-workspace { width: 100%; max-width: 100%; height: calc(100dvh - 148px); min-width: 0; min-height: 560px; display: grid; grid-template-columns: clamp(190px, 14vw, 230px) clamp(300px, 23vw, 400px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px 10px; }
+.animation-workspace > * { min-width: 0; max-width: 100%; }
 .animation-filter-rail { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .animation-filter-rail button { border: 1px solid var(--border); background: var(--elevated); color: var(--text-muted); padding: 6px 9px; }
 .animation-filter-rail button.on { border-color: var(--accent); color: var(--text); background: var(--selected); }
@@ -4520,7 +4539,9 @@ body.resizing-row * {
 .animation-transform-fields input { width: 100%; margin-top: 3px; }
 .animation-clip-tools { margin-top: 10px; }
 .animation-clip-tools[open] { display: grid; gap: 8px; padding-bottom: 10px; }
-.animation-clip-tools > label, .animation-clip-tools > .animation-event-form, .animation-clip-tools > .animation-event-list { margin-right: 10px; margin-left: 10px; }
+.animation-clip-tools > label, .animation-clip-tools > .animation-duration-setting, .animation-clip-tools > .animation-event-form, .animation-clip-tools > .animation-event-list { margin-right: 10px; margin-left: 10px; }
+.animation-duration-setting { display: flex; align-items: end; gap: 8px; }
+.animation-duration-setting > label { display: grid; flex: 1; gap: 6px; }
 .animation-event-form, .animation-event-list > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .animation-event-form input { min-width: 0; flex: 1; }
 .animation-event-form textarea { flex: 1 0 100%; min-width: 0; resize: vertical; }

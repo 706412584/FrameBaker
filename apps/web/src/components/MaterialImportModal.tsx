@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Bone, Scissors, Sparkles, Upload, X } from "lucide-react";
 import { buildArticulatedCharacterPrompt, buildArticulatedPartsPrompt } from "@framebaker/shared";
-import { api, type CharacterPartSet } from "../api";
+import { api } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -57,9 +57,8 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
   const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">("frame");
   const [skeletalMode, setSkeletalMode] = useState<"parts" | "decompose">("parts");
-  const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
-  const [partSetId, setPartSetId] = useState("");
-  const [partSetName, setPartSetName] = useState("");
+  const [gridRows, setGridRows] = useState(3);
+  const [gridCols, setGridCols] = useState(4);
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = useServerConfig();
@@ -71,14 +70,6 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   // 剪裁队列：逐张剪裁 / 单张重裁（确认后 PNG 替换原文件并标 cropped）
   const crop = useCropQueue(items, (i, file) => updateItem(i, { file, cropped: true }));
   const imageCount = items.filter((it) => !isVideoFile(it.file)).length;
-
-  useEffect(() => {
-    if (tab !== "cli" || generationLine !== "skeletal") return;
-    api.listCharacterPartSets().then((sets) => {
-      setPartSets(sets);
-      setPartSetId((current) => sets.some((set) => set.id === current) ? current : sets[0]?.id ?? "");
-    }).catch(() => undefined);
-  }, [tab, generationLine]);
 
   const resetAll = workflow.reset;
 
@@ -102,7 +93,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
 
   // 生成 Tab：提交即关窗，进度与结果由右侧任务面板展示
   const submitGenerate = async () => {
-    if (submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))) return;
+    if (submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && ((skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))) return;
     setSubmitting(true);
     try {
       const providers = (cfg?.gen.providers ?? []).filter((p) => (mediaKind === "video" ? p.video : true));
@@ -110,16 +101,14 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         videoOnly: mediaKind === "video",
         preferI2v: mediaKind === "video" && references.length > 0,
       });
-      const target = generationLine === "skeletal"
-        ? partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId)
-        : undefined;
-      if (target && skeletalMode === "parts" && (target.referenceMaterialId || target.members.length > 0)) {
-        throw new Error(t("skeletal.generate.existingIdentityLocked"));
-      }
       const skeletalPrompt = buildArticulatedPartsPrompt(skeletalMode === "decompose"
-        ? { reference: true, extra: prompt }
-        : { reference: true, description: prompt });
+        ? { reference: true, extra: prompt, rows: gridRows, cols: gridCols }
+        : { reference: true, description: prompt, rows: gridRows, cols: gridCols });
       const completeCharacterPrompt = buildArticulatedCharacterPrompt({ description: prompt });
+      const generatedName = prompt.trim().slice(0, 24) || t("skeletal.parts.autoName");
+      const completeMaterialName = t("skeletal.generate.completeMaterialName", { name: generatedName });
+      const partsMaterialName = t("skeletal.generate.partsMaterialName", { name: generatedName, count: gridRows * gridCols });
+      const referenceMaterialId = references.find((item) => item.kind === "material")?.id;
       await api.generateMaterial({
         prompt: generationLine === "skeletal" && skeletalMode === "parts" ? completeCharacterPrompt : generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
         count: generationLine === "skeletal" ? 1 : count,
@@ -128,11 +117,10 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
         folderId,
         ...(generationLine === "skeletal" ? {
           intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-character" as const,
-          characterPartSetId: partSetId,
-          ...(skeletalMode === "parts" && target ? {
-            name: t("skeletal.generate.completeMaterialName", { name: target.name }),
-            followUp: { prompt: skeletalPrompt, name: t("skeletal.generate.partsMaterialName", { name: target.name }), autoMatting },
-          } : {}),
+          name: skeletalMode === "parts" ? completeMaterialName : partsMaterialName,
+          ...(skeletalMode === "decompose" ? { gridRows, gridCols } : {}),
+          ...(skeletalMode === "decompose" && referenceMaterialId ? { referenceMaterialId } : {}),
+          ...(skeletalMode === "parts" ? { followUp: { prompt: skeletalPrompt, name: partsMaterialName, autoMatting, gridRows, gridCols } } : {}),
         } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
         ...(size ? { size } : {}),
@@ -151,23 +139,6 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
     } catch (e) {
       notify(t("msg.submit_failed_msg", { msg: (e as Error).message }));
       setSubmitting(false);
-    }
-  };
-
-  const createPartSet = async () => {
-    if (!partSetName.trim()) return;
-    try {
-      const made = await api.createCharacterPartSet({
-        name: partSetName.trim(),
-        source: skeletalMode === "decompose" ? "decomposed" : "generated",
-        referenceMaterialId: references.find((item) => item.kind === "material")?.id ?? null,
-        members: [],
-      });
-      setPartSets((items) => [made, ...items]);
-      setPartSetId(made.id);
-      setPartSetName("");
-    } catch (e) {
-      notify(t("skeletal.parts.createFailed", { msg: (e as Error).message }));
     }
   };
 
@@ -306,8 +277,14 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                 <li><b>1</b><span><strong>{t("skeletal.generate.characterStage")}</strong><small>{t("skeletal.generate.characterStageHint")}</small></span></li>
                 <li><b>2</b><span><strong>{t("skeletal.generate.partsStage")}</strong><small>{t("skeletal.generate.partsStageHint")}</small></span></li>
               </ol>}
-              <label>{t("skeletal.parts.targetSet")}<PxSelect value={partSetId} options={partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))} onChange={setPartSetId} placeholder={t("skeletal.parts.chooseSet")} /></label>
-              <div className="form-inline"><input className="px-input" value={partSetName} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} /><button type="button" className="px-btn" disabled={!partSetName.trim()} onClick={() => void createPartSet()}>{t("skeletal.parts.createSet")}</button></div>
+              <div className="skeletal-grid-config">
+                <div><strong>{t("skeletal.generate.gridTitle")}</strong><span>{t("skeletal.generate.gridHint")}</span></div>
+                <label>{t("msg.cols")}<input className="px-input" type="number" min="1" max="8" value={gridCols} onChange={(event) => setGridCols(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
+                <span>×</span>
+                <label>{t("msg.rows")}<input className="px-input" type="number" min="1" max="8" value={gridRows} onChange={(event) => setGridRows(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
+                <strong>{t("skeletal.generate.gridCount", { count: gridRows * gridCols })}</strong>
+                {(gridRows !== 3 || gridCols !== 4) && <button type="button" className="px-btn" onClick={() => { setGridRows(3); setGridCols(4); }}>{t("skeletal.generate.useHumanoidDefault")}</button>}
+              </div>
             </div>}
             {generationLine === "frame" && <div className="form-row">
               <label>{t("msg.generate_as")}</label>
@@ -382,7 +359,7 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
                 type="button"
                 whileTap={{ scale: 0.95 }}
                 className="px-btn accent"
-                disabled={!hasProvider || submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && (!partSetId || (skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))}
+                disabled={!hasProvider || submitting || (generationLine === "frame" && !prompt.trim()) || (generationLine === "skeletal" && ((skeletalMode === "parts" && !prompt.trim()) || (skeletalMode === "decompose" && references.length === 0)))}
                 onClick={submitGenerate}
               >
                 <Sparkles size={14} /> {t(generationLine === "skeletal" && skeletalMode === "parts" ? "skeletal.generate.startSequence" : "msg.start_generate")}

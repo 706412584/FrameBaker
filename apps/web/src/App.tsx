@@ -74,7 +74,7 @@ function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary }: { projec
 
 }
 
-function MotionsRoute({ onOpenMaterials, onOpenProjects }: { onOpenMaterials: () => void; onOpenProjects: () => void }) {
+function MotionsRoute({ onOpenProjects }: { onOpenProjects: () => void }) {
   const t = useT();
   const [ready, setReady] = useState(hasPixi);
   const [failed, setFailed] = useState(false);
@@ -97,7 +97,7 @@ function MotionsRoute({ onOpenMaterials, onOpenProjects }: { onOpenMaterials: ()
   if (!ready) return <div className="page-loading">{t("msg.loading_editor")}</div>;
   return (
     <Suspense fallback={<div className="page-loading">{t("msg.loading_editor")}</div>}>
-      <MotionsPage onOpenMaterials={onOpenMaterials} onOpenProjects={onOpenProjects} />
+      <MotionsPage onOpenProjects={onOpenProjects} />
     </Suspense>
   );
 }
@@ -149,7 +149,7 @@ export default function App() {
         {view.page !== "editor" && <TopNav current={view.page} onNav={(p) => nav({ page: p })} />}
         {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
         {view.page === "materials" && <MaterialsPage />}
-        {view.page === "motions" && <MotionsRoute onOpenMaterials={() => nav({ page: "materials" })} onOpenProjects={() => nav({ page: "home" })} />}
+        {view.page === "motions" && <MotionsRoute onOpenProjects={() => nav({ page: "home" })} />}
         {view.page === "settings" && <SettingsPage />}
         {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} onEditActionLibrary={() => nav({ page: "motions" })} />}
         {/* 右侧常驻任务队列面板（有任务时才显示） */}

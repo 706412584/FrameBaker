@@ -93,8 +93,11 @@ interface GenerateBody {
   folderId?: string | null;
   intent?: GenerationIntent;
   characterPartSetId?: string;
+  /** 骨骼分件表网格；默认人形为 3 行 × 4 列。 */
+  gridRows?: number;
+  gridCols?: number;
   /** 完整角色生成成功后，以其为引用自动创建第二阶段分件任务。 */
-  followUp?: { prompt: string; name?: string; autoMatting?: boolean };
+  followUp?: { prompt: string; name?: string; autoMatting?: boolean; gridRows?: number; gridCols?: number };
 }
 
 export interface LayerMaterialBody {

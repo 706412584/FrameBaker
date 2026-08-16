@@ -54,9 +54,11 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const slot = m.processed_path ? "processed" : "raw";
   const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
   const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
+  const hintedRows = typeof m.metadata.gridRows === "number" ? clampCell(m.metadata.gridRows) : 3;
+  const hintedCols = typeof m.metadata.gridCols === "number" ? clampCell(m.metadata.gridCols) : 4;
   const initialGrid = gridFromMaterialName(m.name);
-  const [rows, setRows] = useState(guidedSkeletalSplit ? 3 : initialGrid.rows);
-  const [cols, setCols] = useState(guidedSkeletalSplit ? 4 : initialGrid.cols);
+  const [rows, setRows] = useState(guidedSkeletalSplit ? hintedRows : initialGrid.rows);
+  const [cols, setCols] = useState(guidedSkeletalSplit ? hintedCols : initialGrid.cols);
   const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
@@ -78,6 +80,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
 
   const skipCenter = /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
   const total = rows * cols - (skipCenter ? 1 : 0);
+  const standardHumanoidGrid = splitLine === "skeletal" && rows === 3 && cols === 4;
 
   useEffect(() => () => {
     skeletalReview?.previews.forEach((url) => URL.revokeObjectURL(url));
@@ -98,11 +101,11 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   }, [hintedPartSetId]);
 
   useEffect(() => {
-    setPartDrafts((current) => Array.from({ length: total }, (_, index) => current[index] ?? {
-      role: DEFAULT_PART_ROLES[index] ?? "custom",
-      name: t(`skeletal.partRole.${DEFAULT_PART_ROLES[index] ?? "custom"}`),
-    }));
-  }, [total, t]);
+    setPartDrafts(Array.from({ length: total }, (_, index) => ({
+      role: standardHumanoidGrid ? DEFAULT_PART_ROLES[index] ?? "custom" : "custom",
+      name: standardHumanoidGrid ? t(`skeletal.partRole.${DEFAULT_PART_ROLES[index] ?? "custom"}`) : t("skeletal.split.customPartName", { index: index + 1 }),
+    })));
+  }, [standardHumanoidGrid, total, t]);
 
   // 载入尺寸，默认网格盖住整图
   useEffect(() => {
@@ -204,15 +207,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
     setSkeletalReview(null);
     setReviewConfirmed(false);
     if (line === "skeletal") {
-      setCols(4);
-      setRows(3);
+      setCols(guidedSkeletalSplit ? hintedCols : 4);
+      setRows(guidedSkeletalSplit ? hintedRows : 3);
     }
   };
 
   const prepareSkeletalReview = async () => {
-    if (!region || !imgSize || rows !== 3 || cols !== 4) return;
+    if (!region || !imgSize) return;
     setBusy(true);
-    setProgress(t("skeletal.split.analyzing"));
+    setProgress(t("skeletal.split.analyzing", { count: total }));
     try {
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
@@ -332,14 +335,14 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           }
         }
       }
-      if (splitLine === "skeletal" && (fail > 0 || createdMembers.length !== ARTICULATED_CHARACTER_PART_ROLES.length)) {
+      if (splitLine === "skeletal" && (fail > 0 || createdMembers.length !== total)) {
         throw new Error(t("skeletal.split.partialUploadBlocked", { ok, fail }));
       }
       if (splitLine === "skeletal") {
         const lineageReferenceId = typeof m.metadata.referenceMaterialId === "string" ? m.metadata.referenceMaterialId : null;
         if (partSetId) {
           const target = partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId);
-          const preservedMembers = target.members.filter((member) => !ARTICULATED_CHARACTER_PART_ROLES.includes(member.role as typeof ARTICULATED_CHARACTER_PART_ROLES[number]));
+          const preservedMembers = standardHumanoidGrid ? target.members.filter((member) => !ARTICULATED_CHARACTER_PART_ROLES.includes(member.role as typeof ARTICULATED_CHARACTER_PART_ROLES[number])) : [];
           const updated = await api.putCharacterPartSet(target.id, {
             name: target.name,
             referenceMaterialId: lineageReferenceId ?? target.referenceMaterialId,
@@ -482,7 +485,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                     min={1}
                     max={8}
                     value={cols}
-                    disabled={busy || splitLine === "skeletal"}
+                    disabled={busy}
                     onChange={(e) => setCols(clampCell(Number(e.target.value)))}
                   />
                 </label>
@@ -494,7 +497,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                     min={1}
                     max={8}
                     value={rows}
-                    disabled={busy || splitLine === "skeletal"}
+                    disabled={busy}
                     onChange={(e) => setRows(clampCell(Number(e.target.value)))}
                   />
                 </label>
@@ -550,13 +553,13 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                         : <span>{index + 1}</span>}
                     </div>
                     <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
-                    <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
+                    <strong>{standardHumanoidGrid ? t(`skeletal.partRole.${draft.role}`) : draft.name}</strong>
                   </div>
                 ))}
               </div>
               {skeletalReview && skeletalReview.issues.length === 0 && <label className="px-check skeletal-review-confirm">
                 <input type="checkbox" checked={reviewConfirmed} disabled={busy} onChange={(event) => setReviewConfirmed(event.target.checked)} />
-                <span>{t("skeletal.split.semanticConfirmation")}</span>
+                <span>{t(standardHumanoidGrid ? "skeletal.split.semanticConfirmation" : "skeletal.split.customConfirmation", { count: total })}</span>
               </label>}
             </aside>
           )}
@@ -580,7 +583,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             <Grid3x3 size={14} /> {busy
               ? progress || t("msg.splitting")
               : splitLine === "skeletal" && !skeletalReview
-                ? t("skeletal.split.runQualityCheck")
+                ? t("skeletal.split.runQualityCheck", { count: total })
                 : t("msg.split_into_total_materials", { total })}
           </motion.button>
         </footer>

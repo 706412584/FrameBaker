@@ -12,19 +12,6 @@ const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 const identity = () => ({ translation: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] });
 const BUILTIN_ASSET_ORDER = new Map<string, number>(BUILTIN_ANIMATION_ASSET_IDS.map((id, index) => [id, index]));
 
-function makeExample(skeletonName: string, clipName: string): [Skeleton, MotionClip] {
-  const skeletonId = uid("skeleton"), root = uid("root"), torso = uid("torso"), head = uid("head"), armL = uid("arm-l"), armR = uid("arm-r"), legL = uid("leg-l"), legR = uid("leg-r");
-  const bone = (id: string, name: string, parentId: string | null, translation: [number, number, number], tipOffset?: [number, number, number]) => ({ id, name, parentId, rest: { ...identity(), translation }, ...(tipOffset ? { tipOffset } : {}) });
-  const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: skeletonId, name: skeletonName, coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "normalized" }, bones: [bone(root, "Root", null, [0, -1, 0]), bone(torso, "Torso", root, [0, 1, 0]), bone(head, "Head", torso, [0, 1, 0], [0, .45, 0]), bone(armL, "Arm L", torso, [-.65, .65, 0], [-.55, -.2, 0]), bone(armR, "Arm R", torso, [.65, .65, 0], [.55, -.2, 0]), bone(legL, "Leg L", root, [-.3, .05, 0], [-.15, -1, 0]), bone(legR, "Leg R", root, [.3, .05, 0], [.15, -1, 0])] };
-  const q = (angle: number): [number, number, number, number] => [0, 0, Math.sin(angle / 2), Math.cos(angle / 2)];
-  const clip: MotionClip = { schemaVersion: 1, kind: "motion-clip", id: uid("motion"), name: clipName, skeletonId, duration: 2, loop: true, tracks: [
-    { targetId: torso, property: "translation", interpolation: "linear", keyframes: [{ time: 0, value: [0, 1, 0] }, { time: 1, value: [0, 1.08, 0] }, { time: 2, value: [0, 1, 0] }] },
-    { targetId: armL, property: "rotation", interpolation: "linear", keyframes: [{ time: 0, value: q(-.08) }, { time: 1, value: q(.08) }, { time: 2, value: q(-.08) }] },
-    { targetId: armR, property: "rotation", interpolation: "linear", keyframes: [{ time: 0, value: q(.08) }, { time: 1, value: q(-.08) }, { time: 2, value: q(.08) }] },
-  ], events: [{ time: 1, type: "marker", name: "breath" }], provenance: { source: "manual" } };
-  return [skeleton, clip];
-}
-
 function SkeletonPreview({ skeleton, clip, rangeClip, time, selectedBone, disabled, onSelectBone, onEditBone }: { skeleton: Skeleton; clip?: MotionClip; rangeClip?: MotionClip; time: number; selectedBone?: string; disabled?: boolean; onSelectBone?: (id: string) => void; onEditBone?: (id: string, patch: { tx?: number; ty?: number; rz?: number }) => void }) {
   const t = useT();
   const pose = useMemo(() => clip ? sampleMotionClip(clip, skeleton, time) : sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [clip, skeleton, time]);
@@ -314,6 +301,18 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
   const draftRef = useRef(draft), continuousEditRef = useRef<CharacterBinding | undefined>(undefined), fitRequestRef = useRef(0);
   draftRef.current = draft;
   const restPose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-editor-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [skeleton]);
+  const defaultAttachmentSize = useMemo(() => {
+    const points = skeleton.bones.flatMap((bone) => {
+      const world = restPose.worldMatrices[bone.id];
+      if (!world) return [];
+      const origin = transformPoint(world, [0, 0, 0]);
+      const endpoint = getBoneEndpoint(restPose, skeleton, bone.id);
+      return endpoint ? [origin, endpoint] : [origin];
+    });
+    if (!points.length) return 1;
+    const xs = points.map((point) => point[0]), ys = points.map((point) => point[1]);
+    return Math.max(.5, Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 4);
+  }, [restPose, skeleton]);
   useEffect(() => {
     setDraft(binding);
     setUndoDrafts([]);
@@ -364,7 +363,7 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
   const addRow = () => {
     rememberDraft();
     const id = uid("region"), boneId = skeleton.bones[0]?.id ?? "", order = draft.slots.length ? Math.max(...draft.slots.map((slot) => slot.drawOrder)) + 1 : 0;
-    setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [1, 1], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId, attachmentId: id, drawOrder: order }] }));
+    setDraft((old) => ({ ...old, attachments: [...old.attachments, { id, name: t("animation.binding.region"), type: "region", materialId: materials[0]?.id ?? "", imageSlot: "raw", size: [defaultAttachmentSize, defaultAttachmentSize], pivot: [.5, .5], rest: identity() }], slots: [...old.slots, { id: uid("slot"), name: t("animation.binding.slot"), boneId, attachmentId: id, drawOrder: order }] }));
     setSelectedAttachmentId(id);
     setSelectedBoneId(boneId);
   };
@@ -511,34 +510,35 @@ export function BindingEditor({ binding, skeleton, materials, busy, onSave }: { 
   </section>;
 }
 
-type AssetFilter = "all" | "skeleton" | "character-binding" | "motion-clip";
+type AssetFilter = "all" | "skeleton" | "motion-clip";
 
-export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjects }: { onOpenMaterials: () => void; onOpenProjects: () => void }) {
+export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenProjects: () => void }) {
   const t = useT(), inputRef = useRef<HTMLInputElement>(null);
   const [assets, setAssets] = useState<AnimationAssetSummary[]>([]), [folders, setFolders] = useState<Folder[]>([]), [folder, setFolder] = useState<FolderSelection>("all");
-  const [filter, setFilter] = useState<AssetFilter>("all"), [skeletalProjectCount, setSkeletalProjectCount] = useState(0);
+  const [filter, setFilter] = useState<AssetFilter>("all");
   const [selected, setSelected] = useState<string>(), [stored, setStored] = useState<AnimationAsset>(), [skeleton, setSkeleton] = useState<Skeleton>();
+  const [createActionOpen, setCreateActionOpen] = useState(false);
+  const [newAction, setNewAction] = useState({ name: "", skeletonId: "", duration: 1, loop: false });
   const [time, setTime] = useState(0), [playing, setPlaying] = useState(false), [renaming, setRenaming] = useState(false), [name, setName] = useState("");
+  const [durationDraft, setDurationDraft] = useState("");
   const [selectedBone, setSelectedBone] = useState(""), [busy, setBusy] = useState(false);
-  const [materials, setMaterials] = useState<Material[]>([]), [creatingBinding, setCreatingBinding] = useState(false), [bindingSkeletonId, setBindingSkeletonId] = useState("");
   const [draft, setDraft] = useState({ tx: 0, ty: 0, rz: 0, sx: 1, sy: 1 });
   const [eventDraft, setEventDraft] = useState({ type: "", name: "", payload: "" });
   const [eventPayloadError, setEventPayloadError] = useState("");
   const [undo, setUndo] = useState<MotionClip[]>([]), [redo, setRedo] = useState<MotionClip[]>([]);
-  const load = useCallback(async () => { const [a, f, m, p] = await Promise.all([api.listAnimationAssets(), api.listFolders("animation"), api.listMaterials(), api.listProjects()]); setAssets(a); setFolders(f); setMaterials(m.filter((item) => item.kind === "image")); setSkeletalProjectCount(p.filter((item) => item.kind === "skeletal").length); }, []);
+  const load = useCallback(async () => { const [a, f] = await Promise.all([api.listAnimationAssets(), api.listFolders("animation")]); setAssets(a); setFolders(f); }, []);
   useEffect(() => { void load().catch((e) => notify(t("animation.loadFailed", { msg: e.message }))); }, [load, t]);
   useEffect(() => {
     let active = true;
     if (!selected) { setStored(undefined); setSkeleton(undefined); return () => { active = false; }; }
     void api.getAnimationAsset(selected).then(async ({ asset }) => {
-      const nextSkeleton = asset.kind === "skeleton" ? asset : asset.kind === "motion-clip" || asset.kind === "character-binding" ? (await api.getAnimationAsset(asset.skeletonId)).asset as Skeleton : undefined;
+      const nextSkeleton = asset.kind === "skeleton" ? asset : (await api.getAnimationAsset(asset.skeletonId)).asset as Skeleton;
       if (!active) return;
-      setStored(asset); setName(asset.name); setTime(0); setPlaying(false); setSkeleton(nextSkeleton); setSelectedBone(nextSkeleton?.bones[0]?.id ?? ""); setUndo([]); setRedo([]);
+      setStored(asset); setName(asset.name); setDurationDraft(asset.kind === "motion-clip" ? String(asset.duration) : ""); setTime(0); setPlaying(false); setSkeleton(nextSkeleton); setSelectedBone(nextSkeleton?.bones[0]?.id ?? ""); setUndo([]); setRedo([]);
     }).catch((e) => { if (active) notify(t("animation.loadFailed", { msg: e.message })); });
     return () => { active = false; };
   }, [selected, t]);
   const clip = stored?.kind === "motion-clip" ? stored : undefined;
-  const binding = stored?.kind === "character-binding" ? stored : undefined;
   const builtin = !!stored && isBuiltinAnimationAssetId(stored.id);
   const sampledSelectedTransform = useMemo(() => clip && skeleton && selectedBone ? sampleMotionClip(clip, skeleton, time).local[selectedBone] : undefined, [clip, skeleton, selectedBone, time]);
   const previewClip = useMemo(() => {
@@ -561,24 +561,51 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
   }, [clip, skeleton, time]);
   useEffect(() => { if (!playing || !clip) return; let raf = 0, last = performance.now(); const tick = (now: number) => { const delta = (now - last) / 1000; last = now; setTime((old) => { const next = old + delta; if (clip.loop && clip.duration) return next % clip.duration; if (next >= clip.duration) { setPlaying(false); return clip.duration; } return next; }); raf = requestAnimationFrame(tick); }; raf = requestAnimationFrame(tick); return () => cancelAnimationFrame(raf); }, [playing, clip]);
   const inFolder = assets.filter((a) => isBuiltinAnimationAssetId(a.id) || folder === "all" || (folder === "ungrouped" ? !a.folder_id : a.folder_id === folder));
-  const counts = { all: inFolder.length, skeleton: inFolder.filter((a) => a.kind === "skeleton").length, "character-binding": inFolder.filter((a) => a.kind === "character-binding").length, "motion-clip": inFolder.filter((a) => a.kind === "motion-clip").length };
+  const counts = { all: inFolder.length, skeleton: inFolder.filter((a) => a.kind === "skeleton").length, "motion-clip": inFolder.filter((a) => a.kind === "motion-clip").length };
   const visible = (filter === "all" ? inFolder : inFolder.filter((asset) => asset.kind === filter)).toSorted((a, b) => (BUILTIN_ASSET_ORDER.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (BUILTIN_ASSET_ORDER.get(b.id) ?? Number.MAX_SAFE_INTEGER));
   useEffect(() => {
     if (selected && visible.some((asset) => asset.id === selected)) return;
     setSelected(visible[0]?.id);
   }, [filter, folder, selected, visible]);
   const importFile = async (file?: File) => { if (!file) return; try { const value = JSON.parse(await file.text()) as AnimationAsset; const result = await api.createAnimationAsset(value, folder === "all" || folder === "ungrouped" ? null : folder); await load(); setSelected(result.asset.id); notify(t("animation.imported"), "info"); } catch (e) { notify(t("animation.importFailed", { msg: (e as Error).message })); } };
-  const saveName = async () => { if (!stored || builtin || !name.trim()) return; try { const updated = await api.putAnimationAsset(stored.id, { ...stored, name: name.trim() }); setStored(updated.asset); setRenaming(false); await load(); } catch (e) { notify(t("animation.renameFailed", { msg: (e as Error).message })); } };
+  const openCreateAction = () => {
+    const skeletonId = skeleton?.id ?? assets.find((asset) => asset.kind === "skeleton")?.id ?? "";
+    setNewAction({ name: t("animation.newActionName"), skeletonId, duration: 1, loop: false });
+    setCreateActionOpen(true);
+  };
+  const createAction = async () => {
+    if (busy || !newAction.name.trim() || !newAction.skeletonId || !Number.isFinite(newAction.duration) || newAction.duration <= 0) return;
+    setBusy(true);
+    try {
+      const motion: MotionClip = { schemaVersion: 1, kind: "motion-clip", id: uid("motion"), name: newAction.name.trim(), skeletonId: newAction.skeletonId, duration: newAction.duration, loop: newAction.loop, tracks: [], events: [], provenance: { source: "manual" } };
+      const targetFolder = folder === "all" || folder === "ungrouped" ? null : folder;
+      const made = await api.createAnimationAsset(motion, targetFolder);
+      await load();
+      setCreateActionOpen(false);
+      setFilter("motion-clip");
+      setSelected(made.asset.id);
+    } catch (e) {
+      notify(t("animation.createActionFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveName = async () => { if (!stored || builtin || !name.trim()) return; try { const updated = await api.putAnimationAsset(stored.id, { ...stored, name: name.trim() }); setStored(updated.asset); setRenaming(false); setUndo([]); setRedo([]); await load(); } catch (e) { notify(t("animation.renameFailed", { msg: (e as Error).message })); } };
   const remove = async () => { if (!stored || builtin || !(await askConfirm(t("animation.deleteConfirm", { name: stored.name })))) return; try { await api.deleteAnimationAsset(stored.id); setSelected(undefined); await load(); } catch (e) { notify(t("animation.deleteFailed", { msg: (e as Error).message })); } };
-  const copyBuiltinClip = async () => {
+  const copyBuiltinClip = async (patch?: Pick<MotionClip, "loop">) => {
     if (!clip || !builtin || busy) return;
     setBusy(true);
     try {
       const targetFolder = folder === "all" || folder === "ungrouped" ? null : folder;
       const copied = await api.copyAnimationAsset(clip.id, t("animation.builtin.copyName", { name: clip.name }), targetFolder);
+      let editable = copied;
+      if (patch) {
+        try { editable = await api.putAnimationAsset(copied.asset.id, { ...copied.asset, ...patch }); }
+        catch (error) { await api.deleteAnimationAsset(copied.asset.id).catch(() => undefined); throw error; }
+      }
       await load();
-      setSelected(copied.asset.id);
-      notify(t("animation.builtin.copied", { name: copied.asset.name }), "info");
+      setSelected(editable.asset.id);
+      notify(t("animation.builtin.copied", { name: editable.asset.name }), "info");
     } catch (e) {
       notify(t("animation.builtin.copyFailed", { msg: (e as Error).message }));
     } finally {
@@ -618,7 +645,50 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
     if (direction === "undo") { setUndo(source.slice(0, -1)); setRedo((items) => [...items, clip]); }
     else { setRedo(source.slice(0, -1)); setUndo((items) => [...items, clip]); }
   };
-  const toggleLoop = async (loop: boolean) => { if (clip && !busy) await commitClipEdit({ ...clip, loop }); };
+  const toggleLoop = async (loop: boolean) => {
+    if (!clip || busy) return;
+    if (builtin) {
+      await copyBuiltinClip({ loop });
+      return;
+    }
+    const terminalTime = Math.max(0, clip.duration - MOTION_KEY_TIME_EPSILON);
+    const movesTerminalEvents = loop && clip.events.some((event) => event.time >= clip.duration);
+    const events = movesTerminalEvents ? clip.events.map((event) => event.time >= clip.duration ? { ...event, time: terminalTime } : event) : clip.events;
+    if (await commitClipEdit({ ...clip, loop, events }) && movesTerminalEvents) notify(t("animation.loopTerminalEventsMoved"), "info");
+  };
+  const saveDuration = async () => {
+    if (!clip || builtin || busy) return;
+    const duration = Number(durationDraft);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      setDurationDraft(String(clip.duration));
+      notify(t("animation.durationInvalid"));
+      return;
+    }
+    if (Math.abs(duration - clip.duration) <= MOTION_KEY_TIME_EPSILON) return;
+    const trimsContent = duration < clip.duration && (
+      clip.tracks.some((track) => track.keyframes.some((key) => key.time > duration))
+      || clip.events.some((event) => event.time > duration || (clip.loop && event.time >= duration))
+      || clip.contacts?.some((contact) => contact.intervals.some((interval) => interval.end > duration))
+    );
+    if (trimsContent && !(await askConfirm(t("animation.durationTrimConfirm")))) {
+      setDurationDraft(String(clip.duration));
+      return;
+    }
+    const tracks = clip.tracks.flatMap((track) => {
+      const keyframes = track.keyframes.filter((key) => key.time <= duration);
+      if (!keyframes.length) return [];
+      if (clip.schemaVersion === 2) keyframes[keyframes.length - 1] = { ...keyframes[keyframes.length - 1]!, outInterpolation: null };
+      return [{ ...track, keyframes } as AnyMotionTrack];
+    });
+    const terminalTime = Math.max(0, duration - MOTION_KEY_TIME_EPSILON);
+    const events = clip.events.filter((event) => event.time <= duration).map((event) => clip.loop && event.time >= duration ? { ...event, time: terminalTime } : event);
+    const contacts = clip.contacts?.map((contact) => ({ ...contact, intervals: contact.intervals.filter((interval) => interval.start <= duration).map((interval) => ({ ...interval, end: Math.min(interval.end, duration) })) })).filter((contact) => contact.intervals.length);
+    const next = { ...clip, duration, tracks, events, ...(contacts ? { contacts } : {}) } as MotionClip;
+    if (await commitClipEdit(next)) {
+      setDurationDraft(String(duration));
+      setTime((old) => Math.min(old, duration));
+    } else setDurationDraft(String(clip.duration));
+  };
   const addEvent = async () => {
     if (!clip || busy || !eventDraft.type.trim() || !eventDraft.name.trim() || time < 0 || time > clip.duration || (clip.loop && time >= clip.duration)) return;
     let payload: Record<string, JsonValue> | undefined;
@@ -700,25 +770,32 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
     });
   };
   const nudgeRotation = (degrees: number) => { if (builtin) return; setPlaying(false); setDraft((old) => ({ ...old, rz: Math.max(-180, Math.min(180, old.rz + degrees)) })); };
-  const createBinding = async () => { const selectedSkeleton = assets.find((item) => item.id === bindingSkeletonId && item.kind === "skeleton"); if (!selectedSkeleton) return; try { const made = await api.createAnimationAsset({ schemaVersion: 1, kind: "character-binding", id: uid("binding"), name: t("animation.binding.newName"), skeletonId: selectedSkeleton.id, slots: [], attachments: [] }, folder === "all" || folder === "ungrouped" ? null : folder); setCreatingBinding(false); await load(); setSelected(made.asset.id); } catch (e) { notify(t("animation.binding.createFailed", { msg: (e as Error).message })); } };
-  return <><ol className="animation-flow-map">
-    <li className={materials.length ? "done" : ""}><b>1</b><span><strong>{t("animation.flow.parts")}</strong><small>{t("animation.flow.partsHint")}</small></span><button className="px-btn" onClick={onOpenMaterials}>{t("animation.flow.openMaterials")}</button></li>
-    <li className={counts.skeleton && counts["character-binding"] ? "done" : ""}><b>2</b><button onClick={() => setFilter("character-binding")}><strong>{t("animation.flow.binding")}</strong><small>{t("animation.flow.bindingHint")}</small></button></li>
-    <li className={counts["motion-clip"] ? "done" : ""}><b>3</b><button onClick={() => setFilter("motion-clip")}><strong>{t("animation.flow.motion")}</strong><small>{t("animation.flow.motionHint")}</small></button></li>
-    <li className={skeletalProjectCount ? "done" : ""}><b>4</b><span><strong>{t("animation.flow.project")}</strong><small>{t("animation.flow.projectHint")}</small></span><button className="px-btn" onClick={onOpenProjects}>{t("animation.flow.openProjects")}</button></li>
+  return <>{createActionOpen && <div className="modal-mask" onMouseDown={(event) => event.target === event.currentTarget && !busy && setCreateActionOpen(false)}>
+    <form className="modal pixel-panel animation-create-action-modal" role="dialog" aria-modal="true" aria-labelledby="animation-create-action-title" onSubmit={(event) => { event.preventDefault(); void createAction(); }}>
+      <h2 id="animation-create-action-title">{t("animation.createAction")}</h2>
+      <p>{t("animation.createActionHint")}</p>
+      <label>{t("animation.actionName")}<input className="px-input" autoFocus value={newAction.name} onChange={(event) => setNewAction((old) => ({ ...old, name: event.target.value }))} /></label>
+      <label>{t("animation.actionSkeleton")}<PxSelect value={newAction.skeletonId} options={assets.filter((asset) => asset.kind === "skeleton").map((asset) => ({ value: asset.id, label: asset.name }))} onChange={(skeletonId) => setNewAction((old) => ({ ...old, skeletonId }))} /></label>
+      <label>{t("animation.actionDuration")}<input className="px-input" type="number" min="0.01" step="0.01" value={newAction.duration} onChange={(event) => setNewAction((old) => ({ ...old, duration: Number(event.target.value) }))} /></label>
+      <label className="px-check"><input type="checkbox" checked={newAction.loop} onChange={(event) => setNewAction((old) => ({ ...old, loop: event.target.checked }))} />{t("animation.loop")}</label>
+      <div className="modal-actions"><button className="px-btn" type="button" disabled={busy} onClick={() => setCreateActionOpen(false)}>{t("common.cancel")}</button><button className="px-btn accent" type="submit" disabled={busy || !newAction.name.trim() || !newAction.skeletonId || !Number.isFinite(newAction.duration) || newAction.duration <= 0}>{t("animation.createAction")}</button></div>
+    </form>
+  </div>}<ol className="animation-flow-map">
+    <li className={counts.skeleton ? "done" : ""}><b>1</b><button onClick={() => setFilter("skeleton")}><strong>{t("animation.flow.skeleton")}</strong><small>{t("animation.flow.skeletonHint")}</small></button></li>
+    <li className={counts["motion-clip"] ? "done" : ""}><b>2</b><button onClick={() => setFilter("motion-clip")}><strong>{t("animation.flow.motion")}</strong><small>{t("animation.flow.motionHint")}</small></button></li>
+    <li><b>3</b><span><strong>{t("animation.flow.project")}</strong><small>{t("animation.flow.projectHint")}</small></span><button className="px-btn" onClick={onOpenProjects}>{t("animation.flow.openProjects")}</button></li>
   </ol><div className="animation-workspace">
     <FolderTree className="animation-folders" title={t("animation.folders")} kind="animation" folders={folders} selected={folder} onSelect={setFolder} onCreate={async (n, p) => { await api.createFolder("animation", n, p); await load(); }} onRename={async (id, n) => { await api.patchFolder(id, { name: n }); await load(); }} onDelete={async (id) => { await api.deleteFolder(id); await load(); }} onMoveFolder={async (id, p) => { await api.patchFolder(id, { parentId: p }); await load(); }} onDropItems={(folderId, ids) => void api.moveItems("animation", ids, folderId).then(load).catch((e) => notify(t("animation.moveFailed", { msg: e.message })))} />
-    <div className="animation-filter-rail"><strong>{t("animation.filter.title")}</strong>{(["all", "skeleton", "character-binding", "motion-clip"] as AssetFilter[]).map((kind) => <button key={kind} className={filter === kind ? "on" : ""} onClick={() => setFilter(kind)}>{t(`animation.filter.${kind}`)} <span>{counts[kind]}</span></button>)}</div>
-    <section className="pixel-panel animation-library"><header><h2>{t("animation.assets")}</h2><div className="animation-library-actions"><input ref={inputRef} hidden type="file" accept="application/json,.json" onChange={(e) => { void importFile(e.target.files?.[0]); e.currentTarget.value = ""; }} /><button className="px-btn" onClick={() => inputRef.current?.click()}><Upload size={14} />{t("animation.importJson")}</button><button className="px-btn" onClick={() => setCreatingBinding((value) => !value)}><Plus size={14} />{t("animation.binding.create")}</button><button className="px-btn accent" onClick={() => void (async () => { let skeletonId: string | undefined; try { const [s, c] = makeExample(t("animation.exampleSkeletonName"), t("animation.exampleClipName")); skeletonId = s.id; const targetFolder = folder === "all" || folder === "ungrouped" ? null : folder; await api.createAnimationAsset(s, targetFolder); const made = await api.createAnimationAsset(c, targetFolder); await load(); setSelected(made.asset.id); } catch (e) { if (skeletonId) await api.deleteAnimationAsset(skeletonId).catch(() => undefined); notify(t("animation.exampleFailed", { msg: (e as Error).message })); } })()}><Plus size={14} />{t("animation.createExample")}</button></div></header>{creatingBinding && <div className="binding-create"><label>{t("animation.binding.skeleton")}<PxSelect value={bindingSkeletonId} options={assets.filter((item) => item.kind === "skeleton").map((item) => ({ value: item.id, label: item.name }))} onChange={setBindingSkeletonId} /></label><button className="px-btn accent" disabled={!bindingSkeletonId} onClick={() => void createBinding()}>{t("animation.binding.confirmCreate")}</button><button className="px-btn" onClick={() => setCreatingBinding(false)}>{t("common.cancel")}</button></div>}<div className="animation-list">{visible.map((asset) => { const locked = isBuiltinAnimationAssetId(asset.id); return <button draggable={!locked} onDragStart={locked ? undefined : (e) => e.dataTransfer.setData("application/x-framebaker-ids", JSON.stringify([asset.id]))} className={`${selected === asset.id ? "on" : ""}${locked ? " builtin" : ""}`} key={asset.id} onClick={() => setSelected(asset.id)}><strong>{asset.name}</strong><span>{locked && <Lock size={11} />}{locked ? t("animation.builtin.badge") : asset.kind === "skeleton" ? t("animation.skeleton") : asset.kind === "motion-clip" ? t("animation.motionClip") : t("animation.binding.kind")}</span></button>; })}{!visible.length && <p>{t("animation.empty")}</p>}</div></section>
+    <div className="animation-filter-rail"><strong>{t("animation.filter.title")}</strong>{(["all", "skeleton", "motion-clip"] as AssetFilter[]).map((kind) => <button key={kind} className={filter === kind ? "on" : ""} onClick={() => setFilter(kind)}>{t(`animation.filter.${kind}`)} <span>{counts[kind]}</span></button>)}</div>
+    <section className="pixel-panel animation-library"><header><h2>{t("animation.assets")}</h2><div className="animation-library-actions"><input ref={inputRef} hidden type="file" accept="application/json,.json" onChange={(e) => { void importFile(e.target.files?.[0]); e.currentTarget.value = ""; }} /><button className="px-btn" onClick={() => inputRef.current?.click()}><Upload size={14} />{t("animation.importJson")}</button><button className="px-btn accent" onClick={openCreateAction}><Plus size={14} />{t("animation.createAction")}</button></div></header><div className="animation-list">{visible.map((asset) => { const locked = isBuiltinAnimationAssetId(asset.id); return <button draggable={!locked} onDragStart={locked ? undefined : (e) => e.dataTransfer.setData("application/x-framebaker-ids", JSON.stringify([asset.id]))} className={`${selected === asset.id ? "on" : ""}${locked ? " builtin" : ""}`} key={asset.id} onClick={() => setSelected(asset.id)}><strong>{asset.name}</strong><span>{locked && <Lock size={11} />}{locked ? t("animation.builtin.badge") : asset.kind === "skeleton" ? t("animation.skeleton") : t("animation.motionClip")}</span></button>; })}{!visible.length && <p>{t("animation.empty")}</p>}</div></section>
     <main className="pixel-panel animation-preview">{stored && skeleton ? <><header>{renaming && !builtin ? <input className="px-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void saveName()} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> : <h2>{stored.name}</h2>}<div>{builtin ? <span className="animation-builtin-badge"><Lock size={13} />{t("animation.builtin.badge")}</span> : <><button className="px-btn icon" onClick={() => setRenaming(true)} title={t("animation.rename")}><Pencil size={14} /></button><button className="px-btn icon danger" onClick={() => void remove()} title={t("common.delete")}><Trash2 size={14} /></button></>}</div></header>
       {builtin && <aside className="animation-builtin-notice"><Lock size={20} /><div><strong>{t("animation.builtin.title")}</strong><p>{t(clip ? "animation.builtin.clipHint" : "animation.builtin.skeletonHint")}</p></div>{clip && <button className="px-btn accent" disabled={busy} onClick={() => void copyBuiltinClip()}><Copy size={14} />{t("animation.builtin.copyEdit")}</button>}</aside>}
       {stored.kind === "skeleton" && <SkeletonPreview skeleton={skeleton} time={0} />}
-      {binding && <BindingEditor binding={binding} skeleton={skeleton} materials={materials} busy={busy} onSave={async (next) => { setBusy(true); try { const saved = await api.putAnimationAsset(next.id, next); setStored(saved.asset); notify(t("animation.binding.saved"), "info"); } catch (e) { notify(t("animation.saveFailed", { msg: (e as Error).message })); } finally { setBusy(false); } }} />}
       {clip && <>
         <div className="animation-motion-compose">
         <section className="animation-motion-stage">
         <SkeletonPreview skeleton={skeleton} clip={previewClip} rangeClip={clip} time={time} selectedBone={selectedBone} disabled={playing} onSelectBone={selectBone} onEditBone={builtin ? undefined : editBoneOnCanvas} />
-        <div className="animation-controls"><button className="px-btn accent" disabled={busy} onClick={() => setPlaying((v) => !v)}>{playing ? <Pause size={14} /> : <Play size={14} />}{playing ? t("animation.pause") : t("animation.play")}</button><input type="range" min="0" max={clip.duration} step="0.001" value={time} onChange={(e) => { setPlaying(false); setTime(+e.target.value); }} /><span>{time.toFixed(2)}s / {clip.duration.toFixed(2)}s</span><label className="px-check"><input type="checkbox" checked={clip.loop} disabled={busy || builtin} onChange={(event) => void toggleLoop(event.target.checked)} />{t("animation.loop")}</label>{clip.loop && <button className="px-btn" disabled={busy || builtin} onClick={() => skeleton && void commitClipEdit(closeMotionLoopSeam(clip, skeleton))}>{t("animation.closeLoopSeam")}</button>}</div>
+        <div className="animation-controls"><button className="px-btn accent" disabled={busy} onClick={() => setPlaying((v) => !v)}>{playing ? <Pause size={14} /> : <Play size={14} />}{playing ? t("animation.pause") : t("animation.play")}</button><input type="range" min="0" max={clip.duration} step="0.001" value={time} onChange={(e) => { setPlaying(false); setTime(+e.target.value); }} /><span>{time.toFixed(2)}s / {clip.duration.toFixed(2)}s</span><label className="px-check" title={builtin ? t("animation.builtin.loopEditHint") : undefined}><input type="checkbox" checked={clip.loop} disabled={busy} onChange={(event) => void toggleLoop(event.target.checked)} />{t("animation.loop")}</label>{clip.loop && <button className="px-btn" disabled={busy || builtin} onClick={() => skeleton && void commitClipEdit(closeMotionLoopSeam(clip, skeleton))}>{t("animation.closeLoopSeam")}</button>}</div>
 
         <ol className="animation-quick-guide" aria-label={t("animation.guide.title")}>
           <li><b>1</b><span>{t("animation.guide.time")}</span></li>
@@ -758,6 +835,7 @@ export default function AnimationAssetsWorkspace({ onOpenMaterials, onOpenProjec
 
         <details className="animation-clip-tools">
           <summary>{t("animation.advancedSettings")}</summary>
+          <div className="animation-duration-setting"><label>{t("animation.actionDuration")}<input className="px-input" type="number" min="0.01" step="0.01" value={durationDraft} disabled={busy || builtin} onChange={(event) => setDurationDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveDuration(); }} /></label><button className="px-btn" type="button" disabled={busy || builtin || durationDraft === String(clip.duration)} onClick={() => void saveDuration()}>{t("animation.saveDuration")}</button></div>
           <label>{t("animation.rootMotion")}<PxSelect value={clip.rootMotion ?? ""} disabled={busy || builtin} options={[{ value: "", label: t("animation.unspecified") }, { value: "preserve", label: t("animation.root.preserve") }, { value: "in-place", label: t("animation.root.inPlace") }, { value: "extracted", label: t("animation.root.extracted") }]} onChange={(value) => void setRootMotion(value)} /></label>
           <div className="animation-event-form"><input className="px-input" value={eventDraft.type} disabled={busy || builtin} placeholder={t("animation.eventType")} onChange={(e) => setEventDraft((old) => ({ ...old, type: e.target.value }))} /><input className="px-input" value={eventDraft.name} disabled={busy || builtin} placeholder={t("animation.eventName")} onChange={(e) => setEventDraft((old) => ({ ...old, name: e.target.value }))} /><textarea className="px-input" rows={2} value={eventDraft.payload} disabled={busy || builtin} aria-invalid={!!eventPayloadError} placeholder={t("animation.eventPayload")} onChange={(e) => { setEventDraft((old) => ({ ...old, payload: e.target.value })); setEventPayloadError(""); }} />{eventPayloadError && <span className="animation-event-error">{eventPayloadError}</span>}<button className="px-btn" disabled={busy || builtin || !eventDraft.type.trim() || !eventDraft.name.trim() || (clip.loop && time >= clip.duration)} onClick={() => void addEvent()}>{t("animation.addEvent")}</button></div>
           <div className="animation-event-list">{clip.events.map((event, index) => <div key={`${event.time}-${index}`}><button onClick={() => { setPlaying(false); setTime(event.time); }}><span>{event.time.toFixed(3)}s · {event.type} · {event.name}</span>{event.payload && <code>{JSON.stringify(event.payload)}</code>}</button><button className="px-btn icon danger" disabled={busy || builtin} title={t("common.delete")} onClick={() => void commitClipEdit(deleteMotionEvent(clip, index))}><Trash2 size={12} /></button></div>)}</div>
