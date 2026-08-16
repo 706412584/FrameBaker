@@ -57,7 +57,7 @@ export interface ImageOpResponse {
 }
 
 /** 扫描 alpha>0 像素的最小包围盒（像素图「裁透明边」）；全透明返回 null */
-export function computeOpaqueBounds(data: Uint8ClampedArray, width: number, height: number): CropRect | null {
+export function computeOpaqueBounds(data: Uint8ClampedArray, width: number, height: number, alphaThreshold = 0): CropRect | null {
   let minX = width;
   let minY = height;
   let maxX = -1;
@@ -65,7 +65,7 @@ export function computeOpaqueBounds(data: Uint8ClampedArray, width: number, heig
   for (let y = 0; y < height; y++) {
     const row = y * width * 4;
     for (let x = 0; x < width; x++) {
-      if (data[row + x * 4 + 3] > 0) {
+      if (data[row + x * 4 + 3] > alphaThreshold) {
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (y < minY) minY = y;
@@ -155,7 +155,7 @@ function sampleOpaqueBounds(data: Uint8ClampedArray, width: number, bounds: Crop
 
 /** 为质量检查提取透明边、连通主体和归一化视觉采样。 */
 export function computeImageAnalysis(data: Uint8ClampedArray, width: number, height: number): ImageAnalysis {
-  const bounds = computeOpaqueBounds(data, width, height);
+  const bounds = computeOpaqueBounds(data, width, height, ANALYSIS_ALPHA_THRESHOLD);
   let opaquePixels = 0;
   for (let i = 3; i < data.length; i += 4) {
     if (data[i] > ANALYSIS_ALPHA_THRESHOLD) opaquePixels++;

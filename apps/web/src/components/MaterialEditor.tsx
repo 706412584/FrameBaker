@@ -253,9 +253,13 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
     const stroke = activeStrokeRef.current;
     const work = workRef.current;
     if (!stroke || !work || strokeExitedRef.current) return;
-    if (point.x < 0 || point.y < 0 || point.x > imgW || point.y > imgH) {
+    const outside = point.x < 0 || point.y < 0 || point.x > imgW || point.y > imgH;
+    if (outside) {
+      point = {
+        x: Math.max(0, Math.min(imgW, point.x)),
+        y: Math.max(0, Math.min(imgH, point.y)),
+      };
       strokeExitedRef.current = true;
-      return;
     }
     const previous = stroke.points.at(-1);
     if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < 0.35) return;

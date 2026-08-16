@@ -45,6 +45,15 @@ describe("骨骼分件图像质量检查", () => {
     expect(analysis.opaqueRatio).toBeCloseTo(26 / 120);
   });
 
+  test("质量检查忽略擦除后几乎不可见的低透明度边缘", () => {
+    const analysis = image(16, 16, (set) => {
+      for (let y = 3; y < 13; y++) for (let x = 4; x < 10; x++) set(x, y);
+      set(0, 8, [120, 80, 40, 4]);
+    });
+    expect(analysis.bounds).toEqual({ x: 4, y: 3, w: 6, h: 10 });
+    expect(findSkeletalPartQualityIssues([analysis])).not.toContainEqual({ code: "touches-edge", cells: [1] });
+  });
+
   test("识别完全重复和镜像复制的部件", () => {
     const original = image(16, 16, (set) => {
       for (let y = 3; y < 13; y++) for (let x = 4; x < 8; x++) set(x, y);

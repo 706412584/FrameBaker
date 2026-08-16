@@ -16,6 +16,10 @@ This document records features, changes, and bug fixes by release. Main releases
 - Refined skeletal-parts prompts to treat the requested grid as capacity, allow transparent surplus cells and rectangular multi-cell blocks for oversized parts, and forbid invented filler parts or weapons.
 - Limited divider dragging to the active cell and only the cells directly facing that edge, leaving lateral cells unchanged.
 - Unified skeletal project output on the `.fbanim` runtime package and removed the frame-project compatibility bake path, RenderProfile, and RasterSequence APIs.
+
+### Fixed
+
+- Made erase strokes reach the exact image boundary when dragged outside the editor, and stopped near-transparent antialias residue from falsely triggering skeletal-part edge warnings.
 ## [0.3.1] - 2026-08-13
 
 ### Changed
