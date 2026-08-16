@@ -140,8 +140,9 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("Weapon must not touch an arm");
     expect(prompt).toContain("regular 4 × 3 lattice of identical cells");
     expect(prompt).toContain("one global scale factor");
-    expect(prompt).toContain("opaque bounding box centered");
+    expect(prompt).toContain("opaque bounds centered");
     expect(prompt).toContain("at least 10% clear padding");
+    expect(prompt).toContain("Transparent background only; never black, dark, checked, or textured");
     expect(prompt).toContain("no variable gaps, packed/staggered layout");
     expect(prompt).toContain("shrink all parts uniformly");
     expect(prompt).toContain("Extra requirements: red cape");
