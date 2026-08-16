@@ -94,18 +94,18 @@ export function buildArticulatedPartsPrompt(options: { description?: string; ref
   const count = rows * cols;
   const standardHumanoid = rows === 3 && cols === 4;
   const introduction = options.reference
-    ? "Reference image is the single source of truth. Extract this exact character into a pixel-art skeletal parts sheet. Preserve identity, outfit, palette, lighting, facing, pixel density, exact head-to-body ratio and limb proportions; never redesign or independently rescale a part."
+    ? "Reference image is the single source of truth. Preserve identity, outfit, palette, lighting, facing, pixel density, exact head-to-body ratio and limb proportions; never redesign or independently rescale a part."
     : "Create a pixel-art skeletal parts sheet with one consistent character design, scale, lighting and facing.";
   const layout = standardHumanoid
-    ? "Exactly 12 pieces in strict 4 columns by 3 rows, left-to-right: row 1 head, torso, pelvis, separate weapon; row 2 left upper arm, left forearm, right upper arm, right forearm; row 3 left thigh, left shin, right thigh, right shin."
-    : `Exactly ${count} useful pieces in strict ${cols} columns by ${rows} rows. Follow Extra requirements, otherwise split at real joints, keep sides separate, and use remaining cells for weapons/accessories.`;
-  const separation = `Use a regular ${cols} × ${rows} lattice of identical cells; do not draw grid lines. One isolated part per cell, opaque bounds centered, margins balanced, with at least 10% clear padding from every boundary. Use one global scale factor; if needed shrink all parts uniformly. Identical center spacing and row/column pitch; no variable gaps, packed/staggered layout, touching, crossing, labels, or assembled character. Transparent background only; never black, dark, checked, or textured. Weapon must not touch an arm.`;
+    ? "Use up to 12 slots in strict 4 columns by 3 rows: row 1 head, torso, pelvis, the reference weapon or an empty slot; row 2 left upper arm, left forearm, right upper arm, right forearm; row 3 left thigh, left shin, right thigh, right shin. Never invent a weapon."
+    : `Use up to ${count} slots in strict ${cols} columns by ${rows} rows. Generate only distinct parts actually required by the character and Extra requirements; leave every surplus cell fully transparent. Never invent filler parts, duplicate limbs, or unnecessary accessories merely to fill the grid.`;
+  const separation = `Use a regular ${cols} × ${rows} lattice of identical cells; no grid lines. One isolated part per cell/block, opaque bounds centered, balanced margins, at least 10% clear padding. Oversized part: use a contiguous rectangular 2+ cell block, keep covered cells empty and edges lattice-aligned. Use one global scale factor; with no spare cells, shrink all parts uniformly, never one alone. Identical center spacing and row/column pitch, cell size/gutters; no variable gaps, packed/staggered layout, touching, crossing, labels, or assembled character. Transparent background only; never black, dark, checked, or textured. Weapon must not touch an arm.`;
   const joints = standardHumanoid
-    ? "Pelvis is waist-to-hip-sockets only: no shoulder or thigh. Upper arms stop at elbows with no hands; forearms include exactly one hand each (exactly two hands total). Thighs stop at knees with no feet; shins run knee-to-foot. Orient limbs top-to-bottom and leave small matching joint overlap."
+    ? "Pelvis is waist-to-hip-sockets only, no shoulder/thigh. Upper arms end at elbows, no hands; forearms have one hand each (two hands total). Thighs end at knees, no feet; shins are knee-to-foot. Limbs top-to-bottom with joint overlap."
     : "Split at real joints with small matching overlap. Keep proximal ends identifiable; never put a whole character or unrelated parts in one cell.";
   const uniqueness = standardHumanoid
-    ? "Never duplicate or mirror-copy a limb. Verify 12 meanings, two hands, one pelvis, one weapon, no repeated/missing/cut part, whole arm, or whole leg."
-    : `Never duplicate or mirror-copy a side. Verify all ${count} cells are distinct, useful, complete and uncut.`;
+    ? "Require 11 body parts, two hands, pelvis and optional weapon; no duplicate, mirrored, missing, cut or whole limbs."
+    : `Every occupied cell must be distinct, useful, complete and uncut; every unused cell must be fully empty.`;
   const description = options.description?.trim() ? ` Character description: ${options.description.trim()}.` : "";
   const extra = options.extra?.trim() ? ` Extra requirements: ${options.extra.trim()}.` : "";
   return `${introduction} ${layout} ${separation} ${joints} ${uniqueness}${description}${extra}`.slice(0, 1490);

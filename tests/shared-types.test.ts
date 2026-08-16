@@ -132,10 +132,12 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("single source of truth");
     expect(prompt).toContain("exact head-to-body ratio");
     expect(prompt).toContain("never redesign or independently rescale");
-    expect(prompt).toContain("Exactly 12 pieces");
+    expect(prompt).toContain("Use up to 12 slots");
     expect(prompt).toContain("4 columns by 3 rows");
     expect(prompt).toContain("left upper arm, left forearm");
     expect(prompt).toContain("left thigh, left shin");
+    expect(prompt).toContain("the reference weapon or an empty slot");
+    expect(prompt).toContain("Never invent a weapon");
     expect(prompt).toContain("hip-sockets only");
     expect(prompt).toContain("Weapon must not touch an arm");
     expect(prompt).toContain("regular 4 × 3 lattice of identical cells");
@@ -145,18 +147,23 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("Transparent background only; never black, dark, checked, or textured");
     expect(prompt).toContain("no variable gaps, packed/staggered layout");
     expect(prompt).toContain("shrink all parts uniformly");
+    expect(prompt).toContain("contiguous rectangular 2+ cell block");
+    expect(prompt).toContain("keep covered cells empty");
     expect(prompt).toContain("Extra requirements: red cape");
     expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
-  test("自定义行列数决定部件数量且不套用固定人形槽位", () => {
+  test("自定义行列数只决定容量，多余格允许留空且不套用固定人形槽位", () => {
     const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 5, extra: "include a tail and two shoulder plates" });
-    expect(prompt).toContain("Exactly 15 useful pieces");
+    expect(prompt).toContain("Use up to 15 slots");
     expect(prompt).toContain("5 columns by 3 rows");
     expect(prompt).toContain("Split at real joints");
-    expect(prompt).toContain("all 15 cells");
+    expect(prompt).toContain("leave every surplus cell fully transparent");
+    expect(prompt).toContain("Never invent filler parts");
+    expect(prompt).toContain("every unused cell must be fully empty");
     expect(prompt).toContain("regular 5 × 3 lattice of identical cells");
     expect(prompt).toContain("Identical center spacing and row/column pitch");
+    expect(prompt).toContain("rectangular 2+ cell block");
     expect(prompt).not.toContain("row 1 = head, torso, pelvis");
     expect(prompt).toContain("Extra requirements: include a tail and two shoulder plates");
     expect(prompt.length).toBeLessThanOrEqual(1490);
