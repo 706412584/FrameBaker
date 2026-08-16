@@ -20,6 +20,8 @@ import ReferencePicker, { type ReferenceSelection } from "./ReferencePicker";
 
 interface Props {
   initialTab: "upload" | "cli";
+  /** 从素材操作入口拆分人物时，预选当前完整人物并直接进入骨骼分件流程。 */
+  initialReferenceMaterialId?: string;
   /** 当前选中的素材文件夹（null = 未分组 / 全部） */
   folderId?: string | null;
   onClose: () => void;
@@ -42,7 +44,7 @@ function stateIcon(s: FileState): string {
 }
 
 /** 素材导入弹窗：上传（可多选，单图/GIF/MP4 混合）或 AI 生成，目标为 /api/materials/* */
-export default function MaterialImportModal({ initialTab, folderId = null, onClose, onDone }: Props) {
+export default function MaterialImportModal({ initialTab, initialReferenceMaterialId, folderId = null, onClose, onDone }: Props) {
   const t = useT();
   useModalEscClose(onClose);
   const [tab, setTab] = useState<"upload" | "cli">(initialTab);
@@ -52,11 +54,11 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
-  const [references, setReferences] = useState<ReferenceSelection[]>([]);
+  const [references, setReferences] = useState<ReferenceSelection[]>(() => initialReferenceMaterialId ? [{ kind: "material", id: initialReferenceMaterialId }] : []);
   const [count, setCount] = useState(4);
   const [mediaKind, setMediaKind] = useState<"image" | "video">("image"); // 生成内容：图片 / 视频（抽帧另做）
-  const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">("frame");
-  const [skeletalMode, setSkeletalMode] = useState<"parts" | "decompose">("parts");
+  const [generationLine, setGenerationLine] = useState<"frame" | "skeletal">(initialReferenceMaterialId ? "skeletal" : "frame");
+  const [skeletalMode, setSkeletalMode] = useState<"parts" | "decompose">(initialReferenceMaterialId ? "decompose" : "parts");
   const [gridRows, setGridRows] = useState(3);
   const [gridCols, setGridCols] = useState(4);
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
@@ -108,7 +110,6 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
       const generatedName = prompt.trim().slice(0, 24) || t("skeletal.parts.autoName");
       const completeMaterialName = t("skeletal.generate.completeMaterialName", { name: generatedName });
       const partsMaterialName = t("skeletal.generate.partsMaterialName", { name: generatedName, count: gridRows * gridCols });
-      const referenceMaterialId = references.find((item) => item.kind === "material")?.id;
       await api.generateMaterial({
         prompt: generationLine === "skeletal" && skeletalMode === "parts" ? completeCharacterPrompt : generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
         count: generationLine === "skeletal" ? 1 : count,
@@ -119,7 +120,6 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
           intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-character" as const,
           name: skeletalMode === "parts" ? completeMaterialName : partsMaterialName,
           ...(skeletalMode === "decompose" ? { gridRows, gridCols } : {}),
-          ...(skeletalMode === "decompose" && referenceMaterialId ? { referenceMaterialId } : {}),
           ...(skeletalMode === "parts" ? { followUp: { prompt: skeletalPrompt, name: partsMaterialName, autoMatting, gridRows, gridCols } } : {}),
         } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
@@ -334,25 +334,27 @@ export default function MaterialImportModal({ initialTab, folderId = null, onClo
             {!hasProvider && <div className="hint warn">{t("msg.no_gen_provider_add_cli_api_providers_in_settings")}</div>}
             <details className="generation-advanced">
               <summary>{t("skeletal.generate.advanced")}</summary>
-            <ProviderModelPicker
-              providerId={providerId}
-              model={model}
-              onProviderChange={setProviderId}
-              onModelChange={setModel}
-              videoOnly={mediaKind === "video"}
-              preferI2v={mediaKind === "video" && references.length > 0}
-            />
-            {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
-            {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}
-            {mediaKind === "image" && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
-            <div className="hint">
-              {t("msg.configure_generation_in_settings_cli_openai_compatible_b")}{" "}
-              <code>FRAMEBAKER_GEN_CLI</code> {t("msg.fallback")}
-              <br />
-              {t("msg.cli_set_command_arg_names_no_placeholders_ref_images_nee")}
-              <br />
-              {t("msg.video_gen_cli_bailian_minimax_only_async_extract_frames")}
-            </div>
+              <div className="generation-advanced-content">
+                <ProviderModelPicker
+                  providerId={providerId}
+                  model={model}
+                  onProviderChange={setProviderId}
+                  onModelChange={setModel}
+                  videoOnly={mediaKind === "video"}
+                  preferI2v={mediaKind === "video" && references.length > 0}
+                />
+                {mediaKind === "image" && <SizePicker providerId={providerId} value={size} onChange={setSize} />}
+                {mediaKind === "video" && <SizePicker providerId={providerId} value={size} onChange={setSize} forVideo />}
+                {mediaKind === "image" && <MattingOption checked={autoMatting} onChange={setAutoMatting} />}
+                <div className="hint">
+                  {t("msg.configure_generation_in_settings_cli_openai_compatible_b")}{" "}
+                  <code>FRAMEBAKER_GEN_CLI</code> {t("msg.fallback")}
+                  <br />
+                  {t("msg.cli_set_command_arg_names_no_placeholders_ref_images_nee")}
+                  <br />
+                  {t("msg.video_gen_cli_bailian_minimax_only_async_extract_frames")}
+                </div>
+              </div>
             </details>
             <div className="modal-actions">
               <motion.button

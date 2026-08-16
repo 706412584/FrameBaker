@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -23,10 +23,11 @@ interface Props {
   onClose: () => void;
   onChanged: () => void;
   onToast: (msg: string) => void;
+  onDecomposeCharacter: () => void;
 }
 
 /** 素材详情：图片对比滑杆 / 视频预览 + 抽帧编辑器；抠图/还原/导入/删除 */
-export default function MaterialModal({ material: m, v, onClose, onChanged, onToast }: Props) {
+export default function MaterialModal({ material: m, v, onClose, onChanged, onToast, onDecomposeCharacter }: Props) {
   const t = useT();
   const openMaterialEditor = useMaterialEditor();
   useModalEscClose(onClose);
@@ -39,6 +40,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   const [showSplit, setShowSplit] = useState(false);
+  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">("frame");
   const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [actionPreset, setActionPreset] = useState<"actions" | "directions">("actions");
@@ -285,9 +287,35 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
                 className="px-btn"
                 disabled={busy}
                 title={t("msg.split_sprite_grid_into_separate_materials_by_rows_cols")}
-                onClick={() => setShowSplit(true)}
+                onClick={() => {
+                  setSplitLine("frame");
+                  setShowSplit(true);
+                }}
               >
-                <Grid3x3 size={14} /> {t(guidedSkeletalSplit ? "skeletal.split.reviewAndCreate" : "msg.grid_split")}
+                <Grid3x3 size={14} /> {t("msg.grid_split")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className={`px-btn${guidedSkeletalSplit ? " accent" : ""}`}
+                disabled={busy}
+                title={t("skeletal.split.qualityHint")}
+                onClick={() => {
+                  setSplitLine("skeletal");
+                  setShowSplit(true);
+                }}
+              >
+                <Bone size={14} /> {t("skeletal.split.reviewAndCreate")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
+                title={t("skeletal.generate.decomposeHint")}
+                onClick={onDecomposeCharacter}
+              >
+                <PersonStanding size={14} /> {t("skeletal.generate.fromReference")}
               </motion.button>
               {imageLayersAvailable && <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn" disabled={busy} onClick={() => setShowLayers(true)}>
                 <Layers3 size={14} /> {t("layers.action")}
@@ -379,7 +407,7 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
 
         <AnimatePresence>
           {showSplit && (
-            <GridSplitModal material={m} v={v} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
+            <GridSplitModal material={m} v={v} initialLine={splitLine} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
           )}
         </AnimatePresence>
 

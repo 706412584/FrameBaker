@@ -15,13 +15,16 @@ import PxSelect from "./PxSelect";
 interface Props {
   material: Material;
   v: number;
+  initialLine?: "frame" | "skeletal";
   onClose: () => void;
   onDone: () => void;
   onToast: (msg: string) => void;
 }
 
 const clampCell = (n: number) => Math.max(1, Math.min(8, Math.floor(n) || 1));
+const MAX_CELL_SHIFT_RATIO = 0.4;
 const DEFAULT_PART_ROLES: CharacterPartRole[] = [...ARTICULATED_CHARACTER_PART_ROLES];
+type CellOffset = { x: number; y: number };
 
 interface SkeletalReview {
   cells: Blob[];
@@ -49,7 +52,7 @@ function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
  * - 等分行×列切成独立素材
  * - 可选每格自动裁透明边
  */
-export default function GridSplitModal({ material: m, v, onClose, onDone, onToast }: Props) {
+export default function GridSplitModal({ material: m, v, initialLine, onClose, onDone, onToast }: Props) {
   const t = useT();
   const slot = m.processed_path ? "processed" : "raw";
   const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
@@ -57,13 +60,14 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const hintedRows = typeof m.metadata.gridRows === "number" ? clampCell(m.metadata.gridRows) : 3;
   const hintedCols = typeof m.metadata.gridCols === "number" ? clampCell(m.metadata.gridCols) : 4;
   const initialGrid = gridFromMaterialName(m.name);
-  const [rows, setRows] = useState(guidedSkeletalSplit ? hintedRows : initialGrid.rows);
-  const [cols, setCols] = useState(guidedSkeletalSplit ? hintedCols : initialGrid.cols);
+  const startsSkeletal = initialLine === "skeletal" || (initialLine == null && guidedSkeletalSplit);
+  const [rows, setRows] = useState(startsSkeletal ? hintedRows : initialGrid.rows);
+  const [cols, setCols] = useState(startsSkeletal ? hintedCols : initialGrid.cols);
   const [autoMatting, setAutoMatting] = useState(!m.processed_path);
   const [autoTrim, setAutoTrim] = useState(true); // 每格裁透明边
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
-  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(guidedSkeletalSplit ? "skeletal" : "frame");
+  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialLine ?? (guidedSkeletalSplit ? "skeletal" : "frame"));
   const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
   const [partSetId, setPartSetId] = useState(hintedPartSetId);
   const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
@@ -72,13 +76,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [region, setRegion] = useState<CropRect | null>(null);
+  const [cellOffsets, setCellOffsets] = useState<CellOffset[]>([]);
   const [disp, setDisp] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ ax: number; ay: number; rx: number; ry: number } | null>(null);
+  const cellDragRef = useRef<{ index: number; ax: number; ay: number; ox: number; oy: number } | null>(null);
   useModalEscClose(onClose);
 
-  const skipCenter = /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
+  const skipCenter = splitLine === "frame" && /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
   const total = rows * cols - (skipCenter ? 1 : 0);
   const standardHumanoidGrid = splitLine === "skeletal" && rows === 3 && cols === 4;
 
@@ -89,6 +95,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
   useEffect(() => {
     setSkeletalReview(null);
     setReviewConfirmed(false);
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
   }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot]);
 
   useEffect(() => setReviewConfirmed(false), [partSetId]);
@@ -146,6 +153,68 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
 
   const scaleX = imgSize ? disp.w / imgSize.w : 1;
   const scaleY = imgSize ? disp.h / imgSize.h : 1;
+
+  const baseCellRect = (index: number): CropRect | null => {
+    if (!region) return null;
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const cellWidth = Math.floor(region.w / cols);
+    const cellHeight = Math.floor(region.h / rows);
+    return {
+      x: region.x + cellWidth * col,
+      y: region.y + cellHeight * row,
+      w: col === cols - 1 ? region.w - cellWidth * col : cellWidth,
+      h: row === rows - 1 ? region.h - cellHeight * row : cellHeight,
+    };
+  };
+
+  const adjustedCellRect = (index: number): CropRect | null => {
+    const base = baseCellRect(index);
+    if (!base) return null;
+    const offset = cellOffsets[index] ?? { x: 0, y: 0 };
+    return { ...base, x: base.x + offset.x, y: base.y + offset.y };
+  };
+
+  const clampCellOffset = (index: number, offset: CellOffset): CellOffset => {
+    const base = baseCellRect(index);
+    if (!base || !imgSize) return { x: 0, y: 0 };
+    const maxX = Math.max(1, Math.round(base.w * MAX_CELL_SHIFT_RATIO));
+    const maxY = Math.max(1, Math.round(base.h * MAX_CELL_SHIFT_RATIO));
+    return {
+      x: Math.max(-maxX, -base.x, Math.min(maxX, imgSize.w - base.w - base.x, Math.round(offset.x))),
+      y: Math.max(-maxY, -base.y, Math.min(maxY, imgSize.h - base.h - base.y, Math.round(offset.y))),
+    };
+  };
+
+  const onCellPointerDown = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
+    if (busy) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const offset = cellOffsets[index] ?? { x: 0, y: 0 };
+    cellDragRef.current = { index, ax: e.clientX, ay: e.clientY, ox: offset.x, oy: offset.y };
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const onCellPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = cellDragRef.current;
+    if (!drag) return;
+    e.stopPropagation();
+    const dx = (e.clientX - drag.ax) / scaleX;
+    const dy = (e.clientY - drag.ay) / scaleY;
+    const next = clampCellOffset(drag.index, { x: drag.ox - dx, y: drag.oy - dy });
+    setCellOffsets((items) => items.map((item, index) => index === drag.index ? next : item));
+  };
+
+  const onCellPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    cellDragRef.current = null;
+    e.stopPropagation();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!region || busy) return;
@@ -220,15 +289,10 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
       const res = await fetch(materialImageUrl(m.id, v, slot));
       if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
       const blob = await res.blob();
-      const cw = Math.floor(region.w / cols);
-      const ch = Math.floor(region.h / rows);
       const cells: Blob[] = [];
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const w = c === cols - 1 ? region.w - cw * c : cw;
-          const h = r === rows - 1 ? region.h - ch * r : ch;
-          cells.push(await cropImage(blob, { x: region.x + cw * c, y: region.y + ch * r, w, h }));
-        }
+      for (let index = 0; index < rows * cols; index++) {
+        const rect = adjustedCellRect(index);
+        if (rect) cells.push(await cropImage(blob, rect));
       }
       const analyses = await Promise.all(cells.map(analyzeImage));
       const issues = findSkeletalPartQualityIssues(analyses);
@@ -277,8 +341,6 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
         if (!rawResponse.ok) throw new Error(t("msg.failed_to_read_material_image"));
         rawBlob = await rawResponse.blob();
       }
-      const cw = Math.floor(region.w / cols);
-      const ch = Math.floor(region.h / rows);
       const preparedCells = splitLine === "skeletal" ? skeletalReview!.cells : null;
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       for (let r = 0; r < rows; r++) {
@@ -287,14 +349,9 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
           const i = r * cols + c + 1 - (skipCenter && r > 1 ? 1 : 0);
           setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
-            const w = c === cols - 1 ? region.w - cw * c : cw;
-            const h = r === rows - 1 ? region.h - ch * r : ch;
-            const cellRect = {
-              x: region.x + cw * c,
-              y: region.y + ch * r,
-              w,
-              h,
-            };
+            const cellIndex = r * cols + c;
+            const cellRect = splitLine === "skeletal" ? adjustedCellRect(cellIndex)! : baseCellRect(cellIndex)!;
+            const { w, h } = cellRect;
             let cell = preparedCells?.[i - 1] ?? await cropImage(blob, cellRect);
             let rawCell = m.processed_path ? await cropImage(rawBlob, cellRect) : cell;
             if (autoTrim) {
@@ -307,7 +364,8 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             }
             const draft = splitLine === "skeletal" ? partDrafts[i - 1] : undefined;
             const fd = new FormData();
-            const cellName = draft ? `${base}_${draft.role}` : `${base}_r${r + 1}c${c + 1}`;
+            const partName = draft?.name.trim();
+            const cellName = draft ? partName || `${base}_${draft.role}` : `${base}_r${r + 1}c${c + 1}`;
             fd.append("file", rawCell, `${cellName}.png`);
             if (m.processed_path) fd.append("processedFile", cell, `${cellName}_processed.png`);
             fd.append("autoMatting", String(autoMatting && !m.processed_path));
@@ -320,13 +378,14 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                 col: c + 1,
                 sourceSlot: slot,
                 autoTrim,
+                ...(splitLine === "skeletal" ? { offset: cellOffsets[cellIndex] ?? { x: 0, y: 0 } } : {}),
               },
             }));
             if (m.folder_id) fd.append("folderId", m.folder_id);
             const uploaded = await api.uploadMaterial(fd);
             if (splitLine === "skeletal") {
               if (!("materialId" in uploaded)) throw new Error(t("skeletal.split.imageUploadExpected"));
-              createdMembers.push({ materialId: uploaded.materialId, role: draft!.role, name: draft!.name.trim() || `${base} ${i}` });
+              createdMembers.push({ materialId: uploaded.materialId, role: draft!.role, name: partName || `${base} ${i}` });
             }
             ok++;
           } catch (e) {
@@ -438,13 +497,46 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                 onLoad={syncDisp}
               />
               {regionStyle && (
-                <div className="gs-region" style={regionStyle}>
-                  {Array.from({ length: cols - 1 }, (_, i) => (
-                    <div key={`v${i}`} className="gs-line v" style={{ left: `${((i + 1) / cols) * 100}%` }} />
-                  ))}
-                  {Array.from({ length: rows - 1 }, (_, i) => (
-                    <div key={`h${i}`} className="gs-line h" style={{ top: `${((i + 1) / rows) * 100}%` }} />
-                  ))}
+                <div className={`gs-region${splitLine === "skeletal" ? " skeletal-cells" : ""}`} style={regionStyle}>
+                  {splitLine === "skeletal" ? Array.from({ length: rows * cols }, (_, index) => {
+                    const base = baseCellRect(index)!;
+                    const adjusted = adjustedCellRect(index)!;
+                    return <div
+                      className="gs-cell-window"
+                      key={index}
+                      style={{
+                        left: (base.x - region!.x) * scaleX,
+                        top: (base.y - region!.y) * scaleY,
+                        width: base.w * scaleX,
+                        height: base.h * scaleY,
+                      }}
+                      onPointerDown={(event) => onCellPointerDown(index, event)}
+                      onPointerMove={onCellPointerMove}
+                      onPointerUp={onCellPointerUp}
+                      onPointerCancel={onCellPointerUp}
+                      onDoubleClick={() => setCellOffsets((items) => items.map((item, itemIndex) => itemIndex === index ? { x: 0, y: 0 } : item))}
+                    >
+                      <img
+                        src={materialImageUrl(m.id, v, slot)}
+                        alt=""
+                        draggable={false}
+                        style={{
+                          width: disp.w,
+                          height: disp.h,
+                          left: -adjusted.x * scaleX,
+                          top: -adjusted.y * scaleY,
+                        }}
+                      />
+                      <span>{index + 1}</span>
+                    </div>;
+                  }) : <>
+                    {Array.from({ length: cols - 1 }, (_, i) => (
+                      <div key={`v${i}`} className="gs-line v" style={{ left: `${((i + 1) / cols) * 100}%` }} />
+                    ))}
+                    {Array.from({ length: rows - 1 }, (_, i) => (
+                      <div key={`h${i}`} className="gs-line h" style={{ top: `${((i + 1) / rows) * 100}%` }} />
+                    ))}
+                  </>}
                 </div>
               )}
             </div>
@@ -520,6 +612,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                 <strong>{t("skeletal.split.destination")}</strong>
                 <div className="hint">{t("skeletal.split.destinationHint")}</div>
                 <div className="hint">{t("skeletal.split.qualityHint")}</div>
+                <div className="hint">{t("skeletal.split.dragCellsHint")}</div>
               </div>
               <PxSelect
                 value={partSetId}
@@ -553,7 +646,15 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
                         : <span>{index + 1}</span>}
                     </div>
                     <span>{t("skeletal.split.cell", { index: index + 1 })}</span>
-                    <strong>{standardHumanoidGrid ? t(`skeletal.partRole.${draft.role}`) : draft.name}</strong>
+                    <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
+                    <input
+                      className="px-input"
+                      value={draft.name}
+                      disabled={busy}
+                      aria-label={t("skeletal.split.partName", { index: index + 1 })}
+                      placeholder={t("skeletal.split.partMaterialNamePlaceholder")}
+                      onChange={(event) => setPartDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))}
+                    />
                   </div>
                 ))}
               </div>
@@ -575,6 +676,7 @@ export default function GridSplitModal({ material: m, v, onClose, onDone, onToas
             className="px-btn accent"
             disabled={busy || !region || (splitLine === "skeletal" && (
               (!partSetId && !partSetName.trim())
+              || partDrafts.some((draft) => !draft.name.trim())
               || Boolean(skeletalReview?.issues.length)
               || Boolean(skeletalReview && !reviewConfirmed)
             ))}

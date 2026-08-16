@@ -701,6 +701,7 @@ input[type="range"] {
 .skeletal-action-settings .px-check { align-self: center; }
 .generation-advanced { padding: 8px; border: 1px solid var(--border); }
 .generation-advanced summary { cursor: pointer; color: var(--text-muted); }
+.generation-advanced-content { display: grid; gap: 14px; padding-top: 14px; }
 .skeletal-event-strip { height: 82px; margin: 10px 10px 0; position: relative; border: 1px solid var(--border); border-top: 3px solid var(--accent); background: color-mix(in srgb, var(--surface) 84%, transparent); }
 .skeletal-event-strip > strong { position: absolute; top: 7px; left: 10px; color: var(--text); font-size: 14px; }
 .skeletal-event-strip button { position: absolute; top: 36px; width: 12px; height: 22px; padding: 0; transform: translateX(-50%); border: 2px solid var(--accent); background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
@@ -820,6 +821,17 @@ input[type="range"] {
 .modal h2 {
   font-size: 20px;
   color: var(--accent);
+}
+/* 标准弹窗由根节点滚动：标题与关闭按钮必须始终留在可视区。专用工作区弹窗已有独立固定头部。 */
+.modal:not(.ve-modal):not(.gs-modal):not(.mat-modal):not(.skeletal-binding-editor-modal) > :is(.form-inline:first-child, .modal-title-row:first-child, h2:first-child) {
+  position: sticky;
+  z-index: 5;
+  top: -24px;
+  flex-shrink: 0;
+  margin: -24px -24px 0;
+  padding: 8px 24px 6px;
+  border-bottom: 2px solid var(--border);
+  background: var(--surface);
 }
 .animation-create-action-modal > label:not(.px-check) {
   display: grid;
@@ -2813,6 +2825,38 @@ input[type="range"] {
     0 0 0 9999px color-mix(in srgb, var(--bg) 55%, transparent);
   pointer-events: none;
 }
+.gs-region.skeletal-cells {
+  pointer-events: auto;
+}
+.gs-cell-window {
+  position: absolute;
+  overflow: hidden;
+  cursor: grab;
+  border: 1px solid var(--accent);
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 12px 12px;
+  touch-action: none;
+}
+.gs-cell-window:active {
+  cursor: grabbing;
+}
+.gs-wrap .gs-cell-window img {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
+.gs-cell-window > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 1;
+  padding: 2px 5px;
+  color: var(--accent-contrast);
+  font-size: 11px;
+  line-height: 1;
+  background: var(--accent);
+  pointer-events: none;
+}
 .gs-line {
   position: absolute;
   background: var(--accent);
@@ -2916,7 +2960,7 @@ input[type="range"] {
 .skeletal-split-member {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   gap: 7px;
   align-items: center;
   padding: 5px 6px;
@@ -2928,7 +2972,7 @@ input[type="range"] {
   box-shadow: inset 0 0 0 1px var(--error);
 }
 .skeletal-part-preview {
-  grid-row: 1 / 3;
+  grid-row: 1 / 4;
   width: 46px;
   min-height: 54px;
   display: grid;
@@ -2956,6 +3000,13 @@ input[type="range"] {
 .skeletal-split-member > strong {
   min-width: 0;
   color: var(--text);
+  font-size: 12px;
+}
+.skeletal-split-member > .px-input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 6px;
   font-size: 12px;
 }
 .skeletal-identity-reference {
@@ -3435,7 +3486,26 @@ body.resizing-row * {
 
 /* ===== 添加素材 / 导入素材弹窗（比默认 .modal 更宽） ===== */
 .import-modal {
-  width: min(920px, calc(100vw - 48px));
+  width: min(1120px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+}
+
+@media (min-width: 900px) {
+  .import-modal .generation-advanced-content {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.45fr);
+    align-items: start;
+  }
+  .import-modal .generation-advanced-content > .form-row:first-of-type,
+  .import-modal .generation-advanced-content > .hint {
+    grid-column: 1 / -1;
+  }
+  .import-modal .generation-advanced-content > .size-picker {
+    grid-column: 1;
+  }
+  .import-modal .generation-advanced-content > .matting-option {
+    grid-column: 2;
+    align-self: center;
+  }
 }
 
 /* ===== 素材库选择（导入弹窗） ===== */

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Download, Eye, Film, ImageDown, Layers3, Package, Pencil, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Bone, Check, Download, Eye, Film, ImageDown, Layers3, Package, Pencil, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -94,6 +94,7 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<"upload" | "cli" | null>(null);
+  const [decomposeMaterialId, setDecomposeMaterialId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [extractId, setExtractId] = useState<string | null>(null);
   const [layerId, setLayerId] = useState<string | null>(null);
@@ -436,6 +437,12 @@ export default function MaterialsPage() {
     ? (materials.find((m) => selectedIds.has(m.id) && m.kind !== "video") ?? null)
     : null;
 
+  const openCharacterDecompose = (materialId: string) => {
+    setDetailId(null);
+    setDecomposeMaterialId(materialId);
+    setImportTab("cli");
+  };
+
   const ctxMat = ctxMenu ? (materials.find((m) => m.id === ctxMenu.materialId) ?? null) : null;
   const ctxBatch = ctxMenu != null && selectedIds.size >= 2 && selectedIds.has(ctxMenu.materialId);
   const ctxItems: CtxMenuItem[] = !ctxMenu
@@ -667,6 +674,11 @@ export default function MaterialsPage() {
                     <Pencil size={14} />
                   </IconBtn>
                 )}
+                {selectedLayerMat && (
+                  <IconBtn title={t("skeletal.generate.fromReference")} disabled={busy} onClick={() => openCharacterDecompose(selectedLayerMat.id)}>
+                    <Bone size={14} />
+                  </IconBtn>
+                )}
                 <IconBtn className="danger" title={t("msg.batch_delete")} disabled={busy} onClick={() => void requestBatchDelete()}>
                   <Trash2 size={14} />
                 </IconBtn>
@@ -719,8 +731,12 @@ export default function MaterialsPage() {
           {importTab && (
             <MaterialImportModal
               initialTab={importTab}
+              initialReferenceMaterialId={decomposeMaterialId ?? undefined}
               folderId={currentFolderId}
-              onClose={() => setImportTab(null)}
+              onClose={() => {
+                setImportTab(null);
+                setDecomposeMaterialId(null);
+              }}
               onDone={() => {
                 void load();
                 setV((x) => x + 1);
@@ -740,6 +756,7 @@ export default function MaterialsPage() {
                 setV((x) => x + 1);
               }}
               onToast={toast}
+              onDecomposeCharacter={() => openCharacterDecompose(detail.id)}
             />
           )}
         </AnimatePresence>
