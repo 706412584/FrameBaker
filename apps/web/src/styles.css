@@ -2746,9 +2746,6 @@ input[type="range"] {
   gap: 12px;
   overflow: hidden;
 }
-.gs-modal.frame-mode {
-  width: min(760px, calc(100vw - 48px));
-}
 .gs-header {
   min-width: 0;
   display: flex;
