@@ -7,6 +7,16 @@ const valid: CharacterBinding = { schemaVersion: 1, kind: "character-binding", i
 
 describe("CharacterBinding v1", () => {
   test("accepts a valid Region binding", () => expect(validateCharacterBinding(valid, skeleton).ok).toBeTrue());
+  test("accepts bounded deterministic attachment deformation", () => {
+    const value = structuredClone(valid);
+    value.attachments[0]!.deform = { axis: "vertical", bend: .2, sway: .15, frequency: 2, phase: 0 };
+    expect(validateCharacterBinding(value, skeleton).ok).toBeTrue();
+  });
+  test("rejects out-of-range attachment deformation", () => {
+    const value = structuredClone(valid);
+    value.attachments[0]!.deform = { axis: "vertical", bend: 1.2, sway: 0, frequency: 2, phase: 0 };
+    expect(validateCharacterBinding(value, skeleton).ok).toBeFalse();
+  });
   test.each([
     ["duplicate attachment", (v: CharacterBinding) => v.attachments.push({ ...v.attachments[0]! })],
     ["duplicate slot", (v: CharacterBinding) => v.slots.push({ ...v.slots[0]!, drawOrder: 1 })],

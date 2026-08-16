@@ -4630,10 +4630,12 @@ body.resizing-row * {
 .binding-preview.interactive[data-tool="rotate"] image { cursor: crosshair; }
 .binding-preview.interactive[data-tool="scale"] image { cursor: nwse-resize; }
 .binding-preview.interactive[data-tool="pivot"] image { cursor: cell; }
-.binding-preview.interactive image.selected { filter: drop-shadow(0 0 3px var(--accent)); }
+.binding-preview.interactive[data-tool="warp"] image { cursor: ew-resize; }
+.binding-preview.interactive image.selected:not(.deformed) { filter: drop-shadow(0 0 3px var(--accent)); }
+.binding-preview.interactive image.selected.deformed { opacity: .92; }
 .binding-pivot { fill: var(--accent); stroke: var(--bg); stroke-width: .025; pointer-events: none; }
 .binding-pivot-cross { stroke: var(--accent); stroke-width: .025; vector-effect: non-scaling-stroke; pointer-events: none; }
-.binding-selection-outline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.binding-selection-outline { fill: transparent; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; pointer-events: all; }
 .binding-rotate-stem { stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .binding-transform-handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: all; }
 .binding-transform-handle:hover { fill: var(--accent); stroke: var(--text); }

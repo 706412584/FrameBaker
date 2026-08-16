@@ -6,6 +6,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Added
 
+- Added deterministic flexible attachment deformation with canvas Warp dragging, rest bend, playback sway, axis, frequency, and phase controls for capes and other soft parts.
 - Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
 - Added material-folder filtering to the skeletal binding image picker, including hierarchical folder paths plus All and Ungrouped views.
 - Added material renaming from the library context menu, REST API, and MCP tool, with immediate open-view synchronization.
@@ -22,6 +23,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Fixed
 
+- Made the selected attachment's transform outline capture canvas drags, so overlapping parts cannot redirect a Warp or transform edit to another layer.
 - Made erase strokes reach the exact image boundary when dragged outside the editor, and stopped near-transparent antialias residue from falsely triggering skeletal-part edge warnings.
 ## [0.3.1] - 2026-08-13
 

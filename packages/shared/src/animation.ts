@@ -190,6 +190,15 @@ export interface CharacterSlot {
   drawOrder: number;
 }
 
+/** 区域附件的确定性弯曲参数；bend 是静态形变，sway 在播放时叠加正弦摆动。 */
+export interface RegionAttachmentDeform {
+  axis: "vertical" | "horizontal";
+  bend: number;
+  sway: number;
+  frequency: number;
+  phase: number;
+}
+
 export interface RegionAttachment {
   id: string;
   name: string;
@@ -199,6 +208,7 @@ export interface RegionAttachment {
   size: [number, number];
   pivot: [number, number];
   rest: Transform;
+  deform?: RegionAttachmentDeform;
 }
 
 export interface CharacterBinding extends AnimationAssetBase<"character-binding"> {
@@ -566,7 +576,7 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
   else for (const [index, attachment] of value.attachments.entries()) {
     const path = `attachments[${index}]`;
     if (!isRecord(attachment)) { issues.push({ path, message: "必须是 Region 附件对象" }); continue; }
-    rejectUnknown(attachment, ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest"], path, issues);
+    rejectUnknown(attachment, ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest", "deform"], path, issues);
     if (typeof attachment.id !== "string" || !ID_PATTERN.test(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 无效" });
     else if (attachmentIds.has(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 重复" });
     else attachmentIds.add(attachment.id);
@@ -578,6 +588,17 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
     if (!isTuple(attachment.size, 2) || attachment.size.some((number) => number <= 0)) issues.push({ path: `${path}.size`, message: "尺寸必须包含 2 个正有限数值" });
     if (!isTuple(attachment.pivot, 2) || attachment.pivot.some((number) => number < 0 || number > 1)) issues.push({ path: `${path}.pivot`, message: "轴心必须包含 2 个 [0, 1] 有限数值" });
     validateTransform(attachment.rest, `${path}.rest`, issues);
+    if (attachment.deform !== undefined) {
+      const deformPath = `${path}.deform`;
+      if (!isRecord(attachment.deform)) issues.push({ path: deformPath, message: "弯曲参数必须是对象" });
+      else {
+        rejectUnknown(attachment.deform, ["axis", "bend", "sway", "frequency", "phase"], deformPath, issues);
+        if (attachment.deform.axis !== "vertical" && attachment.deform.axis !== "horizontal") issues.push({ path: `${deformPath}.axis`, message: "弯曲方向必须是 vertical 或 horizontal" });
+        for (const key of ["bend", "sway"] as const) if (!isFiniteNumber(attachment.deform[key]) || Math.abs(attachment.deform[key]) > 1) issues.push({ path: `${deformPath}.${key}`, message: "弯曲强度必须是 [-1, 1] 内的有限数值" });
+        if (!isFiniteNumber(attachment.deform.frequency) || attachment.deform.frequency < 0 || attachment.deform.frequency > 10) issues.push({ path: `${deformPath}.frequency`, message: "摆动频率必须是 [0, 10] 内的有限数值" });
+        if (!isFiniteNumber(attachment.deform.phase) || Math.abs(attachment.deform.phase) > Math.PI * 2) issues.push({ path: `${deformPath}.phase`, message: "摆动相位必须是 [-2π, 2π] 内的有限数值" });
+      }
+    }
   }
   const slotIds = new Set<string>(), drawOrders = new Set<number>();
   if (!Array.isArray(value.slots) || value.slots.length > ANIMATION_V1_LIMITS.maxCharacterSlots) issues.push({ path: "slots", message: "必须是未超限的插槽数组" });
