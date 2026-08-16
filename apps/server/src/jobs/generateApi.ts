@@ -11,6 +11,8 @@ interface ImagesResponse {
 
 /** MiniMax 图像 prompt 上限（官方 invalid params: length must be less than 1500） */
 const MINIMAX_PROMPT_MAX = 1499;
+/** 图片生成与引用图编辑可能需要较长推理时间，所有 Provider 统一等待 5 分钟。 */
+const IMAGE_GENERATION_TIMEOUT = 5 * 60_000;
 
 function imageMimeType(path: string): string {
   switch (extname(path).toLowerCase()) {
@@ -99,7 +101,7 @@ async function generateViaOpenAI(
       method: "POST",
       headers: auth,
       body: form,
-      signal: fetchSignal(signal, 180_000),
+      signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
     });
     if (!res.ok) throw await readError(res, "images/edits（引用图）");
   } else {
@@ -109,7 +111,7 @@ async function generateViaOpenAI(
       method: "POST",
       headers: { ...auth, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: fetchSignal(signal, 120_000),
+      signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
     });
     if (!res.ok) throw await readError(res, "images/generations");
   }
@@ -158,7 +160,7 @@ async function generateViaDashscope(
         Authorization: `Bearer ${cfg.apiKey.trim()}`,
       },
       body: JSON.stringify({ model, input: { messages: [{ role: "user", content }] }, parameters }),
-      signal: fetchSignal(signal, 180_000),
+      signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
     });
   } catch (e) {
     throw new Error(`DashScope 请求失败: ${(e as Error).message}`);
@@ -307,7 +309,7 @@ async function generateViaGemini(
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.apiKey.trim() },
         body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig }),
-        signal: fetchSignal(signal, 180_000),
+        signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
       });
     } catch (e) {
       if (signal?.aborted) throw new JobCancelledError();
@@ -367,7 +369,7 @@ async function generateViaMinimax(
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey.trim()}` },
       body: JSON.stringify(body),
-      signal: fetchSignal(signal, 180_000),
+      signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
     });
   } catch (e) {
     throw new Error(`MiniMax 请求失败: ${(e as Error).message}`);
