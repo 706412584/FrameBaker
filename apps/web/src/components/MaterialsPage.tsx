@@ -5,6 +5,7 @@ import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
 import { cropImage, findOpaqueBounds } from "../imageops/client";
+import { useModalEscClose } from "../hooks/useModalEscClose";
 import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { SOURCE_LABEL_KEYS } from "../sourceLabel";
@@ -103,6 +104,9 @@ export default function MaterialsPage() {
   /** 右键导入：null=批量选中；string=单素材 id */
   const [pickerScope, setPickerScope] = useState<"batch" | string>("batch");
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; materialId: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Material | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [v, setV] = useState(0);
   /** 按素材 id 的缩略图版本：仅在对应素材图变化时 bump（替代全局 v 的全量破缓存，避免一变全变） */
@@ -111,6 +115,29 @@ export default function MaterialsPage() {
   const theme = useTheme();
   const cfg = useServerConfig();
   const openMaterialEditor = useMaterialEditor();
+  useModalEscClose(() => setRenameTarget(null), Boolean(renameTarget) && !renameBusy);
+
+  const openRename = (material: Material) => {
+    setRenameTarget(material);
+    setRenameName(material.name);
+  };
+
+  const submitRename = async () => {
+    const target = renameTarget;
+    const name = renameName.trim();
+    if (!target || !name || renameBusy) return;
+    setRenameBusy(true);
+    try {
+      const { material } = await api.renameMaterial(target.id, name);
+      setMaterials((items) => items.map((item) => item.id === material.id ? material : item));
+      setRenameTarget(null);
+      notify(t("material.rename.success"), "info");
+    } catch (e) {
+      notify(t("material.rename.failed", { msg: (e as Error).message }));
+    } finally {
+      setRenameBusy(false);
+    }
+  };
 
   const loadFolders = useCallback(async () => {
     try {
@@ -510,6 +537,11 @@ export default function MaterialsPage() {
               icon: <Eye size={13} />,
               onClick: () => openDetail(ctxMat.id),
             },
+            {
+              label: t("msg.rename"),
+              icon: <Pencil size={13} />,
+              onClick: () => openRename(ctxMat),
+            },
             ...(ctxMat.kind === "video"
               ? ([
                   {
@@ -785,6 +817,18 @@ export default function MaterialsPage() {
             )}
           </AnimatePresence>
         </div>
+
+        <AnimatePresence>
+          {renameTarget && (
+            <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <motion.form className="modal pixel-panel" role="dialog" aria-modal="true" aria-labelledby="material-rename-title" initial={{ scale: .9, y: 24 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .9, y: 24 }} onSubmit={(event) => { event.preventDefault(); void submitRename(); }}>
+                <h2 id="material-rename-title">{t("material.rename.title")}</h2>
+                <label>{t("material.rename.label")}<input className="px-input" autoFocus maxLength={200} value={renameName} placeholder={t("material.rename.placeholder")} disabled={renameBusy} onChange={(event) => setRenameName(event.target.value)} /></label>
+                <div className="modal-actions"><button type="button" className="px-btn" disabled={renameBusy} onClick={() => setRenameTarget(null)}>{t("common.cancel")}</button><button type="submit" className="px-btn accent" disabled={renameBusy || !renameName.trim()}>{t("msg.rename")}</button></div>
+              </motion.form>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {importTab && (

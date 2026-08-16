@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { CharacterBinding, MaterialRow } from "@framebaker/shared";
 import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
-import { db, getMaterial, nextFrameIdx, serializeMaterial, STORAGE_ROOT, uid } from "../db";
+import { db, getMaterial, nextFrameIdx, renameMaterial, serializeMaterial, STORAGE_ROOT, uid } from "../db";
 import { createGenerationJobs, createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
 import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
@@ -132,6 +132,18 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     const rows = db.query("SELECT * FROM materials ORDER BY created_at DESC").all() as MaterialRow[];
     return { materials: rows.map(serializeMaterial) };
   })
+  .patch(
+    "/materials/:id",
+    ({ params, body, status }) => {
+      const name = body.name.trim();
+      if (!name) return status(400, "素材名称不能为空");
+      const material = renameMaterial(params.id, name);
+      if (!material) return status(404, "素材不存在");
+      broadcast("material_updated", { id: params.id });
+      return { material: serializeMaterial(material) };
+    },
+    { body: t.Object({ name: t.String({ minLength: 1, maxLength: 200 }) }) }
+  )
   // 素材图片，processed 缺失回退 raw（.png 后缀别名：让 Pixi Assets 按扩展名命中 parser）
   .get("/materials/:id/image", materialImageHandler)
   .get("/materials/:id/image.png", materialImageHandler)

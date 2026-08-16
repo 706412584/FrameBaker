@@ -308,6 +308,12 @@ export function serializeMaterial(m: MaterialRow): Material {
   return { ...m, metadata: parseJson<Record<string, unknown>>(m.metadata, {}), kind } as Material;
 }
 
+export function renameMaterial(id: string, name: string): MaterialRow | null {
+  if (!getMaterial(id)) return null;
+  db.query("UPDATE materials SET name = ? WHERE id = ?").run(name, id);
+  return getMaterial(id);
+}
+
 export function serializeAttackEffect(row: AttackEffectCellRow): AttackEffectCell {
   return { ...row, effect: parseJson(row.effect, { strokes: [], offset_x: 0, offset_y: 0, scale: 1, rotation: 0, opacity: 1 }) };
 }

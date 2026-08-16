@@ -185,6 +185,8 @@ export const api = {
 
   // ---- 素材库 ----
   listMaterials: () => req<MaterialsResponse>("/api/materials").then((r) => r.materials),
+  renameMaterial: (id: string, name: string) =>
+    req<MaterialResponse>(`/api/materials/${id}`, { method: "PATCH", ...json({ name }) }),
   uploadMaterial: (fd: FormData) =>
     req<JobCreatedResponse | MaterialCreatedResponse>("/api/materials/upload", { method: "POST", body: fd }),
   generateMaterial: (body: GenerateBody) =>

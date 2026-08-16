@@ -192,6 +192,10 @@ provider 解析：传了 `providerId` 按 id 找（找不到 400）；缺省用�
 }
 ```
 
+### PATCH /api/materials/:id
+
+重命名单个图片或视频素材。请求 `{ "name": "新素材名称" }`（自动去除首尾空格，长度 1–200）→ `{ "material": {…} }`。素材不存在时返回 404；成功后广播 `material_updated`。
+
 ### GET /api/materials/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
 素材图片/视频流。`type=processed` 且无 processed 时回退 raw。图片素材可通过可选整数参数 `size` 获取宽高均不超过该值的缓存缩略图；参数非法或越界时返回原图。缩略图使用 ImageMagick 或 ffmpeg，两者均不可用时无损回退原图。响应包含 `ETag` / `Last-Modified`；带 `v` 的版本化 URL 使用一年 immutable 缓存，未带版本时执行重新验证。视频响应忽略 `size`。
@@ -314,7 +318,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 | `frames_changed` | 导入完成 / 复制 / 删除 / 素材导入项目 |
 | `frames_reordered` | 换序 |
 | `project_deleted` | 删除项目 |
-| `material_updated` | 素材抠图完成 / 还原原图 / 剪裁替换图片 |
+| `material_updated` | 素材重命名 / 抠图完成 / 还原原图 / 剪裁替换图片 |
 | `materials_changed` | 素材上传 / 生成 / 批量删除 / 移动文件夹 |
 | `folders_changed` | 文件夹增删改 / 移动 |
 | `settings_changed` | 设置写入（layout / theme / lang / genProvider / matting） |
@@ -481,7 +485,7 @@ claude mcp add framebaker --transport http http://localhost:3000/mcp
 ```
 FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable HTTP）。
 请连接并调用 list_projects 开始。
-可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 34 个。
+可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 48 个。
 覆盖功能：像素动画项目、帧、素材、AI 生成、抠图、文件夹、任务与系统设置。
 ```
 
@@ -516,6 +520,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `generate_frames` | 为项目生成帧（AI provider） |
 | `generate_materials` | 生成素材（AI provider） |
 | `list_materials` | 列出全部素材 |
+| `rename_material` | 重命名单个图片或视频素材 |
 | `matting_material` | 单素材抠图 |
 | `split_material_layers` | 使用独立图片分层服务拆分素材图层 |
 | `batch_matting` | 批量抠图 |

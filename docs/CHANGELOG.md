@@ -8,6 +8,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 - Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
 - Added material-folder filtering to the skeletal binding image picker, including hierarchical folder paths plus All and Ungrouped views.
+- Added material renaming from the library context menu, REST API, and MCP tool, with immediate open-view synchronization.
 - Completed image-material context menus with direct crop, frame/skeletal split, character decomposition, multi-action/eight-direction generation, matting restore, import, layering, trim, export, and delete actions.
 - Motion events can now accept, validate, display, and persist an optional JSON payload.
 - Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.

@@ -192,6 +192,10 @@ Materials are first generated/uploaded to the library, matted, compared, then im
 }
 ```
 
+### PATCH /api/materials/:id
+
+Rename one image or video material. Request `{ "name": "New material name" }` (trimmed, 1–200 characters) → `{ "material": {…} }`. Returns 404 when the material does not exist and broadcasts `material_updated` on success.
+
 ### GET /api/materials/:id/image?type=raw|processed&size=64..1024&v=VERSION
 
 Material image/video stream. `type=processed` falls back to raw when no processed file exists. For image materials, the optional integer `size` returns a cached thumbnail whose width and height are each at most that value; invalid or out-of-range values return the original image. Thumbnail generation uses ImageMagick or ffmpeg and gracefully falls back to the original image when neither is available. Responses include `ETag` / `Last-Modified`; URLs with `v` use a one-year immutable cache, while unversioned URLs revalidate. Video responses ignore `size`.
@@ -314,7 +318,7 @@ Server → client one-way broadcast, JSON:
 | `frames_changed` | Import complete / duplicate / delete / material import to project |
 | `frames_reordered` | Reorder |
 | `project_deleted` | Delete project |
-| `material_updated` | Material matting complete / restore raw / crop replace image |
+| `material_updated` | Material rename / matting complete / restore raw / crop replace image |
 | `materials_changed` | Material upload / generate / batch delete / move folder |
 | `folders_changed` | Folder add/remove/update / move |
 | `settings_changed` | Setting written (layout / theme / lang / genProvider / matting) |
@@ -481,7 +485,7 @@ Copy and paste the following to your AI agent to get started:
 ```
 FrameBaker is running at http://localhost:3000 with an MCP server at /mcp (Streamable HTTP).
 Connect to it and use `list_projects` to get started.
-Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, matting_material, list_jobs, get_config, and 26 more.
+Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, matting_material, list_jobs, get_config, and 40 more.
 All tools manage pixel-art animation projects — frames, materials, generation, matting, folders, jobs, and settings.
 ```
 
@@ -516,6 +520,7 @@ After handshake, send `notifications/initialized` notification (no response need
 | `generate_frames` | Generate frames for a project (AI provider) |
 | `generate_materials` | Generate materials (AI provider) |
 | `list_materials` | List all materials |
+| `rename_material` | Rename one image or video material |
 | `matting_material` | Single material background removal |
 | `split_material_layers` | Split an image material with the standalone image-layer service |
 | `batch_matting` | Batch background removal |

@@ -105,6 +105,39 @@ describe("媒体响应", () => {
   });
 });
 
+describe("素材重命名", () => {
+  test("更新素材名称并拒绝空名称和不存在的素材", async () => {
+    const materialId = crypto.randomUUID();
+    db.query("INSERT INTO materials (id, name, status, source, metadata, created_at) VALUES (?, '旧名称', 'raw', 'upload', '{}', ?)").run(materialId, Date.now());
+    try {
+      const renamed = await app.handle(new Request(`http://localhost/api/materials/${materialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "  新名称  " }),
+      }));
+      expect(renamed.status).toBe(200);
+      expect((await renamed.json()).material.name).toBe("新名称");
+      expect(getMaterial(materialId)?.name).toBe("新名称");
+
+      const empty = await app.handle(new Request(`http://localhost/api/materials/${materialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "   " }),
+      }));
+      expect(empty.status).toBe(400);
+
+      const missing = await app.handle(new Request("http://localhost/api/materials/missing", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "新名称" }),
+      }));
+      expect(missing.status).toBe(404);
+    } finally {
+      db.query("DELETE FROM materials WHERE id=?").run(materialId);
+    }
+  });
+});
+
 describe("SQLite 实体转换", () => {
   test("解析帧 JSON 字段并在损坏数据时安全回退", () => {
     const frame = serializeFrame({

@@ -4,7 +4,7 @@ import * as z from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { MaterialRow } from "@framebaker/shared";
 import { IMAGE_LAYER_COUNT_MAX, IMAGE_LAYER_COUNT_MIN } from "@framebaker/shared";
-import { db, getMaterial, uid, STORAGE_ROOT, serializeMaterial } from "../../db";
+import { db, getMaterial, renameMaterial, uid, STORAGE_ROOT, serializeMaterial } from "../../db";
 import { broadcast } from "../../ws";
 import { createJob, createMattingJob } from "../../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/extract";
@@ -27,6 +27,25 @@ export function register(server: McpServer) {
         .query("SELECT * FROM materials ORDER BY created_at DESC")
         .all() as MaterialRow[];
       return ok({ materials: rows.map(serializeMaterial) });
+    }
+  );
+
+  server.registerTool(
+    "rename_material",
+    {
+      title: "Rename Material",
+      description: "Rename one image or video material in the material library.",
+      inputSchema: z.object({
+        materialId: z.string().describe("Material UUID"),
+        name: z.string().trim().min(1).max(200).describe("New material name"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ materialId, name }) => {
+      const material = renameMaterial(materialId, name);
+      if (!material) return err("素材不存在");
+      broadcast("material_updated", { id: materialId });
+      return ok({ material: serializeMaterial(material) });
     }
   );
 
