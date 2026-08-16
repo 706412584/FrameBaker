@@ -240,3 +240,20 @@ export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standar
   }
   return issues;
 }
+
+/** 自定义网格跳过透明余格；标准人形网格只允许明确标记的可选格留空。 */
+export function reviewSkeletalGrid(analyses: ImageAnalysis[], requireEveryCell: boolean, optionalEmptyIndexes: number[] = []): { activeIndexes: number[]; issues: SkeletalPartQualityIssue[] } {
+  if (requireEveryCell) {
+    const optional = new Set(optionalEmptyIndexes);
+    const activeIndexes = analyses.flatMap((analysis, index) => analysis.bounds || !optional.has(index) ? [index] : []);
+    const issues = findSkeletalPartQualityIssues(analyses, true).filter((issue) => !(issue.code === "empty" && optional.has(issue.cells[0] - 1)));
+    return { activeIndexes, issues };
+  }
+  const activeIndexes = analyses.flatMap((analysis, index) => analysis.bounds ? [index] : []);
+  if (!activeIndexes.length) return { activeIndexes, issues: [{ code: "empty", cells: [1] }] };
+  const issues = findSkeletalPartQualityIssues(activeIndexes.map((index) => analyses[index]), false).map((issue) => ({
+    ...issue,
+    cells: issue.cells.map((cell) => activeIndexes[cell - 1] + 1),
+  }));
+  return { activeIndexes, issues };
+}

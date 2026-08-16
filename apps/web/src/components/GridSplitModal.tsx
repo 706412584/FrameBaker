@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Bone, Grid3x3, Move, Scan, X } from "lucide-react";
+import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { analyzeImage, cropImage, findOpaqueBounds } from "../imageops/client";
-import { findSkeletalPartQualityIssues, type CropRect, type SkeletalPartQualityIssue } from "../imageops/ops";
+import { reviewSkeletalGrid, type CropRect, type SkeletalPartQualityIssue } from "../imageops/ops";
 import { notify } from "../notice";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import IconBtn from "./IconBtn";
 import MattingOption from "./MattingOption";
-import PxSelect from "./PxSelect";
+import { useMaterialEditor } from "./MaterialEditor";
+import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
 
 interface Props {
   material: Material;
@@ -22,14 +23,19 @@ interface Props {
 }
 
 const clampCell = (n: number) => Math.max(1, Math.min(8, Math.floor(n) || 1));
-const MAX_CELL_SHIFT_RATIO = 0.4;
 const DEFAULT_PART_ROLES: CharacterPartRole[] = [...ARTICULATED_CHARACTER_PART_ROLES];
 type CellOffset = { x: number; y: number };
+type CellResizeEdge = "left" | "right" | "top" | "bottom";
+type CellResizeAxis = "right" | "bottom";
+type CellResizeNeighbor = { group: number[]; rect: CropRect };
+type CellSplit = { parentId: number; children: [number, number] };
+type ManualMergedCell = { id: number; children: number[] };
 
 interface SkeletalReview {
   cells: Blob[];
   previews: string[];
   issues: SkeletalPartQualityIssue[];
+  activeGroupIndexes: number[];
 }
 
 function gridFromMaterialName(name: string): { cols: number; rows: number } {
@@ -54,6 +60,7 @@ function clampRegion(r: CropRect, imgW: number, imgH: number): CropRect {
  */
 export default function GridSplitModal({ material: m, v, initialLine, onClose, onDone, onToast }: Props) {
   const t = useT();
+  const openMaterialEditor = useMaterialEditor();
   const slot = m.processed_path ? "processed" : "raw";
   const guidedSkeletalSplit = m.metadata.intent === "skeletal-parts" || m.metadata.intent === "skeletal-decompose";
   const hintedPartSetId = typeof m.metadata.characterPartSetId === "string" ? m.metadata.characterPartSetId : "";
@@ -69,23 +76,38 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [progress, setProgress] = useState("");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialLine ?? (guidedSkeletalSplit ? "skeletal" : "frame"));
   const [dragMode, setDragMode] = useState<"grid" | "cell" | "merge">("cell");
-  const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
-  const [partSetId, setPartSetId] = useState(hintedPartSetId);
-  const [partSetName, setPartSetName] = useState(`${m.name} · ${t("skeletal.parts.setSuffix")}`);
+  const [targetPartSet, setTargetPartSet] = useState<CharacterPartSet | null>(null);
   const [partDrafts, setPartDrafts] = useState<Array<{ role: CharacterPartRole; name: string }>>([]);
   const [skeletalReview, setSkeletalReview] = useState<SkeletalReview | null>(null);
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
   const [region, setRegion] = useState<CropRect | null>(null);
-  const [cellViewportSize, setCellViewportSize] = useState<{ w: number; h: number } | null>(null);
   const [cellOffsets, setCellOffsets] = useState<CellOffset[]>([]);
+  const [cellSourceSizes, setCellSourceSizes] = useState<Array<{ w: number; h: number } | null>>([]);
+  const [cellFrameOffsets, setCellFrameOffsets] = useState<CellOffset[]>([]);
+  const [activeCellIndex, setActiveCellIndex] = useState<number | null>(null);
   const [mergedCellGroups, setMergedCellGroups] = useState<number[][]>([]);
+  const [cellSplits, setCellSplits] = useState<CellSplit[]>([]);
+  const [manualMergedCells, setManualMergedCells] = useState<ManualMergedCell[]>([]);
+  const [splitCellRects, setSplitCellRects] = useState<Record<number, CropRect>>({});
   const [selectedCells, setSelectedCells] = useState<number[]>([]);
+  const [cellContextMenu, setCellContextMenu] = useState<{ x: number; y: number; groupId: number } | null>(null);
   const [disp, setDisp] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ ax: number; ay: number; rx: number; ry: number } | null>(null);
   const cellDragRef = useRef<{ group: number[]; ax: number; ay: number; ox: number; oy: number } | null>(null);
+  const cellResizeRef = useRef<{
+    edge: CellResizeAxis;
+    ax: number;
+    ay: number;
+    boundary: number;
+    leaders: CellResizeNeighbor[];
+    neighbors: CellResizeNeighbor[];
+  } | null>(null);
+  const nextSplitCellIdRef = useRef(1000);
+  const previousDraftGroupsRef = useRef<number[][]>([]);
+  const previousDraftShapeRef = useRef("");
   useModalEscClose(onClose);
 
   const skipCenter = splitLine === "frame" && /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
@@ -94,17 +116,36 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     if (splitLine !== "skeletal") return Array.from({ length: rows * cols }, (_, index) => [index]);
     const owner = new Map<number, number[]>();
     for (const group of mergedCellGroups) for (const index of group) owner.set(index, group);
-    const groups: number[][] = [];
+    const baseGroups: number[][] = [];
     for (let index = 0; index < rows * cols; index++) {
       const group = owner.get(index) ?? [index];
-      if (group[0] === index) groups.push(group);
+      if (group[0] === index) baseGroups.push(group);
     }
-    return groups;
-  }, [cols, mergedCellGroups, rows, splitLine]);
+    const splitByParent = new Map(cellSplits.map((split) => [split.parentId, split.children]));
+    const expand = (group: number[]): number[][] => {
+      const children = splitByParent.get(group[0]);
+      return children ? children.flatMap((child) => expand([child])) : [group];
+    };
+    const expandedGroups = baseGroups.flatMap(expand);
+    const manualOwner = new Map<number, ManualMergedCell>();
+    for (const merged of manualMergedCells) for (const child of merged.children) manualOwner.set(child, merged);
+    const emitted = new Set<number>();
+    const mergedGroups = expandedGroups.flatMap((group) => {
+      const merged = manualOwner.get(group[0]);
+      if (!merged || emitted.has(merged.id)) return merged ? [] : [group];
+      emitted.add(merged.id);
+      return [[merged.id]];
+    });
+    return mergedGroups.flatMap(expand);
+  }, [cellSplits, cols, manualMergedCells, mergedCellGroups, rows, splitLine]);
   const cellGroupsKey = cellGroups.map((group) => group.join(",")).join("|");
-  const cellGroupLabel = (group: number[]) => group.map((index) => index + 1).join("+");
-  const total = splitLine === "skeletal" ? cellGroups.length : rows * cols - (skipCenter ? 1 : 0);
-  const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0;
+  const cellGroupLabel = (group: number[]) => cellSplits.length
+    ? String(cellGroups.findIndex((candidate) => candidate[0] === group[0]) + 1)
+    : group.map((index) => index + 1).join("+");
+  const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0 && cellSplits.length === 0;
+  const activeGroupIndexes = skeletalReview?.activeGroupIndexes ?? cellGroups.map((_, index) => index);
+  const total = splitLine === "skeletal" ? activeGroupIndexes.length : rows * cols - (skipCenter ? 1 : 0);
+  const activeCellGroup = activeCellIndex == null ? null : cellGroups.find((group) => group.includes(activeCellIndex)) ?? null;
 
   useEffect(() => () => {
     skeletalReview?.previews.forEach((url) => URL.revokeObjectURL(url));
@@ -113,32 +154,53 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   useEffect(() => {
     setSkeletalReview(null);
     setReviewConfirmed(false);
-    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
-  }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot, cellViewportSize?.w, cellViewportSize?.h]);
+  }, [region?.x, region?.y, region?.w, region?.h, rows, cols, slot]);
 
   useEffect(() => {
     setMergedCellGroups([]);
+    setCellSplits([]);
+    setManualMergedCells([]);
+    setSplitCellRects({});
     setSelectedCells([]);
-  }, [cols, rows, slot]);
-
-  useEffect(() => setReviewConfirmed(false), [partSetId]);
+    setCellContextMenu(null);
+    setActiveCellIndex(null);
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
+    setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+  }, [cols, rows, slot, splitLine]);
 
   useEffect(() => {
-    api.listCharacterPartSets().then((sets) => {
-      setPartSets(sets);
-      if (hintedPartSetId && !sets.some((set) => set.id === hintedPartSetId)) setPartSetId("");
-    }).catch(() => setPartSets([]));
+    if (!hintedPartSetId) {
+      setTargetPartSet(null);
+      return;
+    }
+    api.getCharacterPartSet(hintedPartSetId).then(setTargetPartSet).catch(() => setTargetPartSet(null));
   }, [hintedPartSetId]);
 
   useEffect(() => {
+    const shape = `${splitLine}:${rows}x${cols}`;
+    const preserveExisting = previousDraftShapeRef.current === shape;
+    const previousDrafts = new Map<number, { role: CharacterPartRole; name: string }>();
+    if (preserveExisting) {
+      previousDraftGroupsRef.current.forEach((group, index) => {
+        const draft = partDrafts[index];
+        if (draft) previousDrafts.set(group[0], draft);
+      });
+    }
     setPartDrafts(cellGroups.map((group, index) => {
+      const existing = previousDrafts.get(group[0]);
+      if (existing) return existing;
       const role = standardHumanoidGrid ? DEFAULT_PART_ROLES[group[0]] ?? "custom" : "custom";
       return {
         role,
         name: standardHumanoidGrid ? t(`skeletal.partRole.${role}`) : t("skeletal.split.customPartName", { index: index + 1 }),
       };
     }));
-  }, [cellGroupsKey, standardHumanoidGrid, t]);
+    previousDraftGroupsRef.current = cellGroups;
+    previousDraftShapeRef.current = shape;
+    // cellGroupsKey 是布局变化的稳定触发器；partDrafts 通过 ref 按格子 id 延续，不能加入依赖造成循环。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cellGroupsKey, cols, rows, splitLine, standardHumanoidGrid, t]);
 
   // 载入尺寸，默认网格盖住整图
   useEffect(() => {
@@ -155,7 +217,6 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
         }
         setImgSize({ w: bmp.width, h: bmp.height });
         setRegion({ x: 0, y: 0, w: bmp.width, h: bmp.height });
-        setCellViewportSize(null);
         bmp.close();
       } catch (e) {
         notify(t("msg.failed_to_read_material_image") + `: ${(e as Error).message}`);
@@ -187,49 +248,60 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     const col = index % cols;
     const cellWidth = Math.floor(region.w / cols);
     const cellHeight = Math.floor(region.h / rows);
-    const slot = {
+    return {
       x: region.x + cellWidth * col,
       y: region.y + cellHeight * row,
       w: col === cols - 1 ? region.w - cellWidth * col : cellWidth,
       h: row === rows - 1 ? region.h - cellHeight * row : cellHeight,
     };
-    if (splitLine !== "skeletal" || !cellViewportSize || !imgSize) return slot;
-    const w = Math.max(1, Math.min(cellViewportSize.w, imgSize.w));
-    const h = Math.max(1, Math.min(cellViewportSize.h, imgSize.h));
-    return {
-      x: Math.max(0, Math.min(imgSize.w - w, Math.round(slot.x + slot.w / 2 - w / 2))),
-      y: Math.max(0, Math.min(imgSize.h - h, Math.round(slot.y + slot.h / 2 - h / 2))),
-      w,
-      h,
-    };
   };
 
-  const adjustedCellRect = (index: number): CropRect | null => {
-    const base = baseCellRect(index);
+  const cellGroupDefaultRect = (group: number[], size?: { w: number; h: number } | null): CropRect | null => {
+    const splitRect = splitCellRects[group[0]];
+    if (splitRect && region) {
+      const baseX = region.x + splitRect.x;
+      const baseY = region.y + splitRect.y;
+      const customSize = size === undefined ? cellSourceSizes[group[0]] : size;
+      const w = Math.min(imgSize?.w ?? splitRect.w, Math.max(1, customSize?.w ?? splitRect.w));
+      const h = Math.min(imgSize?.h ?? splitRect.h, Math.max(1, customSize?.h ?? splitRect.h));
+      const x = Math.max(0, Math.min(Math.max(0, (imgSize?.w ?? baseX + splitRect.w) - w), baseX + (splitRect.w - w) / 2));
+      const y = Math.max(0, Math.min(Math.max(0, (imgSize?.h ?? baseY + splitRect.h) - h), baseY + (splitRect.h - h) / 2));
+      return { x, y, w, h };
+    }
+    const rects = group.map(baseCellRect).filter((rect): rect is CropRect => rect != null);
+    if (!rects.length) return null;
+    const baseX = Math.min(...rects.map((rect) => rect.x));
+    const baseY = Math.min(...rects.map((rect) => rect.y));
+    const right = Math.max(...rects.map((rect) => rect.x + rect.w));
+    const bottom = Math.max(...rects.map((rect) => rect.y + rect.h));
+    const customSize = size === undefined ? cellSourceSizes[group[0]] : size;
+    const w = Math.min(imgSize?.w ?? right - baseX, Math.max(1, customSize?.w ?? right - baseX));
+    const h = Math.min(imgSize?.h ?? bottom - baseY, Math.max(1, customSize?.h ?? bottom - baseY));
+    const x = Math.max(0, Math.min(Math.max(0, (imgSize?.w ?? right) - w), (baseX + right - w) / 2));
+    const y = Math.max(0, Math.min(Math.max(0, (imgSize?.h ?? bottom) - h), (baseY + bottom - h) / 2));
+    return { x, y, w, h };
+  };
+
+  const cellGroupBaseRect = (group: number[], size?: { w: number; h: number } | null): CropRect | null => {
+    const base = cellGroupDefaultRect(group, size);
     if (!base) return null;
-    const offset = cellOffsets[index] ?? { x: 0, y: 0 };
+    const offset = cellFrameOffsets[group[0]] ?? { x: 0, y: 0 };
     return { ...base, x: base.x + offset.x, y: base.y + offset.y };
   };
 
   const cellGroupRect = (group: number[], adjusted = true): CropRect | null => {
-    const rects = group.map(baseCellRect).filter((rect): rect is CropRect => rect != null);
-    if (!rects.length) return null;
-    const x = Math.min(...rects.map((rect) => rect.x));
-    const y = Math.min(...rects.map((rect) => rect.y));
-    const right = Math.max(...rects.map((rect) => rect.x + rect.w));
-    const bottom = Math.max(...rects.map((rect) => rect.y + rect.h));
+    const base = cellGroupBaseRect(group);
+    if (!base) return null;
     const offset = adjusted ? cellOffsets[group[0]] ?? { x: 0, y: 0 } : { x: 0, y: 0 };
-    return { x: x + offset.x, y: y + offset.y, w: right - x, h: bottom - y };
+    return { ...base, x: base.x + offset.x, y: base.y + offset.y };
   };
 
-  const clampCellOffset = (group: number[], offset: CellOffset): CellOffset => {
-    const base = cellGroupRect(group, false);
+  const clampCellOffset = (group: number[], offset: CellOffset, size?: { w: number; h: number }): CellOffset => {
+    const base = cellGroupBaseRect(group, size);
     if (!base || !imgSize) return { x: 0, y: 0 };
-    const maxX = Math.max(1, Math.round(base.w * MAX_CELL_SHIFT_RATIO));
-    const maxY = Math.max(1, Math.round(base.h * MAX_CELL_SHIFT_RATIO));
     return {
-      x: Math.max(-maxX, -base.x, Math.min(maxX, imgSize.w - base.w - base.x, Math.round(offset.x))),
-      y: Math.max(-maxY, -base.y, Math.min(maxY, imgSize.h - base.h - base.y, Math.round(offset.y))),
+      x: Math.max(-base.x, Math.min(imgSize.w - base.w - base.x, Math.round(offset.x))),
+      y: Math.max(-base.y, Math.min(imgSize.h - base.h - base.y, Math.round(offset.y))),
     };
   };
 
@@ -242,9 +314,169 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     });
   };
 
-  const onCellPointerDown = (group: number[], e: React.PointerEvent<HTMLDivElement>) => {
-    if (busy) return;
+  const setGroupOffset = (group: number[], offset: CellOffset) => {
+    setCellOffsets((items) => {
+      const copy = [...items];
+      copy[group[0]] = offset;
+      return copy;
+    });
+  };
+
+  const resetCellAdjustment = (group: number[] | null) => {
+    if (!group) return;
+    setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
+    setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const changeDragMode = (mode: "grid" | "cell" | "merge") => {
+    setDragMode(mode);
+    setSelectedCells([]);
+    setCellContextMenu(null);
+  };
+
+  const splitCell = (group: number[], direction: "vertical" | "horizontal") => {
+    const rect = cellGroupRect(group, false);
+    if (!rect || !region) return;
+    const vertical = direction === "vertical";
+    if ((vertical ? rect.w : rect.h) < 2) return;
+    const firstId = nextSplitCellIdRef.current++;
+    const secondId = nextSplitCellIdRef.current++;
+    const firstSize = Math.floor((vertical ? rect.w : rect.h) / 2);
+    const firstRect: CropRect = vertical
+      ? { x: rect.x, y: rect.y, w: firstSize, h: rect.h }
+      : { x: rect.x, y: rect.y, w: rect.w, h: firstSize };
+    const secondRect: CropRect = vertical
+      ? { x: rect.x + firstSize, y: rect.y, w: rect.w - firstSize, h: rect.h }
+      : { x: rect.x, y: rect.y + firstSize, w: rect.w, h: rect.h - firstSize };
+    const relative = (item: CropRect): CropRect => ({ ...item, x: item.x - region.x, y: item.y - region.y });
+    setCellSplits((splits) => [...splits, { parentId: group[0], children: [firstId, secondId] }]);
+    setSplitCellRects((rects) => ({ ...rects, [firstId]: relative(firstRect), [secondId]: relative(secondRect) }));
+    setSelectedCells([]);
+    setActiveCellIndex(firstId);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const linkedResizeSides = (group: number[], edge: CellResizeEdge): {
+    axis: CellResizeAxis;
+    boundary: number;
+    leaders: CellResizeNeighbor[];
+    neighbors: CellResizeNeighbor[];
+  } | null => {
+    const rect = cellGroupRect(group, false);
+    if (!rect) return null;
+    const vertical = edge === "left" || edge === "right";
+    const axis: CellResizeAxis = vertical ? "right" : "bottom";
+    const selectedIsLeader = edge === "right" || edge === "bottom";
+    const boundary = vertical
+      ? (edge === "right" ? rect.x + rect.w : rect.x)
+      : (edge === "bottom" ? rect.y + rect.h : rect.y);
+    const leaders: CellResizeNeighbor[] = selectedIsLeader ? [{ group, rect }] : [];
+    const neighbors: CellResizeNeighbor[] = selectedIsLeader ? [] : [{ group, rect }];
+    const overlapsSelectedEdge = (candidateRect: CropRect) => vertical
+      ? Math.min(rect.y + rect.h, candidateRect.y + candidateRect.h) - Math.max(rect.y, candidateRect.y) > 1
+      : Math.min(rect.x + rect.w, candidateRect.x + candidateRect.w) - Math.max(rect.x, candidateRect.x) > 1;
+    for (const candidate of cellGroups) {
+      if (candidate[0] === group[0]) continue;
+      const candidateRect = cellGroupRect(candidate, false);
+      if (!candidateRect) continue;
+      const trailingBoundary = vertical ? candidateRect.x + candidateRect.w : candidateRect.y + candidateRect.h;
+      const leadingBoundary = vertical ? candidateRect.x : candidateRect.y;
+      if (!overlapsSelectedEdge(candidateRect)) continue;
+      if (!selectedIsLeader && Math.abs(trailingBoundary - boundary) <= 1) leaders.push({ group: candidate, rect: candidateRect });
+      else if (selectedIsLeader && Math.abs(leadingBoundary - boundary) <= 1) neighbors.push({ group: candidate, rect: candidateRect });
+    }
+    if (!leaders.length || !neighbors.length) return null;
+    return { axis, boundary, leaders, neighbors };
+  };
+
+  const onCellResizePointerDown = (group: number[], edge: CellResizeEdge, e: React.PointerEvent<HTMLDivElement>) => {
+    if (busy || dragMode !== "cell") return;
+    e.preventDefault();
     e.stopPropagation();
+    const rect = cellGroupRect(group, false);
+    if (!rect) return;
+    const linked = linkedResizeSides(group, edge);
+    if (!linked) return;
+    setActiveCellIndex(group[0]);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    cellResizeRef.current = { edge: linked.axis, ax: e.clientX, ay: e.clientY, boundary: linked.boundary, leaders: linked.leaders, neighbors: linked.neighbors };
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const onCellResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const resize = cellResizeRef.current;
+    if (!resize || !imgSize) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const minW = Math.max(1, Math.round(16 / scaleX));
+    const minH = Math.max(1, Math.round(16 / scaleY));
+    const pointerDelta = resize.edge === "right" ? (e.clientX - resize.ax) / scaleX : (e.clientY - resize.ay) / scaleY;
+    const minBoundary = Math.max(...resize.leaders.map(({ rect }) =>
+      (resize.edge === "right" ? rect.x + minW : rect.y + minH)
+    ));
+    const maxBoundary = Math.min(...resize.neighbors.map(({ rect }) =>
+      (resize.edge === "right" ? rect.x + rect.w - minW : rect.y + rect.h - minH)
+    ));
+    const boundary = Math.round(Math.max(minBoundary, Math.min(maxBoundary, resize.boundary + pointerDelta)));
+    const updates = [
+      ...resize.leaders.map((leader) => ({
+        group: leader.group,
+        rect: resize.edge === "right"
+          ? { ...leader.rect, w: boundary - leader.rect.x }
+          : { ...leader.rect, h: boundary - leader.rect.y },
+      })),
+      ...resize.neighbors.map((neighbor) => ({
+        group: neighbor.group,
+        rect: resize.edge === "right"
+          ? { ...neighbor.rect, x: boundary, w: neighbor.rect.x + neighbor.rect.w - boundary }
+          : { ...neighbor.rect, y: boundary, h: neighbor.rect.y + neighbor.rect.h - boundary },
+      })),
+    ];
+    setCellSourceSizes((sizes) => {
+      const copy = [...sizes];
+      for (const update of updates) copy[update.group[0]] = { w: update.rect.w, h: update.rect.h };
+      return copy;
+    });
+    setCellFrameOffsets((offsets) => {
+      const copy = [...offsets];
+      for (const update of updates) {
+        const natural = cellGroupDefaultRect(update.group, { w: update.rect.w, h: update.rect.h });
+        if (natural) copy[update.group[0]] = { x: update.rect.x - natural.x, y: update.rect.y - natural.y };
+      }
+      return copy;
+    });
+    setCellOffsets((offsets) => {
+      const copy = [...offsets];
+      for (const update of updates) {
+        const offset = copy[update.group[0]] ?? { x: 0, y: 0 };
+        copy[update.group[0]] = {
+          x: Math.max(-update.rect.x, Math.min(imgSize.w - update.rect.w - update.rect.x, offset.x)),
+          y: Math.max(-update.rect.y, Math.min(imgSize.h - update.rect.h - update.rect.y, offset.y)),
+        };
+      }
+      return copy;
+    });
+  };
+
+  const onCellResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    cellResizeRef.current = null;
+    e.stopPropagation();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onCellPointerDown = (group: number[], e: React.PointerEvent<HTMLDivElement>) => {
+    if (busy || e.button !== 0) return;
+    e.stopPropagation();
+    setActiveCellIndex(group[0]);
     if (dragMode === "merge") {
       toggleGroupSelection(group);
       return;
@@ -264,7 +496,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     const dx = (e.clientX - drag.ax) / scaleX;
     const dy = (e.clientY - drag.ay) / scaleY;
     const next = clampCellOffset(drag.group, { x: drag.ox - dx, y: drag.oy - dy });
-    setCellOffsets((items) => items.map((item, index) => index === drag.group[0] ? next : item));
+    setGroupOffset(drag.group, next);
   };
 
   const onCellPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -284,11 +516,42 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   };
 
   const mergeSelectedCells = () => {
-    if (selectedCells.length < 2) {
+    const selected = new Set(selectedCells);
+    const selectedGroups = cellGroups.filter((group) => group.every((index) => selected.has(index)));
+    if (selectedGroups.length < 2) {
       notify(t("skeletal.split.selectCellsToMerge"), "info");
       return;
     }
-    const selected = new Set(selectedCells);
+    if (selectedCells.some((index) => index >= rows * cols)) {
+      const rects = selectedGroups.map((group) => cellGroupRect(group, false)).filter((rect): rect is CropRect => rect != null);
+      const left = Math.min(...rects.map((rect) => rect.x));
+      const top = Math.min(...rects.map((rect) => rect.y));
+      const right = Math.max(...rects.map((rect) => rect.x + rect.w));
+      const bottom = Math.max(...rects.map((rect) => rect.y + rect.h));
+      const area = rects.reduce((sum, rect) => sum + rect.w * rect.h, 0);
+      if (rects.length !== selectedGroups.length || Math.abs(area - (right - left) * (bottom - top)) > 1) {
+        notify(t("skeletal.split.mergeRectangleOnly"));
+        return;
+      }
+      const mergedId = nextSplitCellIdRef.current++;
+      const selectedLeaders = new Set(selectedGroups.map((group) => group[0]));
+      const children = selectedGroups.flatMap((group) =>
+        manualMergedCells.find((merged) => merged.id === group[0])?.children ?? [group[0]]
+      );
+      setManualMergedCells((groups) => [
+        ...groups.filter((group) => !selectedLeaders.has(group.id)),
+        { id: mergedId, children },
+      ]);
+      setSplitCellRects((items) => ({
+        ...items,
+        [mergedId]: { x: left - region!.x, y: top - region!.y, w: right - left, h: bottom - top },
+      }));
+      setActiveCellIndex(mergedId);
+      setSelectedCells([]);
+      setSkeletalReview(null);
+      setReviewConfirmed(false);
+      return;
+    }
     const selectedRows = selectedCells.map((index) => Math.floor(index / cols));
     const selectedCols = selectedCells.map((index) => index % cols);
     const minRow = Math.min(...selectedRows);
@@ -307,7 +570,10 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       ...groups.filter((group) => !group.some((index) => selected.has(index))),
       [...selectedCells],
     ].sort((a, b) => a[0] - b[0]));
-    setCellOffsets((offsets) => offsets.map((offset, index) => selected.has(index) ? { x: 0, y: 0 } : offset));
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
+    setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setActiveCellIndex(selectedCells[0]);
     setSelectedCells([]);
     setSkeletalReview(null);
     setReviewConfirmed(false);
@@ -316,7 +582,20 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const unmergeSelectedCells = () => {
     if (!selectedCells.length) return;
     const selected = new Set(selectedCells);
+    const manualMerged = manualMergedCells.find((group) => selected.has(group.id));
+    if (manualMerged) {
+      setManualMergedCells((groups) => groups.filter((group) => group.id !== manualMerged.id));
+      setActiveCellIndex(manualMerged.children[0] ?? null);
+      setSelectedCells([]);
+      setSkeletalReview(null);
+      setReviewConfirmed(false);
+      return;
+    }
     setMergedCellGroups((groups) => groups.filter((group) => !group.some((index) => selected.has(index))));
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
+    setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setActiveCellIndex(selectedCells[0] ?? null);
     setSelectedCells([]);
     setSkeletalReview(null);
     setReviewConfirmed(false);
@@ -373,7 +652,6 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
 
   const selectSplitLine = (line: "frame" | "skeletal") => {
     setSplitLine(line);
-    setCellViewportSize(null);
     setSkeletalReview(null);
     setReviewConfirmed(false);
     if (line === "skeletal") {
@@ -396,8 +674,8 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
         if (rect) cells.push(await cropImage(blob, rect));
       }
       const analyses = await Promise.all(cells.map(analyzeImage));
-      const issues = findSkeletalPartQualityIssues(analyses, standardSemanticLayout);
-      setSkeletalReview({ cells, issues, previews: cells.map((cell) => URL.createObjectURL(cell)) });
+      const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : []);
+      setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews: cells.map((cell) => URL.createObjectURL(cell)) });
       setReviewConfirmed(false);
       if (issues.length > 0) notify(t("skeletal.split.qualityBlocked", { count: issues.length }));
     } catch (e) {
@@ -406,6 +684,19 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       setBusy(false);
       setProgress("");
     }
+  };
+
+  const updateSkeletalReviewCell = async (groupIndex: number, editedCell: Blob) => {
+    const current = skeletalReview;
+    if (!current) return;
+    const cells = [...current.cells];
+    cells[groupIndex] = editedCell;
+    const analyses = await Promise.all(cells.map(analyzeImage));
+    const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : []);
+    const previews = cells.map((cell) => URL.createObjectURL(cell));
+    current.previews.forEach((url) => URL.revokeObjectURL(url));
+    setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews });
+    setReviewConfirmed(false);
   };
 
   const split = async () => {
@@ -445,19 +736,20 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       const preparedCells = splitLine === "skeletal" ? skeletalReview!.cells : null;
       const base = m.name.replace(/\s*#\d+$/, "").trim() || t("common.material");
       const targets = splitLine === "skeletal"
-        ? cellGroups.map((group) => ({ group, rect: cellGroupRect(group)! }))
-        : Array.from({ length: rows * cols }, (_, index) => ({ group: [index], rect: baseCellRect(index)! }))
+        ? activeGroupIndexes.map((groupIndex) => ({ groupIndex, group: cellGroups[groupIndex], rect: cellGroupRect(cellGroups[groupIndex])! }))
+        : Array.from({ length: rows * cols }, (_, index) => ({ groupIndex: index, group: [index], rect: baseCellRect(index)! }))
           .filter(({ group }) => !(skipCenter && group[0] === 4));
       for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
-          const { group, rect: cellRect } = targets[targetIndex];
+          const { groupIndex, group, rect: cellRect } = targets[targetIndex];
           const cellIndex = group[0];
-          const r = Math.floor(cellIndex / cols);
-          const c = cellIndex % cols;
+          const logicalIndex = cellIndex < rows * cols ? cellIndex : groupIndex;
+          const r = Math.floor(logicalIndex / cols);
+          const c = logicalIndex % cols;
           const i = targetIndex + 1;
           setProgress(t("msg.uploading_split_i_total", { i, total }));
           try {
             const { w, h } = cellRect;
-            let cell = preparedCells?.[i - 1] ?? await cropImage(blob, cellRect);
+            let cell = preparedCells?.[groupIndex] ?? await cropImage(blob, cellRect);
             let rawCell = m.processed_path ? await cropImage(rawBlob, cellRect) : cell;
             if (autoTrim) {
               const bounds = await findOpaqueBounds(cell);
@@ -467,7 +759,8 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 trimmed++;
               }
             }
-            const draft = splitLine === "skeletal" ? partDrafts[i - 1] : undefined;
+            if (!m.processed_path) rawCell = cell;
+            const draft = splitLine === "skeletal" ? partDrafts[groupIndex] : undefined;
             const fd = new FormData();
             const partName = draft?.name.trim();
             const cellName = draft ? partName || `${base}_${draft.role}` : `${base}_r${r + 1}c${c + 1}`;
@@ -486,7 +779,8 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 ...(splitLine === "skeletal" ? {
                   offset: cellOffsets[cellIndex] ?? { x: 0, y: 0 },
                   viewport: { w: cellRect.w, h: cellRect.h },
-                  cells: group.map((index) => index + 1),
+                  sourceRect: cellRect,
+                  cells: cellSplits.length ? [groupIndex + 1] : group.map((index) => index + 1),
                 } : {}),
               },
             }));
@@ -507,24 +801,30 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       }
       if (splitLine === "skeletal") {
         const lineageReferenceId = typeof m.metadata.referenceMaterialId === "string" ? m.metadata.referenceMaterialId : null;
-        if (partSetId) {
-          const target = partSets.find((set) => set.id === partSetId) ?? await api.getCharacterPartSet(partSetId);
+        let target = targetPartSet;
+        if (!target && hintedPartSetId) {
+          try {
+            target = await api.getCharacterPartSet(hintedPartSetId);
+          } catch {
+            target = null;
+          }
+        }
+        if (target) {
           const preservedMembers = standardHumanoidGrid ? target.members.filter((member) => !ARTICULATED_CHARACTER_PART_ROLES.includes(member.role as typeof ARTICULATED_CHARACTER_PART_ROLES[number])) : [];
           const updated = await api.putCharacterPartSet(target.id, {
             name: target.name,
             referenceMaterialId: lineageReferenceId ?? target.referenceMaterialId,
             members: [...preservedMembers, ...createdMembers],
           });
-          setPartSets((items) => items.map((set) => set.id === updated.id ? updated : set));
+          setTargetPartSet(updated);
         } else {
           const created = await api.createCharacterPartSet({
-            name: partSetName.trim(),
+            name: `${m.name} · ${t("skeletal.parts.setSuffix")}`,
             source: "decomposed",
             referenceMaterialId: lineageReferenceId,
             members: createdMembers,
           });
-          setPartSets((items) => [created, ...items]);
-          setPartSetId(created.id);
+          setTargetPartSet(created);
         }
       }
       if (ok === 0 && firstError) throw new Error(firstError);
@@ -554,6 +854,25 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
           height: region.h * scaleY,
         }
       : undefined;
+  const activeSourceRect = activeCellGroup ? cellGroupRect(activeCellGroup, false) : null;
+  const contextCellGroup = cellContextMenu
+    ? cellGroups.find((group) => group[0] === cellContextMenu.groupId) ?? null
+    : null;
+  const contextCellRect = contextCellGroup ? cellGroupRect(contextCellGroup, false) : null;
+  const cellContextItems: CtxMenuItem[] = contextCellGroup ? [
+    {
+      label: t("skeletal.split.splitLeftRight"),
+      icon: <Columns2 size={14} />,
+      disabled: busy || !contextCellRect || contextCellRect.w < 2,
+      onClick: () => splitCell(contextCellGroup, "vertical"),
+    },
+    {
+      label: t("skeletal.split.splitTopBottom"),
+      icon: <Rows2 size={14} />,
+      disabled: busy || !contextCellRect || contextCellRect.h < 2,
+      onClick: () => splitCell(contextCellGroup, "horizontal"),
+    },
+  ] : [];
 
   return (
     <motion.div className="modal-mask" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}  >
@@ -610,8 +929,15 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                     const base = cellGroupRect(group, false)!;
                     const adjusted = cellGroupRect(group)!;
                     const selected = group.every((index) => selectedCells.includes(index));
+                    const active = activeCellGroup?.[0] === group[0];
+                    const manuallyMerged = manualMergedCells.some((merged) => merged.id === group[0]);
+                    const canResizeLeft = active && linkedResizeSides(group, "left") != null;
+                    const canResizeRight = active && linkedResizeSides(group, "right") != null;
+                    const canResizeTop = active && linkedResizeSides(group, "top") != null;
+                    const canResizeBottom = active && linkedResizeSides(group, "bottom") != null;
                     return <div
-                      className={`gs-cell-window${selected ? " selected" : ""}${group.length > 1 ? " merged" : ""}`}
+                      className={`gs-cell-window${selected ? " selected" : ""}${active ? " active" : ""}${group.length > 1 || manuallyMerged ? " merged" : ""}`}
+                      data-cell-id={group[0]}
                       key={group.join("-")}
                       style={{
                         left: (base.x - region!.x) * scaleX,
@@ -623,7 +949,13 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                       onPointerMove={onCellPointerMove}
                       onPointerUp={onCellPointerUp}
                       onPointerCancel={onCellPointerUp}
-                      onDoubleClick={() => setCellOffsets((items) => items.map((item, itemIndex) => itemIndex === group[0] ? { x: 0, y: 0 } : item))}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (busy) return;
+                        setActiveCellIndex(group[0]);
+                        setCellContextMenu({ x: event.clientX, y: event.clientY, groupId: group[0] });
+                      }}
                     >
                       <img
                         src={materialImageUrl(m.id, v, slot)}
@@ -636,7 +968,37 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                           top: -adjusted.y * scaleY,
                         }}
                       />
-                      <span>{group.map((index) => index + 1).join("+")}</span>
+                      <span>{cellGroupLabel(group)}</span>
+                      {active && dragMode === "cell" && <>
+                        {canResizeLeft && <div
+                          className="gs-cell-resize-handle left"
+                          onPointerDown={(event) => onCellResizePointerDown(group, "left", event)}
+                          onPointerMove={onCellResizePointerMove}
+                          onPointerUp={onCellResizePointerUp}
+                          onPointerCancel={onCellResizePointerUp}
+                        />}
+                        {canResizeRight && <div
+                          className="gs-cell-resize-handle right"
+                          onPointerDown={(event) => onCellResizePointerDown(group, "right", event)}
+                          onPointerMove={onCellResizePointerMove}
+                          onPointerUp={onCellResizePointerUp}
+                          onPointerCancel={onCellResizePointerUp}
+                        />}
+                        {canResizeTop && <div
+                          className="gs-cell-resize-handle top"
+                          onPointerDown={(event) => onCellResizePointerDown(group, "top", event)}
+                          onPointerMove={onCellResizePointerMove}
+                          onPointerUp={onCellResizePointerUp}
+                          onPointerCancel={onCellResizePointerUp}
+                        />}
+                        {canResizeBottom && <div
+                          className="gs-cell-resize-handle bottom"
+                          onPointerDown={(event) => onCellResizePointerDown(group, "bottom", event)}
+                          onPointerMove={onCellResizePointerMove}
+                          onPointerUp={onCellResizePointerUp}
+                          onPointerCancel={onCellResizePointerUp}
+                        />}
+                      </>}
                     </div>;
                   }) : <>
                     {Array.from({ length: cols - 1 }, (_, i) => (
@@ -653,13 +1015,13 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
             <div className="gs-preview-controls">
               <div className="form-inline gs-tools">
                 {splitLine === "skeletal" && <div className="gs-drag-mode" role="group" aria-label={t("skeletal.split.dragMode")}>
-                  <button type="button" className={`px-btn mini${dragMode === "grid" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("grid")}>
+                  <button type="button" className={`px-btn mini${dragMode === "grid" ? " accent" : ""}`} disabled={busy} onClick={() => changeDragMode("grid")}>
                     <Move size={14} /> {t("skeletal.split.dragWholeGrid")}
                   </button>
-                  <button type="button" className={`px-btn mini${dragMode === "cell" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("cell")}>
+                  <button type="button" className={`px-btn mini${dragMode === "cell" ? " accent" : ""}`} disabled={busy} onClick={() => changeDragMode("cell")}>
                     <Grid3x3 size={14} /> {t("skeletal.split.dragSingleCell")}
                   </button>
-                  <button type="button" className={`px-btn mini${dragMode === "merge" ? " accent" : ""}`} disabled={busy} onClick={() => setDragMode("merge")}>
+                  <button type="button" className={`px-btn mini${dragMode === "merge" ? " accent" : ""}`} disabled={busy} onClick={() => changeDragMode("merge")}>
                     {t("skeletal.split.selectToMerge")}
                   </button>
                 </div>}
@@ -667,7 +1029,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                   <button type="button" className="px-btn mini accent" disabled={busy || selectedCells.length < 2} onClick={mergeSelectedCells}>
                     {t("skeletal.split.mergeSelected")}
                   </button>
-                  <button type="button" className="px-btn mini" disabled={busy || !selectedCells.length || !mergedCellGroups.some((group) => group.some((index) => selectedCells.includes(index)))} onClick={unmergeSelectedCells}>
+                  <button type="button" className="px-btn mini" disabled={busy || !selectedCells.length || !(mergedCellGroups.some((group) => group.some((index) => selectedCells.includes(index))) || manualMergedCells.some((group) => selectedCells.includes(group.id)))} onClick={unmergeSelectedCells}>
                     {t("skeletal.split.unmergeSelected")}
                   </button>
                 </>}
@@ -724,41 +1086,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 <strong className="gs-total">{t("msg.total_cells", { total })}</strong>
               </div>
 
-              {splitLine === "skeletal" && region && imgSize && <div className="gs-cell-size-settings">
-                <label className="px-check">
-                  {t("skeletal.split.cellWidthPx")}
-                  <input
-                    className="px-input num"
-                    type="number"
-                    min={1}
-                    max={imgSize.w}
-                    value={cellViewportSize?.w ?? Math.max(1, Math.floor(region.w / cols))}
-                    disabled={busy}
-                    onChange={(event) => setCellViewportSize((size) => ({
-                      w: Math.max(1, Math.min(imgSize.w, Math.round(Number(event.target.value)) || 1)),
-                      h: size?.h ?? Math.max(1, Math.floor(region.h / rows)),
-                    }))}
-                  />
-                </label>
-                <label className="px-check">
-                  {t("skeletal.split.cellHeightPx")}
-                  <input
-                    className="px-input num"
-                    type="number"
-                    min={1}
-                    max={imgSize.h}
-                    value={cellViewportSize?.h ?? Math.max(1, Math.floor(region.h / rows))}
-                    disabled={busy}
-                    onChange={(event) => setCellViewportSize((size) => ({
-                      w: size?.w ?? Math.max(1, Math.floor(region.w / cols)),
-                      h: Math.max(1, Math.min(imgSize.h, Math.round(Number(event.target.value)) || 1)),
-                    }))}
-                  />
-                </label>
-                <button type="button" className="px-btn mini" disabled={busy || !cellViewportSize} onClick={() => setCellViewportSize(null)}>
-                  {t("skeletal.split.resetCellSize")}
+              {splitLine === "skeletal" && activeCellGroup && activeSourceRect && <div className="gs-cell-source-settings">
+                <strong className="gs-total">{t("skeletal.split.activeSourceCell", { cells: cellGroupLabel(activeCellGroup) })}</strong>
+                <button type="button" className="px-btn mini" disabled={busy} onClick={() => resetCellAdjustment(activeCellGroup)}>
+                  {t("skeletal.split.resetSourceCell")}
                 </button>
-                <span className="hint">{t("skeletal.split.cellSizeHint")}</span>
+                <span className="hint">{t("skeletal.split.sourceCellHint")}</span>
               </div>}
 
               <div className="gs-options">
@@ -774,23 +1107,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
           {splitLine === "skeletal" && (
             <aside className="skeletal-split-setup">
               <div>
-                <strong>{t("skeletal.split.destination")}</strong>
-                <div className="hint">{t("skeletal.split.destinationHint")}</div>
                 <div className="hint">{t("skeletal.split.qualityHint")}</div>
                 <div className="hint">{t("skeletal.split.dragCellsHint")}</div>
               </div>
-              <PxSelect
-                value={partSetId}
-                options={[{ value: "", label: t("skeletal.split.createNewSet") }, ...partSets.map((set) => ({ value: set.id, label: `${set.name} · ${set.members.length}` }))]}
-                onChange={setPartSetId}
-              />
-              {!partSetId && (
-                <input className="px-input" value={partSetName} disabled={busy} onChange={(e) => setPartSetName(e.target.value)} placeholder={t("skeletal.parts.newSetName")} />
-              )}
               {(() => {
-                const target = partSets.find((set) => set.id === partSetId);
                 const lineageReferenceId = typeof m.metadata.referenceMaterialId === "string" ? m.metadata.referenceMaterialId : null;
-                const referenceId = lineageReferenceId ?? target?.referenceMaterialId;
+                const referenceId = lineageReferenceId ?? targetPartSet?.referenceMaterialId;
                 return referenceId ? <div className="skeletal-identity-reference">
                   <img src={materialImageUrl(referenceId, v, "processed")} alt={t("skeletal.split.identityReference")} />
                   <span><strong>{t("skeletal.split.identityReference")}</strong><small>{t("skeletal.split.identityReferenceHint")}</small></span>
@@ -803,24 +1125,37 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 </span>)}
               </div>}
               <div className="skeletal-split-members">
-                {partDrafts.map((draft, index) => {
-                  const group = cellGroups[index] ?? [index];
+                {partDrafts.map((draft, groupIndex) => ({ draft, groupIndex })).filter(({ groupIndex }) => activeGroupIndexes.includes(groupIndex)).map(({ draft, groupIndex }) => {
+                  const group = cellGroups[groupIndex] ?? [groupIndex];
                   const groupLabel = cellGroupLabel(group);
-                  return <div className={`skeletal-split-member${group.length > 1 ? " merged" : ""}${skeletalReview?.issues.some((issue) => issue.cells.includes(index + 1)) ? " error" : ""}`} key={group.join("-")}>
+                  return <div className={`skeletal-split-member${group.length > 1 ? " merged" : ""}${skeletalReview?.issues.some((issue) => issue.cells.includes(groupIndex + 1)) ? " error" : ""}`} key={group.join("-")}>
                     <div className="skeletal-part-preview">
-                      {skeletalReview?.previews[index]
-                        ? <img src={skeletalReview.previews[index]} alt={draft.name} />
+                      {skeletalReview?.previews[groupIndex]
+                        ? <img src={skeletalReview.previews[groupIndex]} alt={draft.name} />
                         : <span>{groupLabel}</span>}
                     </div>
                     <span>{t("skeletal.split.cell", { index: groupLabel })}</span>
-                    <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
+                    <div className="skeletal-part-card-actions">
+                      <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
+                      {skeletalReview && <button
+                        type="button"
+                        className="px-btn mini skeletal-part-edit"
+                        title={t("skeletal.split.editCell", { cells: groupLabel })}
+                        disabled={busy}
+                        onClick={() => openMaterialEditor({
+                          image: skeletalReview.cells[groupIndex],
+                          name: t("skeletal.split.editCell", { cells: groupLabel }),
+                          onSave: (editedCell) => updateSkeletalReviewCell(groupIndex, editedCell),
+                        })}
+                      ><Eraser size={12} /> {t("skeletal.split.editCellAction")}</button>}
+                    </div>
                     <input
                       className="px-input"
                       value={draft.name}
                       disabled={busy}
                       aria-label={t("skeletal.split.partName", { index: groupLabel })}
                       placeholder={t("skeletal.split.partMaterialNamePlaceholder")}
-                      onChange={(event) => setPartDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))}
+                      onChange={(event) => setPartDrafts((items) => items.map((item, itemIndex) => itemIndex === groupIndex ? { ...item, name: event.target.value } : item))}
                     />
                   </div>;
                 })}
@@ -842,8 +1177,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
             whileTap={{ scale: 0.95 }}
             className="px-btn accent"
             disabled={busy || !region || (splitLine === "skeletal" && (
-              (!partSetId && !partSetName.trim())
-              || partDrafts.some((draft) => !draft.name.trim())
+              partDrafts.some((draft) => !draft.name.trim())
               || Boolean(skeletalReview?.issues.length)
               || Boolean(skeletalReview && !reviewConfirmed)
             ))}
@@ -856,6 +1190,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 : t("msg.split_into_total_materials", { total })}
           </motion.button>
         </footer>
+        {cellContextMenu && contextCellGroup && <ContextMenu
+          x={cellContextMenu.x}
+          y={cellContextMenu.y}
+          items={cellContextItems}
+          onClose={() => setCellContextMenu(null)}
+        />}
       </motion.div>
     </motion.div>
   );

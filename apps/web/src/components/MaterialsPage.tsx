@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Bone, Check, Download, Eye, Film, ImageDown, Layers3, Package, Pencil, Scan, Send, Sparkles, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Bone, Check, Crop, Download, Eye, Film, Grid3x3, ImageDown, Layers3, Package, Pencil, PersonStanding, RefreshCw, Scan, Send, Sparkles, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -14,7 +14,7 @@ import FolderTree, { type FolderSelection } from "./FolderTree";
 import FileZoom, { useFileZoom } from "./FileZoom";
 import MaterialImportModal from "./MaterialImportModal";
 import LayerSplitModal from "./LayerSplitModal";
-import MaterialModal from "./MaterialModal";
+import MaterialModal, { type MaterialDetailAction } from "./MaterialModal";
 import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
 import ContextMenu, { type CtxMenuItem } from "./ContextMenu";
@@ -96,6 +96,7 @@ export default function MaterialsPage() {
   const [importTab, setImportTab] = useState<"upload" | "cli" | null>(null);
   const [decomposeMaterialId, setDecomposeMaterialId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailAction, setDetailAction] = useState<MaterialDetailAction | undefined>();
   const [extractId, setExtractId] = useState<string | null>(null);
   const [layerId, setLayerId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
@@ -141,6 +142,11 @@ export default function MaterialsPage() {
     },
     [imgV, load, openMaterialEditor, v]
   );
+
+  const openDetail = (id: string, action?: MaterialDetailAction) => {
+    setDetailAction(action);
+    setDetailId(id);
+  };
 
   // 连续 WS 事件合并成一次 load（批量抠图/导入会密集发 material_updated/materials_changed）
   const loadTimer = useRef<number | null>(null);
@@ -226,6 +232,7 @@ export default function MaterialsPage() {
         return;
       }
       setAnchorId(id);
+      setDetailAction(undefined);
       setDetailId(id);
     },
     [toggleOne]
@@ -342,6 +349,21 @@ export default function MaterialsPage() {
       toast(t("msg.matting_job_queued"));
     } catch (e) {
       notify(t("msg.matting_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unmatteOne = async (id: string) => {
+    if (!(await askConfirm(t("msg.restore_original")))) return;
+    setBusy(true);
+    try {
+      await api.unmatteMaterial(id);
+      await load();
+      setImgV((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+      toast(t("msg.restored_to_original"));
+    } catch (e) {
+      notify(t("msg.operation_failed_msg", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -486,7 +508,7 @@ export default function MaterialsPage() {
             {
               label: t("msg.open_details"),
               icon: <Eye size={13} />,
-              onClick: () => setDetailId(ctxMat.id),
+              onClick: () => openDetail(ctxMat.id),
             },
             ...(ctxMat.kind === "video"
               ? ([
@@ -503,6 +525,36 @@ export default function MaterialsPage() {
                     onClick: () => editMaterial(ctxMat),
                   },
                   {
+                    label: t("msg.crop"),
+                    icon: <Crop size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "crop"),
+                  },
+                  {
+                    label: t("msg.grid_split"),
+                    icon: <Grid3x3 size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "frame-split"),
+                  },
+                  {
+                    label: t("skeletal.split.reviewAndCreate"),
+                    icon: <Bone size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "skeletal-split"),
+                  },
+                  {
+                    label: t("skeletal.generate.fromReference"),
+                    icon: <PersonStanding size={13} />,
+                    onClick: () => openCharacterDecompose(ctxMat.id),
+                  },
+                  {
+                    label: t("msg.multi_action_generate"),
+                    icon: <PersonStanding size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "actions"),
+                  },
+                  {
+                    label: t("msg.character_eight_view"),
+                    icon: <RefreshCw size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "directions"),
+                  },
+                  {
                     label: t("msg.import_to_project"),
                     icon: <Send size={13} />,
                     onClick: () => void openImportPicker(ctxMat.id),
@@ -512,6 +564,13 @@ export default function MaterialsPage() {
                     icon: <Wand2 size={13} />,
                     onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
                   },
+                  ...(ctxMat.status === "matted"
+                    ? ([{
+                        label: t("msg.restore_original"),
+                        icon: <Undo2 size={13} />,
+                        onClick: () => void unmatteOne(ctxMat.id),
+                      }] satisfies CtxMenuItem[])
+                    : []),
                   {
                     label: t("layers.action"),
                     icon: <Layers3 size={13} />,
@@ -750,7 +809,11 @@ export default function MaterialsPage() {
             <MaterialModal
               material={detail}
               v={v}
-              onClose={() => setDetailId(null)}
+              initialAction={detailAction}
+              onClose={() => {
+                setDetailId(null);
+                setDetailAction(undefined);
+              }}
               onChanged={() => {
                 void load();
                 setV((x) => x + 1);

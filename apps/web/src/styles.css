@@ -2852,6 +2852,10 @@ input[type="range"] {
   border-color: var(--cyan);
   box-shadow: inset 0 0 0 2px var(--cyan);
 }
+.gs-cell-window.active:not(.selected) {
+  border-color: var(--border-focused);
+  box-shadow: inset 0 0 0 2px var(--border-focused);
+}
 .gs-wrap .gs-cell-window img {
   position: absolute;
   max-width: none;
@@ -2870,6 +2874,67 @@ input[type="range"] {
   background: var(--accent);
   pointer-events: none;
 }
+.gs-cell-resize-handle {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.gs-cell-resize-handle.left,
+.gs-cell-resize-handle.right {
+  top: 25%;
+  bottom: 25%;
+  width: 12px;
+  cursor: ew-resize;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+}
+.gs-cell-resize-handle.left {
+  left: 0;
+  border-left: 4px solid var(--cyan);
+}
+.gs-cell-resize-handle.right {
+  right: 0;
+  border-right: 4px solid var(--cyan);
+}
+.gs-cell-resize-handle.top,
+.gs-cell-resize-handle.bottom {
+  right: 25%;
+  left: 25%;
+  height: 12px;
+  cursor: ns-resize;
+  background: color-mix(in srgb, var(--cyan) 16%, transparent);
+}
+.gs-cell-resize-handle.top {
+  top: 0;
+  border-top: 4px solid var(--cyan);
+}
+.gs-cell-resize-handle.bottom {
+  bottom: 0;
+  border-bottom: 4px solid var(--cyan);
+}
+.gs-cell-resize-handle::after {
+  position: absolute;
+  content: "";
+  background: var(--surface);
+  border: 2px solid var(--cyan);
+}
+.gs-cell-resize-handle.left::after,
+.gs-cell-resize-handle.right::after {
+  top: 50%;
+  width: 8px;
+  height: 28px;
+  transform: translateY(-50%);
+}
+.gs-cell-resize-handle.left::after { left: 0; }
+.gs-cell-resize-handle.right::after { right: 0; }
+.gs-cell-resize-handle.top::after,
+.gs-cell-resize-handle.bottom::after {
+  left: 50%;
+  width: 28px;
+  height: 8px;
+  transform: translateX(-50%);
+}
+.gs-cell-resize-handle.top::after { top: 0; }
+.gs-cell-resize-handle.bottom::after { bottom: 0; }
 .gs-line {
   position: absolute;
   background: var(--accent);
@@ -2922,20 +2987,14 @@ input[type="range"] {
   background: var(--surface);
   color: var(--text);
 }
-.gs-cell-size-settings {
+.gs-cell-source-settings {
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr)) auto;
+  grid-template-columns: auto auto;
   gap: 8px;
   align-items: center;
+  justify-content: start;
 }
-.gs-cell-size-settings .px-check {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-}
-.gs-cell-size-settings .px-input {
-  width: 100%;
-}
-.gs-cell-size-settings > .hint {
+.gs-cell-source-settings > .hint {
   grid-column: 1 / -1;
 }
 .gs-options {
@@ -3015,6 +3074,7 @@ input[type="range"] {
   box-shadow: inset 0 0 0 1px var(--error);
 }
 .skeletal-part-preview {
+  position: relative;
   grid-row: 1 / 4;
   width: 46px;
   min-height: 54px;
@@ -3040,10 +3100,26 @@ input[type="range"] {
   background: var(--accent);
   font-size: 12px;
 }
-.skeletal-split-member > strong {
+.skeletal-part-card-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.skeletal-part-card-actions > strong {
   min-width: 0;
   color: var(--text);
   font-size: 12px;
+}
+.skeletal-part-card-actions .skeletal-part-edit {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 2px 4px;
+  color: var(--cyan);
+  border-color: var(--cyan);
+  font-size: 10px;
 }
 .skeletal-split-member > .px-input {
   width: 100%;
@@ -3082,6 +3158,8 @@ input[type="range"] {
   flex: 0 0 auto;
   display: grid;
   gap: 3px;
+  max-height: 110px;
+  overflow-y: auto;
   padding: 8px 10px;
   border: 1px solid currentColor;
   font-size: 12px;
@@ -3148,7 +3226,6 @@ input[type="range"] {
     padding: 8px;
   }
   .gs-grid-settings,
-  .gs-cell-size-settings,
   .gs-options {
     grid-template-columns: 1fr;
   }
@@ -3164,10 +3241,12 @@ input[type="range"] {
   position: fixed;
   z-index: 150; /* 高于 topbar(70)/batch-bar(60)，低于 toast(300)/confirm(320) */
   min-width: 172px;
+  max-height: calc(100dvh - 8px);
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+  overflow-y: auto;
 }
 .ctx-item {
   display: flex;

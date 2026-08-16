@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
@@ -20,14 +20,17 @@ import { useMaterialEditor } from "./MaterialEditor";
 interface Props {
   material: Material;
   v: number;
+  initialAction?: MaterialDetailAction;
   onClose: () => void;
   onChanged: () => void;
   onToast: (msg: string) => void;
   onDecomposeCharacter: () => void;
 }
 
+export type MaterialDetailAction = "crop" | "frame-split" | "skeletal-split" | "actions" | "directions";
+
 /** 素材详情：图片对比滑杆 / 视频预览 + 抽帧编辑器；抠图/还原/导入/删除 */
-export default function MaterialModal({ material: m, v, onClose, onChanged, onToast, onDecomposeCharacter }: Props) {
+export default function MaterialModal({ material: m, v, initialAction, onClose, onChanged, onToast, onDecomposeCharacter }: Props) {
   const t = useT();
   const openMaterialEditor = useMaterialEditor();
   useModalEscClose(onClose);
@@ -39,11 +42,11 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [count, setCount] = useState(1);
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
-  const [showSplit, setShowSplit] = useState(false);
-  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">("frame");
+  const [showSplit, setShowSplit] = useState(initialAction === "frame-split" || initialAction === "skeletal-split");
+  const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialAction === "skeletal-split" ? "skeletal" : "frame");
   const [showLayers, setShowLayers] = useState(false);
-  const [showActions, setShowActions] = useState(false);
-  const [actionPreset, setActionPreset] = useState<"actions" | "directions">("actions");
+  const [showActions, setShowActions] = useState(initialAction === "actions" || initialAction === "directions");
+  const [actionPreset, setActionPreset] = useState<"actions" | "directions">(initialAction === "directions" ? "directions" : "actions");
   const [showExtract, setShowExtract] = useState(false);
   const [extractFps, setExtractFps] = useState(8);
   const [extractMatte, setExtractMatte] = useState(true);
@@ -53,6 +56,30 @@ export default function MaterialModal({ material: m, v, onClose, onChanged, onTo
   const engine = cfg?.matting.engine;
   const engineAvailable = engine != null && engine !== "none";
   const imageLayersAvailable = cfg?.imageLayers.configured ?? false;
+
+  useEffect(() => {
+    if (initialAction !== "crop" || isVideo) return;
+    let alive = true;
+    setBusy(true);
+    const slot = m.processed_path ? "processed" : "raw";
+    fetch(materialImageUrl(m.id, v, slot))
+      .then((res) => {
+        if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
+        return res.blob();
+      })
+      .then((blob) => {
+        if (alive) setCrop({ blob, slot });
+      })
+      .catch((error) => {
+        if (alive) notify((error as Error).message);
+      })
+      .finally(() => {
+        if (alive) setBusy(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [initialAction, isVideo, m.id, m.processed_path, t, v]);
 
   const updatePos = (e: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect();

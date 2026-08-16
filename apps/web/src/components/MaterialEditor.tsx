@@ -11,9 +11,11 @@ import { useTheme } from "../theme";
 import IconBtn from "./IconBtn";
 
 interface OpenMaterialEditorOptions {
-  id: string;
+  id?: string;
+  image?: Blob;
   name?: string;
   v?: number;
+  onSave?: (image: Blob) => void | Promise<void>;
   onSaved?: () => void;
 }
 
@@ -106,11 +108,15 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
     setImage(null);
     setBitmap(null);
     setBusy(true);
-    fetch(materialImageUrl(request.id, request.v ?? Date.now()))
-      .then((res) => {
-        if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
-        return res.blob();
-      })
+    const source = request.image
+      ? Promise.resolve(request.image)
+      : request.id
+        ? fetch(materialImageUrl(request.id, request.v ?? Date.now())).then((res) => {
+            if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
+            return res.blob();
+          })
+        : Promise.reject(new Error(t("msg.failed_to_read_material_image")));
+    source
       .then(async (blob) => {
         const nextBitmap = await createImageBitmap(blob);
         if (!alive) {
@@ -137,7 +143,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
     return () => {
       alive = false;
     };
-  }, [request.id, request.v, t]);
+  }, [request.id, request.image, request.v, t]);
 
   useEffect(() => () => bitmap?.close(), [bitmap]);
 
@@ -348,9 +354,11 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
       }));
       const turns = quarterTurns;
       const output = await editImage(image, strokes, turns, flipHorizontal);
-      await api.replaceMaterialImage(request.id, output, "processed");
+      if (request.onSave) await request.onSave(output);
+      else if (request.id) await api.replaceMaterialImage(request.id, output, "processed");
+      else throw new Error(t("msg.failed_to_read_material_image"));
       request.onSaved?.();
-      notify(t("materialEdit.saved"), "info");
+      notify(t(request.onSave ? "materialEdit.changesSaved" : "materialEdit.saved"), "info");
       onClose();
     } catch (error) {
       notify(t("materialEdit.saveFailed", { msg: (error as Error).message }));
@@ -399,7 +407,7 @@ function MaterialEditorModal({ request, onClose }: { request: OpenMaterialEditor
           <button type="button" className="px-btn" disabled={busy} onClick={reset}>{t("materialEdit.reset")}</button>
           <button type="button" className="px-btn" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={busy || !image || (!strokesRef.current.length && quarterTurns % 4 === 0 && !flipHorizontal)} onClick={() => void save()}>
-            <Save size={14} /> {busy ? t("materialEdit.saving") : t("materialEdit.saveProcessed")}
+            <Save size={14} /> {busy ? t("materialEdit.saving") : t(request.onSave ? "materialEdit.saveChanges" : "materialEdit.saveProcessed")}
           </motion.button>
         </div>
       </motion.div>

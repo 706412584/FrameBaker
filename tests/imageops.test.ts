@@ -3,6 +3,7 @@ import {
   computeImageAnalysis,
   findSkeletalPartQualityIssues,
   imageAnalysisSimilarity,
+  reviewSkeletalGrid,
 } from "../apps/web/src/imageops/ops";
 
 function image(width: number, height: number, paint: (set: (x: number, y: number, rgba?: [number, number, number, number]) => void) => void) {
@@ -19,6 +20,21 @@ const block = (x0: number, y0: number, w: number, h: number) => image(16, 16, (s
 });
 
 describe("骨骼分件图像质量检查", () => {
+  test("自定义网格跳过透明余格，标准人形网格仍把空格视为缺件", () => {
+    const valid = block(4, 4, 5, 5);
+    const empty = image(16, 16, () => {});
+    expect(reviewSkeletalGrid([valid, empty], false)).toEqual({ activeIndexes: [0], issues: [] });
+    expect(reviewSkeletalGrid([valid, empty], true)).toEqual({
+      activeIndexes: [0, 1],
+      issues: [{ code: "empty", cells: [2] }],
+    });
+    expect(reviewSkeletalGrid([valid, empty], true, [1])).toEqual({ activeIndexes: [0], issues: [] });
+    expect(reviewSkeletalGrid([empty, empty], false)).toEqual({
+      activeIndexes: [],
+      issues: [{ code: "empty", cells: [1] }],
+    });
+  });
+
   test("提取透明边和显著连通主体", () => {
     const analysis = image(12, 10, (set) => {
       for (let y = 2; y <= 6; y++) for (let x = 3; x <= 7; x++) set(x, y);

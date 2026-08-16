@@ -81,7 +81,6 @@ async function mainCrop(blob: Blob, rect: CropRect): Promise<Blob> {
   }
 }
 
-
 function eraseStrokes(ctx: CanvasRenderingContext2D, strokes: EraseStroke[]) {
   ctx.save();
   ctx.globalCompositeOperation = "destination-out";
@@ -170,7 +169,6 @@ export async function cropImage(blob: Blob, rect: CropRect): Promise<Blob> {
     return mainCrop(blob, rect);
   }
 }
-
 
 /** 应用橡皮擦笔迹、90° 旋转与水平镜像并编码 PNG；重放和编码优先在 worker 完成。 */
 export async function editImage(blob: Blob, strokes: EraseStroke[], quarterTurns: number, flipHorizontal = false): Promise<Blob> {
