@@ -47,9 +47,11 @@ export const DEFAULT_ANIMATION_COORDINATE_SYSTEM: CoordinateSystem = {
   unit: "normalized",
 };
 
-export type AnimationAssetKind = "skeleton" | "motion-clip" | "character-binding";
+/** 动作库只持久化骨架与动作；角色素材绑定属于骨骼项目。 */
+export type AnimationAssetKind = "skeleton" | "motion-clip";
+export type AnimationDocumentKind = AnimationAssetKind | "character-binding";
 
-export interface AnimationAssetBase<K extends AnimationAssetKind> {
+export interface AnimationAssetBase<K extends AnimationDocumentKind> {
   schemaVersion: number;
   kind: K;
   id: string;
@@ -206,7 +208,7 @@ export interface CharacterBinding extends AnimationAssetBase<"character-binding"
   attachments: RegionAttachment[];
 }
 
-export type EditableAnimationAsset = Skeleton | MotionClip | CharacterBinding;
+export type EditableAnimationAsset = Skeleton | MotionClip;
 export type AnimationAsset = EditableAnimationAsset;
 
 /** 动画资产在本地库中的组织信息；资产正文仍由各自 schema 负责。 */
@@ -277,7 +279,7 @@ function validateJsonValue(value: unknown, path: string, issues: ValidationIssue
   issues.push(...validateBoundedJsonValue(value, { maxNodes: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes }, budget).map((issue) => ({ ...issue, path: issue.path === "$" ? path : `${path}${issue.path.slice(1)}` })));
 }
 
-function validateIdentity(value: Record<string, unknown>, kind: AnimationAssetKind, version: number | readonly number[], issues: ValidationIssue[], jsonBudget: JsonNodeBudget) {
+function validateIdentity(value: Record<string, unknown>, kind: AnimationDocumentKind, version: number | readonly number[], issues: ValidationIssue[], jsonBudget: JsonNodeBudget) {
   const versions = Array.isArray(version) ? version : [version];
   if (!versions.includes(value.schemaVersion as number)) {
     issues.push({ path: "schemaVersion", message: `仅支持 ${kind} 格式版本 ${versions.join("、")}` });

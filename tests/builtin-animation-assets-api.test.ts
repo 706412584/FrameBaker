@@ -44,6 +44,23 @@ describe("内置动画资产 API", () => {
     expect((await request("/animation-assets", "POST", { asset: spoof, folderId: null })).status).toBe(403);
   });
 
+  test("动作资产 API 拒绝项目专属的角色绑定", async () => {
+    const response = await request("/animation-assets", "POST", {
+      asset: {
+        schemaVersion: 1,
+        kind: "character-binding",
+        id: `binding-${crypto.randomUUID()}`,
+        name: "不应进入动作库",
+        skeletonId: BUILTIN_HUMANOID_SKELETON_ID,
+        slots: [],
+        attachments: [],
+      },
+      folderId: null,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("只能保存在骨骼项目中");
+  });
+
   test("复制品保留完整攻击数据、移除内置标记并可继续修改删除", async () => {
     const response = await request(`/animation-assets/${BUILTIN_MOTION_ASSET_IDS.attack}/copy`, "POST", { name: "攻击测试副本", folderId: null });
     expect(response.status).toBe(200);

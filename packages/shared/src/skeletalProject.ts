@@ -14,8 +14,8 @@ export interface SkeletalProjectAnimation {
 export interface SkeletalProjectDocument {
   schemaVersion: 1;
   projectId: string;
-  /** 从动作资产库复制进项目的角色；之后可在项目内独立调整，不改动原资产。 */
-  character: { sourceBindingId: string | null; binding: CharacterBinding } | null;
+  /** 具体角色及其素材绑定只属于本项目，不进入动作资产库。 */
+  character: { binding: CharacterBinding } | null;
   animations: SkeletalProjectAnimation[];
   activeAnimationId: string | null;
 }

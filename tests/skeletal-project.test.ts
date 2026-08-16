@@ -44,4 +44,31 @@ describe("骨骼项目文档 API", () => {
     expect((await request(skeletalId, "PUT", document)).status).toBe(200);
     expect(await (await request(skeletalId)).json()).toEqual({ document });
   });
+
+  test("读取旧项目时移除全局绑定来源，只保留项目内绑定", async () => {
+    const legacy = {
+      schemaVersion: 1,
+      projectId: skeletalId,
+      character: {
+        sourceBindingId: "legacy-global-binding",
+        binding: {
+          schemaVersion: 1,
+          kind: "character-binding",
+          id: "project-binding",
+          name: "Project character",
+          skeletonId: "missing-is-fine-for-read-migration",
+          slots: [],
+          attachments: [],
+        },
+      },
+      animations: [],
+      activeAnimationId: null,
+    };
+    db.query("UPDATE skeletal_projects SET document = ? WHERE project_id = ?").run(JSON.stringify(legacy), skeletalId);
+    const response = await request(skeletalId);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { document: { character: Record<string, unknown> } };
+    expect(body.document.character.sourceBindingId).toBeUndefined();
+    expect(body.document.character.binding).toEqual(legacy.character.binding);
+  });
 });

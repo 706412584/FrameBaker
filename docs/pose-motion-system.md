@@ -23,7 +23,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 以下决策是后续实现的约束；变更时必须修改本文并记录迁移影响。
 
 1. **通用内核优先**：不以 `humanoid-v1`、Spine、BVH、glTF 或任何模型输出作为内部唯一格式。
-2. **资产职责分离**：`Skeleton`、`MotionClip`、`CharacterBinding` 与 `ConstraintSet` 独立保存和引用。
+2. **动作与项目职责分离**：动作库只保存并引用 `Skeleton`、`MotionClip`；`CharacterBinding` 由具体骨骼项目持有；`ConstraintSet` 后续按实际复用边界归属。
 3. **动作与外观分离**：`MotionClip` 不包含角色图片、Slot 或 provider 请求；同一动作可重定向到多个角色。
 4. **源资产与预览分离**：姿态表和预览视频都是可再生成产物，不能替代骨架与动作源数据。
 5. **时间使用秒**：关键帧时间以秒表示；FPS 只用于预览采样，不是动作数据的时间单位。
@@ -38,7 +38,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 14. **转换不静默丢失**：导入导出必须产生兼容性报告；无法表达的特性需明确降级、烘焙或拒绝。
 15. **光栅编辑语义不变**：现有 `Frame.offset_x/y`、`rotation`、`scale`、`opacity` 只表示整张帧图片变换，骨骼数据不得写入这些字段或长期塞入 metadata。
 16. **双项目类型**：统一项目入口下存在不可变的 `frame` 与 `skeletal` 两种项目类型；存量和省略类型的新项目均为 `frame`，项目类型创建后不可原地转换。
-17. **动作与项目分工**：`/motions` 生产可复用 Skeleton、MotionClip 与无具体角色素材的绑定模板；骨骼项目用素材组装具体角色、引用或复制动作、编排最终序列并导出运行时包。
+17. **动作与项目分工**：`/motions` 只生产可复用 Skeleton 与 MotionClip，不读取或绑定素材；骨骼项目独占 CharacterBinding，用素材组装具体角色、引用同骨架动作、编排最终序列并导出运行时包。
 18. **骨骼输出唯一**：骨骼项目只输出包含骨架、最终动作、角色绑定和纹理闭包的 `.fbanim` 运行时包，不再提供转换为逐帧项目的兼容线路。
 19. **生成意图隔离**：底层 provider、抠图和图像处理能力共享；上层任务必须区分逐帧图片/序列/视频、骨骼部件生成、参考角色拆分和 MotionClip 生成，不能仅用 `image | video` 表达产物语义。
 
@@ -51,7 +51,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 | `frame` | 有序 `Frame[]` 与独立 PNG | 洋葱皮、逐帧变换、排序、逐帧时长和人工修帧 | PNG 序列 / Spritesheet |
 | `skeletal` | 项目角色 + 命名骨骼序列 | 素材组装、Slot/Attachment、动作引用/复制、trim/变速/重复、事件和 Root Motion | `.fbanim` 运行时包 |
 
-两种项目类型互不转换。`/motions` 是共享动作资产工作台，不拥有最终角色项目编排。它负责 Rig/Skeleton、单个 MotionClip、事件、循环接缝和可复用 Slot 绑定契约。具体 `materialId`、图片镜像、Pivot 和项目角色外观由骨骼项目持有；已有 CharacterBinding 可作为创建项目角色时复制的预制。
+两种项目类型互不转换。`/motions` 是共享动作资产工作台，不拥有最终角色项目编排。它负责 Rig/Skeleton、单个 MotionClip、事件和循环接缝，不读取素材，也不创建 Slot、Attachment 或 CharacterBinding。具体 `materialId`、图片镜像、Pivot、Draw Order 和项目角色外观全部由骨骼项目持有；项目只能直接引用 `skeletonId` 完全相同的动作，重定向不属于基础项目流程。
 
 ## 2.2 双生成线路
 
@@ -66,18 +66,7 @@ AI 在系统中的定位是**可选生产力来源**，不是动画数据的事�
 
 ## 3. 当前实现与替换策略
 
-`/motions` 当前实现是一个有效的交互原型，但不是最终数据模型：
-
-- 固定 `humanoid-v1` 人形拓扑；
-- 根节点二维平移和逐骨骼弧度旋转；
-- PixiJS FK、关节拖拽、镜像、视角和动作参数；
-- Quaternius CC0 动作采样成 8–16 帧预设；
-- 动作关键帧编辑、循环播放和 512×512 姿态表导出；
-- 姿态表上传素材库后可作为现有图片生成链路的第二张参考图。
-
-当前 `MotionKeyframe` 和 `HumanoidBoneId` 只服务该页面的内存状态，未持久化为用户资产，不做格式兼容、迁移器或历史记录。现有骨骼编辑、内置动作和姿态表功能继续保留；正式动画资产 UI 完成后直接改用通用 `Skeleton + MotionClip`，届时删除不再使用的固定人形类型和计算代码。姿态表仅作为预览与生成参考，不属于骨骼项目的正式输出。
-
-现有双参考图属于普通多图语义引导，不等同于强姿态控制。它是通用动作资产的一个下游消费者，不再决定骨架系统是否成立。
+`/motions` 已统一使用正式的 `Skeleton + MotionClip` 数据模型和连续时间编辑器。早期固定人形、仅内存关键帧、姿态表素材导出和角色参考图流程已经从该入口移除，避免动作制作反向依赖素材与图片生成链路。内置动作仍作为只读 `MotionClip` 存在，需要编辑时先复制到动作库。
 
 ## 4. 领域模型
 
@@ -192,7 +181,7 @@ interface MotionTrackV2 {
 
 ### 4.4 CharacterBinding
 
-`CharacterBinding` 连接骨架与可渲染外观：
+`CharacterBinding` 连接骨架与可渲染外观，并且只作为骨骼项目文档的一部分保存：
 
 ```ts
 interface CharacterBinding extends AssetIdentity {
@@ -315,7 +304,7 @@ type AnimationCapability =
   → 坐标标准化与骨架映射
   → 重定向到目标 Skeleton
   → FK/IK、接触、曲线和循环编辑
-  → CharacterBinding 预览
+  → 在骨骼项目中建立 CharacterBinding 并预览
   → 打包项目动作、角色绑定与纹理闭包
   → 导出并验证 .fbanim 运行时包
 ```
@@ -392,7 +381,7 @@ type AnimationCapability =
 - [x] schema v1 可表达的轨道插值（step/linear）、事件 type/name/payload 新增与查看/删除、根运动策略选择与基础循环接缝修复；
 - [x] MotionClip v2 逐片段 cubic-bezier 时间曲线、显式 v1 无损迁移、确定性采样与 `.fbanim` 往返兼容；
 - [ ] 其余高级循环工具（根运动提取算法/可视化及接触感知接缝）；
-- [x] CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；
+- [x] 项目内 CharacterBinding v1 的 Region Attachment、Pivot、Slot 和 Draw Order（仅 Region，不含 skins/mesh）；动作资产库不保存绑定；
 
 验收：同一动作可驱动至少两个不同角色绑定，并能随项目角色一起确定性导出 `.fbanim` 运行时包。
 

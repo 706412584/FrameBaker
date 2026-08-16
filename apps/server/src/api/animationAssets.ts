@@ -15,7 +15,6 @@ import {
   type StoredAnimationAsset,
   type ValidationIssue,
 } from "@framebaker/shared";
-import { existsSync } from "node:fs";
 import { db } from "../db";
 import { broadcast } from "../ws";
 
@@ -31,7 +30,7 @@ type AnimationAssetRow = {
 };
 
 function rowById(id: string): AnimationAssetRow | null {
-  return (db.query("SELECT * FROM animation_assets WHERE id = ?").get(id) as AnimationAssetRow | null) ?? null;
+  return (db.query("SELECT * FROM animation_assets WHERE id = ? AND kind IN ('skeleton', 'motion-clip')").get(id) as AnimationAssetRow | null) ?? null;
 }
 
 function parseRow(row: AnimationAssetRow): StoredAnimationAsset {
@@ -66,18 +65,6 @@ function validateFolder(folderId: string | null): string | null {
   return folder.kind === "animation" ? null : "文件夹类型不匹配";
 }
 
-async function validateBindingMaterials(binding: CharacterBinding): Promise<string | null> {
-  for (const attachment of binding.attachments) {
-    const row = db.query("SELECT raw_path, processed_path FROM materials WHERE id = ?").get(attachment.materialId) as { raw_path: string | null; processed_path: string | null } | null;
-    if (!row) return `附件「${attachment.name}」引用的素材不存在`;
-    const path = attachment.imageSlot === "raw" ? row.raw_path : row.processed_path;
-    if (!path || !existsSync(path)) return `附件「${attachment.name}」的 ${attachment.imageSlot} 图片不存在`;
-    const signature = new Uint8Array(await Bun.file(path).slice(0, 8).arrayBuffer());
-    if (![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => signature[index] === byte)) return `附件「${attachment.name}」的图片不是 PNG`;
-  }
-  return null;
-}
-
 async function validateAsset(value: unknown): Promise<{ asset: AnimationAsset } | { error: string }> {
   if (!value || typeof value !== "object") return { error: "资产必须是对象" };
   if ((value as { kind?: unknown }).kind === "skeleton") {
@@ -91,20 +78,11 @@ async function validateAsset(value: unknown): Promise<{ asset: AnimationAsset } 
     const result = validateMotionClip(value, skeleton);
     return result.ok ? { asset: result.value } : { error: issueText(result.issues) };
   }
-  if ((value as { kind?: unknown }).kind === "character-binding") {
-    const skeletonId = (value as { skeletonId?: unknown }).skeletonId;
-    const skeleton = typeof skeletonId === "string" ? getSkeleton(skeletonId) : null;
-    if (!skeleton) return { error: "角色绑定引用的骨架不存在" };
-    const result = validateCharacterBinding(value, skeleton);
-    if (!result.ok) return { error: issueText(result.issues) };
-    const materialError = await validateBindingMaterials(result.value);
-    return materialError ? { error: materialError } : { asset: result.value };
-  }
-  return { error: "kind 须为 skeleton、motion-clip 或 character-binding" };
+  return { error: "kind 须为 skeleton 或 motion-clip；角色素材绑定只能保存在骨骼项目中" };
 }
 
 function assetSkeletonId(asset: AnimationAsset): string | null {
-  return asset.kind === "motion-clip" || asset.kind === "character-binding" ? asset.skeletonId : null;
+  return asset.kind === "motion-clip" ? asset.skeletonId : null;
 }
 
 function carriesBuiltinMarker(asset: AnimationAsset): boolean {
@@ -121,6 +99,15 @@ function referencedBySkeletalProject(id: string): string | null {
   return null;
 }
 
+function projectUsingSkeleton(id: string): string | null {
+  const rows = db.query("SELECT projects.name, skeletal_projects.document FROM skeletal_projects JOIN projects ON projects.id = skeletal_projects.project_id").all() as Array<{ name: string; document: string }>;
+  for (const row of rows) {
+    const document = JSON.parse(row.document) as { character?: { binding?: CharacterBinding } | null };
+    if (document.character?.binding?.skeletonId === id) return row.name;
+  }
+  return null;
+}
+
 /** 骨架替换不能让已保存动作失效。 */
 function validateDependents(skeleton: Skeleton): string | null {
   const rows = db.query("SELECT data FROM animation_assets WHERE kind = 'motion-clip' AND skeleton_id = ?").all(skeleton.id) as Array<{ data: string }>;
@@ -129,11 +116,13 @@ function validateDependents(skeleton: Skeleton): string | null {
     const result = validateMotionClip(clip, skeleton);
     if (!result.ok) return `骨架更新会使动作「${clip.name}」失效：${issueText(result.issues)}`;
   }
-  const bindings = db.query("SELECT data FROM animation_assets WHERE kind = 'character-binding' AND skeleton_id = ?").all(skeleton.id) as Array<{ data: string }>;
-  for (const row of bindings) {
-    const binding = JSON.parse(row.data) as CharacterBinding;
+  const projects = db.query("SELECT document FROM skeletal_projects").all() as Array<{ document: string }>;
+  for (const row of projects) {
+    const document = JSON.parse(row.document) as { character?: { binding?: CharacterBinding } | null };
+    const binding = document.character?.binding;
+    if (!binding || binding.skeletonId !== skeleton.id) continue;
     const result = validateCharacterBinding(binding, skeleton);
-    if (!result.ok) return `骨架更新会使角色绑定「${binding.name}」失效：${issueText(result.issues)}`;
+    if (!result.ok) return `骨架更新会使项目角色「${binding.name}」失效：${issueText(result.issues)}`;
   }
   return null;
 }
@@ -141,12 +130,12 @@ function validateDependents(skeleton: Skeleton): string | null {
 export const animationAssetsApi = new Elysia({ prefix: "/api" })
   .get("/animation-assets", ({ query, status }) => {
     const kind = query.kind;
-    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip" && kind !== "character-binding") {
+    if (kind !== undefined && kind !== "skeleton" && kind !== "motion-clip") {
       return status(400, "kind 无效");
     }
     const rows = (kind
       ? db.query("SELECT * FROM animation_assets WHERE kind = ? ORDER BY updated_at DESC").all(kind)
-      : db.query("SELECT * FROM animation_assets ORDER BY updated_at DESC").all()) as AnimationAssetRow[];
+      : db.query("SELECT * FROM animation_assets WHERE kind IN ('skeleton', 'motion-clip') ORDER BY updated_at DESC").all()) as AnimationAssetRow[];
     return { assets: rows.map(summary) };
   })
   .post(
@@ -156,7 +145,7 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
       if ("error" in validation) return status(400, validation.error);
       const asset = validation.asset;
       if (isBuiltinAnimationAssetId(asset.id) || carriesBuiltinMarker(asset)) return status(403, "内置动画资产只能由 FrameBaker 安装");
-      if (rowById(asset.id)) return status(409, "资产 ID 已存在");
+      if (db.query("SELECT 1 FROM animation_assets WHERE id = ?").get(asset.id)) return status(409, "资产 ID 已存在");
       const folderId = body.folderId ?? null;
       const folderError = validateFolder(folderId);
       if (folderError) return status(400, folderError);
@@ -231,8 +220,10 @@ export const animationAssetsApi = new Elysia({ prefix: "/api" })
     if (!row) return status(404, "动画资产不存在");
     if (isBuiltinAnimationAssetId(params.id)) return status(403, "内置动画资产不可删除");
     if (row.kind === "skeleton") {
-      const dependent = db.query("SELECT name FROM animation_assets WHERE skeleton_id = ? LIMIT 1").get(params.id) as { name: string } | null;
+      const dependent = db.query("SELECT name FROM animation_assets WHERE kind = 'motion-clip' AND skeleton_id = ? LIMIT 1").get(params.id) as { name: string } | null;
       if (dependent) return status(409, `骨架仍被动画资产「${dependent.name}」引用`);
+      const projectName = projectUsingSkeleton(params.id);
+      if (projectName) return status(409, `骨架仍被骨骼项目「${projectName}」引用`);
     }
     if (row.kind === "motion-clip") {
       const action = referencedBySkeletalProject(params.id);

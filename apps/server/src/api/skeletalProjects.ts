@@ -39,8 +39,8 @@ function validateDocument(value: unknown, projectId: string): string | null {
 
   let skeletonId: string | null = null;
   if (document.character) {
-    const { sourceBindingId, binding } = document.character as { sourceBindingId?: unknown; binding?: unknown };
-    if (sourceBindingId !== null && (typeof sourceBindingId !== "string" || !sourceBindingId.trim() || sourceBindingId.length > 128)) return "sourceBindingId 无效";
+    if (Object.keys(document.character).some((key) => key !== "binding")) return "character 只允许项目内 binding";
+    const { binding } = document.character as { binding?: unknown };
     if (!binding || typeof binding !== "object") return "项目角色绑定无效";
     skeletonId = (binding as CharacterBinding).skeletonId;
     const skeletonRow = typeof skeletonId === "string" ? db.query("SELECT data FROM animation_assets WHERE id = ? AND kind = 'skeleton'").get(skeletonId) as { data: string } | null : null;
@@ -65,7 +65,8 @@ export const skeletalProjectsApi = new Elysia({ prefix: "/api" })
     if (!row) return status(404, "项目不存在");
     if (row.kind !== "skeletal") return status(409, "逐帧项目没有骨骼项目文档");
     const stored = db.query("SELECT document FROM skeletal_projects WHERE project_id = ?").get(params.id) as { document: string } | null;
-    const document = stored ? JSON.parse(stored.document) as SkeletalProjectDocument : emptyDocument(params.id);
+    const document = stored ? JSON.parse(stored.document) as SkeletalProjectDocument & { character: ({ binding: CharacterBinding; sourceBindingId?: string | null }) | null } : emptyDocument(params.id);
+    if (document.character && "sourceBindingId" in document.character) delete document.character.sourceBindingId;
     if (!stored) db.query("INSERT INTO skeletal_projects (project_id, document, updated_at) VALUES (?, ?, ?)").run(params.id, JSON.stringify(document), Date.now());
     return { document };
   })

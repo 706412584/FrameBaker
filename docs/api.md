@@ -208,7 +208,7 @@ curl -F "file=@walk.gif" -F "autoMatting=true" http://localhost:3000/api/materia
 
 ### POST /api/materials/generate
 
-`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }` (provider resolution, independent image jobs, and multi-reference rules are the same as `/api/import/generate`). Each completed material job broadcasts `materials_changed`, so an open material library refreshes incrementally. Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames.
+`{ "prompt": "pixel slime", "count": 4, "autoMatting": false, "references": [{ "kind": "material", "id": "…" }] }` → `{ "jobId": "…", "jobIds": ["…", "…", "…", "…"] }` (provider resolution, independent image jobs, and multi-reference rules are the same as `/api/import/generate`). Each completed material job broadcasts `materials_changed`, so an open material library refreshes incrementally. Optional `name`: material naming base (defaults to first 24 chars of prompt); output named `name #i` (count>1) — material detail "multi-action generation" passes "materialName_action". Supports `mediaKind: "video"`: only generates and saves video material (`kind=video`), **no frame extraction**; use the extract endpoint below to split into frames. Skeletal part generation accepts paired `gridRows` / `gridCols` values from 1–8; both generated metadata and the grid-split editor preserve them. The humanoid default is `gridRows: 3`, `gridCols: 4` (12 parts). A `skeletal-character` two-stage request may put the same fields inside `followUp` for its generated parts sheet. Skeletal requests no longer need a pre-created `characterPartSetId`: when omitted, the server creates the internal part set automatically and returns its ID alongside `jobId`; an explicit ID remains supported for API compatibility.
 
 ### POST /api/materials/:id/extract
 
@@ -377,8 +377,9 @@ Ranges: `layers` 1–4 (the current Gitee Qwen-Image-Layered endpoint rejects va
 
 ## Animation Assets /api/animation-assets
 
-- `GET /api/animation-assets?kind=...` lists stored Skeleton, MotionClip, and CharacterBinding assets.
-- `POST /api/animation-assets` creates `{ asset, folderId? }`; `GET`, `PUT`, and `DELETE /api/animation-assets/:id` read, replace, and delete one asset.
+- `GET /api/animation-assets?kind=...` lists stored Skeleton and MotionClip action assets. CharacterBinding is project-local and is never exposed by this library.
+- `POST /api/animation-assets` creates `{ asset, folderId? }`; `GET`, `PUT`, and `DELETE /api/animation-assets/:id` read, replace, and delete one Skeleton or MotionClip. Posting a CharacterBinding is rejected.
+- `GET /api/projects/:id/skeletal-document` reads a skeletal project's document; `PUT` replaces it. The document owns its character's CharacterBinding and material references. Project actions may reference only MotionClips with the exact same `skeletonId`.
 - MotionClip `schemaVersion: 1` keeps track-level `step | linear`. MotionClip `schemaVersion: 2` removes track-level interpolation and requires every key to carry `outInterpolation`: non-terminal keys use `{ type: "step" | "linear" }` or `{ type: "cubic-bezier", x1, y1, x2, y2 }`, while the terminal key uses `null`. Bézier controls must be finite values in `[0, 1]`.
 - Reading or saving v1 does not upgrade it. The editor upgrades to v2 only when the user explicitly selects a cubic curve. `.fbanim` package versions remain independent from embedded MotionClip schema versions.
 
