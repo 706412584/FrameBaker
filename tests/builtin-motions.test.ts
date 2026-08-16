@@ -39,8 +39,8 @@ function expectPoint(actual: readonly number[] | null, expected: LegacyPoint) {
   expect(actual![2]).toBeCloseTo(0, 6);
 }
 
-describe("最早六组内置骨骼动作", () => {
-  test("目录严格固定为最早六组，不混入后加的 jump", () => {
+describe("内置人形骨骼与六组动作", () => {
+  test("动作目录固定为产品支持的六组，不混入后加的 jump", () => {
     expect(BUILTIN_MOTION_IDS).toEqual(["idle", "walk", "run", "attack", "hurt", "death"]);
     expect(BUILTIN_MOTION_IDS.map((id) => BUILTIN_MOTIONS[id].frames.length)).toEqual([12, 12, 12, 16, 8, 16]);
   });
@@ -48,6 +48,7 @@ describe("最早六组内置骨骼动作", () => {
   test("稳定骨架和六个动作全部通过通用动画 schema", () => {
     const skeleton = createBuiltinHumanoidSkeleton();
     expect(validateSkeleton(skeleton).ok).toBeTrue();
+    expect(skeleton.name).toBe("内置 · 人形骨骼");
     expect(skeleton.coordinateSystem.unit).toBe("pixel");
     expect(skeleton.bones).toHaveLength(17);
     for (const id of BUILTIN_MOTION_IDS) {
@@ -60,7 +61,7 @@ describe("最早六组内置骨骼动作", () => {
     }
   });
 
-  test("每个原始采样的通用 FK 骨端与最早标量 FK 完全一致", () => {
+  test("每个固定采样的通用 FK 骨端与基准标量 FK 完全一致", () => {
     const skeleton = createBuiltinHumanoidSkeleton();
     for (const id of BUILTIN_MOTION_IDS) {
       const clip = createBuiltinMotionClip(id);

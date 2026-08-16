@@ -11,7 +11,7 @@ import {
   type MotionClip,
   type Skeleton,
 } from "../packages/shared/src";
-import { ensureBuiltinAnimationAssets } from "../apps/server/src/builtinAnimationAssets";
+import { ensureBuiltinAnimationAssets, normalizeGeneratedAnimationAssetNames } from "../apps/server/src/builtinAnimationAssets";
 
 function memoryDb(): Database {
   const database = new Database(":memory:");
@@ -78,6 +78,20 @@ describe("内置动画启动迁移", () => {
     insertAsset(database, skeleton);
     expect(() => ensureBuiltinAnimationAssets(database)).toThrow("来自更新版本");
     expect(database.query("SELECT COUNT(*) count FROM animation_assets").get()).toEqual({ count: 1 });
+    database.close();
+  });
+
+  test("清理自动生成名称中的开发历史措辞但保留普通用户命名", () => {
+    const database = memoryDb();
+    const [, source] = createBuiltinAnimationAssets();
+    const generated: MotionClip = { ...source, id: "generated-motion", name: "待机 · 早期预制重定向", extensions: undefined };
+    const custom: MotionClip = { ...source, id: "custom-motion", name: "我的早期冒险动作", extensions: undefined };
+    insertAsset(database, generated);
+    insertAsset(database, custom);
+    normalizeGeneratedAnimationAssetNames(database);
+    const rows = database.query("SELECT id, name, data FROM animation_assets ORDER BY id").all() as Array<{ id: string; name: string; data: string }>;
+    expect(rows.map((row) => [row.id, row.name])).toEqual([["custom-motion", "我的早期冒险动作"], ["generated-motion", "待机"]]);
+    expect(JSON.parse(rows[1]!.data).name).toBe("待机");
     database.close();
   });
 });

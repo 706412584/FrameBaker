@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { ensureBuiltinAnimationAssets } from "./builtinAnimationAssets";
+import { ensureBuiltinAnimationAssets, normalizeGeneratedAnimationAssetNames } from "./builtinAnimationAssets";
 import type { AttackEffectCell, AttackEffectCellRow, Frame, FrameRow, Material, MaterialRow } from "@framebaker/shared";
 
 // 仓库根目录（apps/server/src → 根）：storage 固定放在根级，与启动时的 cwd 无关
@@ -232,8 +232,13 @@ CREATE INDEX IF NOT EXISTS idx_frames_track_step ON frames(track_id, step_id);
 CREATE INDEX IF NOT EXISTS idx_axes_project ON animation_axes(project_id, idx);
 `);
 
-// 固定安装并升级最早六组动作；先完成全部表/列迁移，保证依赖资产和骨骼项目可事务化重映射。
+// 固定安装并升级内置人形骨骼与动作；先完成全部表/列迁移，保证依赖资产和骨骼项目可事务化重映射。
 ensureBuiltinAnimationAssets(db);
+// v2：移除旧版本自动生成名称中的开发历史与实现细节，不改普通用户命名。
+db.transaction(() => {
+  if (!db.query("SELECT 1 FROM schema_migrations WHERE version=2").get()) normalizeGeneratedAnimationAssetNames(db);
+  db.query("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)").run(Date.now());
+})();
 // 旧版曾把攻击特效寄存在图片帧上；迁移为可独立占据空单元格的特效记录。
 db.transaction(() => {
   const rows = db.query(`SELECT id,project_id,track_id,step_id,attack_effect FROM frames

@@ -28,7 +28,7 @@ export interface BuiltinHumanoidRigBone {
   rest: number;
 }
 
-/** 与最早动作编辑器逐项一致的 FK 拓扑；不要按新版角色骨架重新估算。 */
+/** 内置动作采样使用的固定 FK 拓扑；不要按当前角色骨架重新估算。 */
 export const BUILTIN_HUMANOID_RIG: readonly BuiltinHumanoidRigBone[] = [
   { id: "pelvis", parent: null, length: 0, rest: 0 },
   { id: "chest", parent: "pelvis", length: 62, rest: -Math.PI / 2 },
@@ -95,8 +95,8 @@ export function getBuiltinAnimationCatalogVersion(asset: AnimationAsset): number
 }
 
 /**
- * 生成最早六组动作专用的稳定骨架。每根历史骨骼表示“从父节点到本节点”的骨段，
- * 子骨骼平移固定为父骨端，因此通用 T*R*S FK 与早期标量 FK 的端点逐帧完全一致。
+ * 生成内置动作使用的稳定人形骨骼。每根历史骨骼表示“从父节点到本节点”的骨段，
+ * 子骨骼平移固定为父骨端，因此通用 T*R*S FK 与旧标量 FK 的端点逐帧完全一致。
  */
 export function createBuiltinHumanoidSkeleton(): Skeleton {
   const rigById = new Map(BUILTIN_HUMANOID_RIG.map((bone) => [bone.id, bone]));
@@ -105,7 +105,7 @@ export function createBuiltinHumanoidSkeleton(): Skeleton {
     schemaVersion: 1,
     kind: "skeleton",
     id: BUILTIN_HUMANOID_SKELETON_ID,
-    name: "内置 · 最早六动作人形骨架",
+    name: "内置 · 人形骨骼",
     extensions: builtinExtension("skeleton"),
     coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "pixel" },
     bones: [
@@ -130,7 +130,7 @@ export function createBuiltinHumanoidSkeleton(): Skeleton {
   };
 }
 
-/** 把最早提交中的原始采样无损转换为通用 MotionClip；不归零、不缩幅、不省略 neck。 */
+/** 把内置动作的固定采样无损转换为通用 MotionClip；不归零、不缩幅、不省略 neck。 */
 export function createBuiltinMotionClip(id: BuiltinMotionId): MotionClip {
   const source = BUILTIN_MOTIONS[id];
   const fps = 12;

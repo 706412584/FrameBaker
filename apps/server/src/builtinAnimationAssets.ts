@@ -25,6 +25,42 @@ type AssetRow = {
   updated_at: number;
 };
 
+function productAnimationName(name: string): string {
+  if (name === "Sword_Attack · 多关节流畅攻击") return "剑击";
+  return name
+    .replace(/ · 早期预制重定向$/, "")
+    .replace(/ · 当前角色重定向副本$/, "")
+    .replace(/ · 17 节点关节骨架$/, "")
+    .replace(/ · 12 分件角色绑定$/, " · 素材绑定");
+}
+
+/** 一次性清理旧版本自动生成的开发态名称；普通用户命名不会匹配这些固定后缀。 */
+export function normalizeGeneratedAnimationAssetNames(database: Database): void {
+  const now = Date.now();
+  const assets = database.query("SELECT id, name, data FROM animation_assets").all() as Array<{ id: string; name: string; data: string }>;
+  for (const row of assets) {
+    const asset = JSON.parse(row.data) as { name?: unknown };
+    const nextRowName = productAnimationName(row.name);
+    const nextAssetName = typeof asset.name === "string" ? productAnimationName(asset.name) : asset.name;
+    if (nextRowName === row.name && nextAssetName === asset.name) continue;
+    if (typeof nextAssetName === "string") asset.name = nextAssetName;
+    database.query("UPDATE animation_assets SET name = ?, data = ?, updated_at = ? WHERE id = ?")
+      .run(nextRowName, JSON.stringify(asset), now, row.id);
+  }
+
+  const projects = database.query("SELECT project_id, document FROM skeletal_projects").all() as Array<{ project_id: string; document: string }>;
+  for (const row of projects) {
+    const document = JSON.parse(row.document) as { character?: { binding?: CharacterBinding } | null };
+    const binding = document.character?.binding;
+    if (!binding) continue;
+    const name = productAnimationName(binding.name);
+    if (name === binding.name) continue;
+    document.character = { ...document.character!, binding: { ...binding, name } };
+    database.query("UPDATE skeletal_projects SET document = ?, updated_at = ? WHERE project_id = ?")
+      .run(JSON.stringify(document), now, row.project_id);
+  }
+}
+
 function firstIssue(result: { ok: boolean; issues: Array<{ path: string; message: string }> }): string {
   const issue = result.issues[0];
   return issue ? `${issue.path} ${issue.message}` : "未知错误";
@@ -84,7 +120,7 @@ export function ensureBuiltinAnimationAssets(database: Database): void {
       const dependents = database.query("SELECT * FROM animation_assets WHERE skeleton_id = ?").all(BUILTIN_HUMANOID_SKELETON_ID) as AssetRow[];
       for (const row of dependents) {
         if (isBuiltinAnimationAssetId(row.id)) continue;
-        const asset = JSON.parse(row.data) as AnimationAsset;
+        const asset = JSON.parse(row.data) as AnimationAsset | CharacterBinding;
         if (asset.kind === "motion-clip") {
           const next = {
             ...asset,
