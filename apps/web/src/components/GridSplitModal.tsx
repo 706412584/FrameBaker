@@ -102,6 +102,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     return groups;
   }, [cols, mergedCellGroups, rows, splitLine]);
   const cellGroupsKey = cellGroups.map((group) => group.join(",")).join("|");
+  const cellGroupLabel = (group: number[]) => group.map((index) => index + 1).join("+");
   const total = splitLine === "skeletal" ? cellGroups.length : rows * cols - (skipCenter ? 1 : 0);
   const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0;
 
@@ -798,29 +799,31 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
               {skeletalReview && <div className={`skeletal-quality-summary ${skeletalReview.issues.length ? "error" : "ok"}`}>
                 <strong>{t(skeletalReview.issues.length ? "skeletal.split.qualityFailed" : "skeletal.split.qualityPassed")}</strong>
                 {skeletalReview.issues.map((issue, index) => <span key={`${issue.code}-${issue.cells.join("-")}-${index}`}>
-                  {t(`skeletal.split.quality.${issue.code}`, { cells: issue.cells.join(", ") })}
+                  {t(`skeletal.split.quality.${issue.code}`, { cells: issue.cells.map((cell) => cellGroupLabel(cellGroups[cell - 1] ?? [cell - 1])).join(", ") })}
                 </span>)}
               </div>}
               <div className="skeletal-split-members">
-                {partDrafts.map((draft, index) => (
-                  <div className={`skeletal-split-member${skeletalReview?.issues.some((issue) => issue.cells.includes(index + 1)) ? " error" : ""}`} key={index}>
+                {partDrafts.map((draft, index) => {
+                  const group = cellGroups[index] ?? [index];
+                  const groupLabel = cellGroupLabel(group);
+                  return <div className={`skeletal-split-member${group.length > 1 ? " merged" : ""}${skeletalReview?.issues.some((issue) => issue.cells.includes(index + 1)) ? " error" : ""}`} key={group.join("-")}>
                     <div className="skeletal-part-preview">
                       {skeletalReview?.previews[index]
                         ? <img src={skeletalReview.previews[index]} alt={draft.name} />
-                        : <span>{index + 1}</span>}
+                        : <span>{groupLabel}</span>}
                     </div>
-                    <span>{t("skeletal.split.cell", { index: (cellGroups[index] ?? [index]).map((cell) => cell + 1).join("+") })}</span>
+                    <span>{t("skeletal.split.cell", { index: groupLabel })}</span>
                     <strong>{t(`skeletal.partRole.${draft.role}`)}</strong>
                     <input
                       className="px-input"
                       value={draft.name}
                       disabled={busy}
-                      aria-label={t("skeletal.split.partName", { index: index + 1 })}
+                      aria-label={t("skeletal.split.partName", { index: groupLabel })}
                       placeholder={t("skeletal.split.partMaterialNamePlaceholder")}
                       onChange={(event) => setPartDrafts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))}
                     />
-                  </div>
-                ))}
+                  </div>;
+                })}
               </div>
               {skeletalReview && skeletalReview.issues.length === 0 && <label className="px-check skeletal-review-confirm">
                 <input type="checkbox" checked={reviewConfirmed} disabled={busy} onChange={(event) => setReviewConfirmed(event.target.checked)} />

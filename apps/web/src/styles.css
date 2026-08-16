@@ -3006,6 +3006,14 @@ input[type="range"] {
   border-color: var(--error);
   box-shadow: inset 0 0 0 1px var(--error);
 }
+.skeletal-split-member.merged {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.skeletal-split-member.merged.error {
+  border-color: var(--error);
+  box-shadow: inset 0 0 0 1px var(--error);
+}
 .skeletal-part-preview {
   grid-row: 1 / 4;
   width: 46px;
