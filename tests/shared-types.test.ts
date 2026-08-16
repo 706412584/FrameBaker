@@ -131,33 +131,34 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     const prompt = buildArticulatedPartsPrompt({ reference: true, extra: "red cape" });
     expect(prompt).toContain("single source of truth");
     expect(prompt).toContain("exact head-to-body ratio");
-    expect(prompt).toContain("Do not redesign, shorten, stretch, or independently rescale");
-    expect(prompt).toContain("exactly 12 isolated pieces");
+    expect(prompt).toContain("never redesign or independently rescale");
+    expect(prompt).toContain("Exactly 12 pieces");
     expect(prompt).toContain("4 columns by 3 rows");
     expect(prompt).toContain("left upper arm, left forearm");
     expect(prompt).toContain("left thigh, left shin");
-    expect(prompt).toContain("stops at the hip sockets");
-    expect(prompt).toContain("no upper-leg or thigh segment");
-    expect(prompt).toContain("weapon must not touch either arm");
-    expect(prompt).toContain("4 × 3 equal-sized cells");
+    expect(prompt).toContain("hip-sockets only");
+    expect(prompt).toContain("Weapon must not touch an arm");
+    expect(prompt).toContain("regular 4 × 3 lattice of identical cells");
     expect(prompt).toContain("one global scale factor");
-    expect(prompt).toContain("opaque bounding-box center of each piece exactly on its cell center");
-    expect(prompt).toContain("at least 10% of the cell width and height clear");
-    expect(prompt).toContain("no packed layout, staggered parts, variable gutters");
-    expect(prompt).toContain("reduce the whole sheet uniformly");
+    expect(prompt).toContain("opaque bounding box centered");
+    expect(prompt).toContain("at least 10% clear padding");
+    expect(prompt).toContain("no variable gaps, packed/staggered layout");
+    expect(prompt).toContain("shrink all parts uniformly");
     expect(prompt).toContain("Extra requirements: red cape");
+    expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
   test("自定义行列数决定部件数量且不套用固定人形槽位", () => {
     const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 5, extra: "include a tail and two shoulder plates" });
-    expect(prompt).toContain("exactly 15 isolated pieces");
+    expect(prompt).toContain("Exactly 15 useful pieces");
     expect(prompt).toContain("5 columns by 3 rows");
-    expect(prompt).toContain("split at real joints");
+    expect(prompt).toContain("Split at real joints");
     expect(prompt).toContain("all 15 cells");
-    expect(prompt).toContain("5 × 3 equal-sized cells");
-    expect(prompt).toContain("Cell dimensions, center spacing, row pitch, column pitch, and safe padding must be identical");
+    expect(prompt).toContain("regular 5 × 3 lattice of identical cells");
+    expect(prompt).toContain("Identical center spacing and row/column pitch");
     expect(prompt).not.toContain("row 1 = head, torso, pelvis");
     expect(prompt).toContain("Extra requirements: include a tail and two shoulder plates");
+    expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
   test("角色 8 向图使用中心留空的 3×3 环形布局并锁定角色一致性", () => {
