@@ -17,13 +17,38 @@ const WARP_MAPS = {
   vertical: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="128"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgb(128,128,0)"/><stop offset=".25" stop-color="rgb(136,128,0)"/><stop offset=".5" stop-color="rgb(160,128,0)"/><stop offset=".75" stop-color="rgb(200,128,0)"/><stop offset="1" stop-color="rgb(255,128,0)"/></linearGradient></defs><rect width="16" height="128" fill="url(#g)"/></svg>')}`,
   horizontal: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="16"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="rgb(128,128,0)"/><stop offset=".25" stop-color="rgb(128,136,0)"/><stop offset=".5" stop-color="rgb(128,160,0)"/><stop offset=".75" stop-color="rgb(128,200,0)"/><stop offset="1" stop-color="rgb(128,255,0)"/></linearGradient></defs><rect width="128" height="16" fill="url(#g)"/></svg>')}`,
 };
+const HUMANOID_COLLAPSED_SEMANTICS = new Set(["neck", "leftShoulder", "rightShoulder", "leftHip", "rightHip"]);
+const HUMANOID_SEGMENT_ORIGIN: Record<string, string> = {
+  head: "neck",
+  leftElbow: "leftShoulder",
+  rightElbow: "rightShoulder",
+  leftKnee: "leftHip",
+  rightKnee: "rightHip",
+};
+
+function pointToSegmentDistance(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+  const dx = end.x - start.x, dy = end.y - start.y, lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < 1e-12) return Math.hypot(point.x - start.x, point.y - start.y);
+  const amount = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - start.x - amount * dx, point.y - start.y - amount * dy);
+}
 
 function SkeletonPreview({ skeleton, clip, rangeClip, time, selectedBone, disabled, onSelectBone, onEditBone }: { skeleton: Skeleton; clip?: MotionClip; rangeClip?: MotionClip; time: number; selectedBone?: string; disabled?: boolean; onSelectBone?: (id: string) => void; onEditBone?: (id: string, patch: { tx?: number; ty?: number; rz?: number }) => void }) {
   const t = useT();
+  const [camera, setCamera] = useState({ zoom: 1, x: 0, y: 0 });
+  useEffect(() => setCamera({ zoom: 1, x: 0, y: 0 }), [skeleton.id, clip?.id]);
   const skeletonName = localizeSkeletonName(skeleton.id, skeleton.name, t);
   const boneName = (bone: Skeleton["bones"][number]) => localizeBoneName(skeleton.id, bone.id, bone.name, t);
+  const humanoid = skeleton.semanticProfile?.id === "humanoid-v1";
+  const isVisibleSegment = (bone: Skeleton["bones"][number]) => !humanoid || !bone.semantic || !HUMANOID_COLLAPSED_SEMANTICS.has(bone.semantic);
   const pose = useMemo(() => clip ? sampleMotionClip(clip, skeleton, time) : sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [clip, skeleton, time]);
   const points = skeleton.bones.map((bone) => transformPoint(pose.worldMatrices[bone.id]!, [0, 0, 0]));
+  const segmentStarts = skeleton.bones.map((bone, index) => {
+    const originSemantic = humanoid && bone.semantic ? HUMANOID_SEGMENT_ORIGIN[bone.semantic] : undefined;
+    if (!originSemantic) return points[index]!;
+    const originIndex = skeleton.bones.findIndex((item) => item.semantic === originSemantic);
+    return originIndex >= 0 ? points[originIndex]! : points[index]!;
+  });
   const localAxes = skeleton.bones.map((bone) => {
     if (bone.tipOffset && Math.hypot(...bone.tipOffset) > 1e-8) return bone.tipOffset;
     const child = skeleton.bones.find((item) => item.parentId === bone.id);
@@ -50,18 +75,48 @@ function SkeletonPreview({ skeleton, clip, rangeClip, time, selectedBone, disabl
     return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
   }, [clip, rangeClip, skeleton]);
   const span = Math.max(1, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY), pad = span * .16, width = Math.max(1, bounds.maxX - bounds.minX + pad * 2), height = Math.max(1, bounds.maxY - bounds.minY + pad * 2), top = bounds.maxY + pad;
+  const baseX = bounds.minX - pad, viewWidth = width / camera.zoom, viewHeight = height / camera.zoom;
+  const viewX = camera.zoom === 1 ? baseX : Math.max(baseX, Math.min(baseX + width - viewWidth, camera.x));
+  const viewY = camera.zoom === 1 ? 0 : Math.max(0, Math.min(height - viewHeight, camera.y));
   const xy = (p: [number, number, number]) => ({ x: p[0], y: top - p[1] });
   const svgPoint = (svg: SVGSVGElement, clientX: number, clientY: number) => { const point = svg.createSVGPoint(); point.x = clientX; point.y = clientY; return point.matrixTransform(svg.getScreenCTM()?.inverse()); };
-  const dragRef = useRef<{ id: string; root: boolean; origin: [number, number, number]; parentAngle: number; axisAngle: number; pointer: [number, number]; translation: [number, number, number] } | undefined>(undefined);
-  const beginEdit = (event: React.PointerEvent<SVGGElement>, boneId: string, index: number) => {
+  const zoomCanvas = (event: React.WheelEvent<SVGSVGElement>) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    const point = svgPoint(event.currentTarget, event.clientX, event.clientY);
+    const zoom = Math.max(1, Math.min(8, camera.zoom * Math.exp(-event.deltaY * .0015)));
+    if (Math.abs(zoom - camera.zoom) < 1e-6) return;
+    if (zoom === 1) {
+      setCamera({ zoom, x: baseX, y: 0 });
+      return;
+    }
+    const nextWidth = width / zoom, nextHeight = height / zoom;
+    const ratioX = (point.x - viewX) / viewWidth, ratioY = (point.y - viewY) / viewHeight;
+    setCamera({
+      zoom,
+      x: Math.max(baseX, Math.min(baseX + width - nextWidth, point.x - ratioX * nextWidth)),
+      y: Math.max(0, Math.min(height - nextHeight, point.y - ratioY * nextHeight)),
+    });
+  };
+  const dragRef = useRef<{ id: string; root: boolean; origin: [number, number, number]; displayAngle: number; rotation: number; pointer: [number, number]; translation: [number, number, number] } | undefined>(undefined);
+  const beginEdit = (event: React.PointerEvent<SVGSVGElement>) => {
+    const point = svgPoint(event.currentTarget, event.clientX, event.clientY);
+    const candidates = skeleton.bones.map((bone, index) => {
+      const start = xy(segmentStarts[index]!), end = ends[index] ? xy(ends[index]!) : start;
+      return { bone, index, distance: pointToSegmentDistance(point, start, end) };
+    }).filter((candidate) => isVisibleSegment(candidate.bone) && candidate.distance <= span * .035).sort((a, b) => a.distance - b.distance);
+    if (!candidates.length) return;
+    const selectedIndex = candidates.findIndex((candidate) => candidate.bone.id === selectedBone);
+    const candidate = event.altKey
+      ? candidates[selectedIndex >= 0 ? (selectedIndex + 1) % candidates.length : Math.min(1, candidates.length - 1)]!
+      : candidates[selectedIndex >= 0 ? selectedIndex : 0]!;
+    const { bone, index } = candidate, boneId = bone.id;
     onSelectBone?.(boneId);
     if (!onEditBone || disabled) return;
     event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
-    const bone = skeleton.bones[index]!, parentMatrix = bone.parentId ? pose.worldMatrices[bone.parentId] : undefined, axis = localAxes[index]!, svg = event.currentTarget.ownerSVGElement!;
-    const point = svgPoint(svg, event.clientX, event.clientY);
-    dragRef.current = { id: boneId, root: bone.parentId === null, origin: points[index]!, parentAngle: parentMatrix ? Math.atan2(parentMatrix[1], parentMatrix[0]) : 0, axisAngle: Math.atan2(axis[1], axis[0]), pointer: [point.x, top - point.y], translation: pose.local[boneId]!.translation };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const origin = segmentStarts[index]!, end = ends[index] ?? origin;
+    dragRef.current = { id: boneId, root: bone.parentId === null, origin, displayAngle: Math.atan2(end[1] - origin[1], end[0] - origin[0]), rotation: zRotationFromQuaternion(pose.local[boneId]!.rotation), pointer: [point.x, top - point.y], translation: pose.local[boneId]!.translation };
   };
   const moveEdit = (event: React.PointerEvent<SVGSVGElement>) => {
     const drag = dragRef.current;
@@ -69,29 +124,108 @@ function SkeletonPreview({ skeleton, clip, rangeClip, time, selectedBone, disabl
     const point = svgPoint(event.currentTarget, event.clientX, event.clientY), x = point.x, y = top - point.y;
     if (drag.root) onEditBone(drag.id, { tx: drag.translation[0] + x - drag.pointer[0], ty: drag.translation[1] + y - drag.pointer[1] });
     else {
-      const angle = Math.atan2(y - drag.origin[1], x - drag.origin[0]) - drag.parentAngle - drag.axisAngle;
+      const angle = drag.rotation + Math.atan2(y - drag.origin[1], x - drag.origin[0]) - drag.displayAngle;
       onEditBone(drag.id, { rz: Math.atan2(Math.sin(angle), Math.cos(angle)) * 180 / Math.PI });
     }
   };
   const endEdit = () => { dragRef.current = undefined; };
   const selectedInfo = skeleton.bones.find((bone) => bone.id === selectedBone);
-  return <div className="animation-rig-stage"><div className="animation-rig-hud"><strong>{selectedInfo ? boneName(selectedInfo) : skeletonName}</strong><span>{t(disabled ? "animation.canvas.playing" : selectedInfo?.parentId === null ? "animation.canvas.dragRoot" : "animation.canvas.dragBone")}</span></div><svg className={`animation-skeleton motion-clip-skeleton${onEditBone ? " interactive" : ""}`} viewBox={`${bounds.minX - pad} 0 ${width} ${height}`} role="img" onPointerMove={moveEdit} onPointerUp={endEdit} onPointerCancel={endEdit}>
-    {skeleton.bones.map((bone, index) => {
+  return <div className="animation-rig-stage"><div className="animation-rig-hud"><strong>{selectedInfo ? boneName(selectedInfo) : skeletonName}</strong><span>{t(disabled ? "animation.canvas.playing" : selectedInfo?.parentId === null ? "animation.canvas.dragRoot" : "animation.canvas.dragBone")} · {Math.round(camera.zoom * 100)}%</span></div><svg className={`animation-skeleton motion-clip-skeleton${onEditBone ? " interactive" : ""}`} viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`} role="img" onWheel={zoomCanvas} onPointerDown={beginEdit} onPointerMove={moveEdit} onPointerUp={endEdit} onPointerCancel={endEdit}>
+    {!humanoid && skeleton.bones.map((bone, index) => {
       const parentIndex = bone.parentId ? skeleton.bones.findIndex((item) => item.id === bone.parentId) : -1;
-      if (parentIndex < 0) return null;
+      if (parentIndex < 0 || !isVisibleSegment(skeleton.bones[parentIndex]!)) return null;
       const parent = xy(points[parentIndex]!), point = xy(points[index]!);
       return <line className="animation-rig-link" key={`link-${bone.id}`} x1={parent.x} y1={parent.y} x2={point.x} y2={point.y} />;
     })}
     {skeleton.bones.map((bone, index) => {
-      const start = xy(points[index]!), end = ends[index] ? xy(ends[index]!) : start, selected = selectedBone === bone.id;
-      return <g className={`animation-rig-bone${selected ? " selected" : ""}`} key={bone.id} role={onSelectBone ? "button" : undefined} tabIndex={onSelectBone ? 0 : undefined} aria-label={boneName(bone)} onPointerDown={(event) => beginEdit(event, bone.id, index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectBone?.(bone.id); } }}>
+      if (!isVisibleSegment(bone)) return null;
+      const start = xy(segmentStarts[index]!), end = ends[index] ? xy(ends[index]!) : start, selected = selectedBone === bone.id;
+      return <g className={`animation-rig-bone${selected ? " selected" : ""}`} key={bone.id} role={onSelectBone ? "button" : undefined} tabIndex={onSelectBone ? 0 : undefined} aria-label={boneName(bone)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectBone?.(bone.id); } }}>
         <line className="bone-shadow" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
         <line className="bone-line" x1={start.x} y1={start.y} x2={end.x} y2={end.y}><title>{boneName(bone)}</title></line>
         <circle className="bone-handle" cx={end.x} cy={end.y} r={span * (selected ? .028 : .02)} />
       </g>;
     })}
-    {skeleton.bones.map((bone, index) => { const point = xy(points[index]!); return <circle className={`animation-joint-node${selectedBone === bone.id ? " selected" : ""}`} key={`joint-${bone.id}`} cx={point.x} cy={point.y} r={span * .014} />; })}
-  </svg><small>{onEditBone ? t("animation.canvas.hint") : skeletonName}</small></div>;
+    {skeleton.bones.map((bone, index) => { if (!isVisibleSegment(bone)) return null; const point = xy(segmentStarts[index]!); return <circle className={`animation-joint-node${selectedBone === bone.id ? " selected" : ""}`} key={`joint-${bone.id}`} cx={point.x} cy={point.y} r={span * .014} />; })}
+  </svg><small>{onEditBone ? `${t("animation.canvas.hint")} ${t("animation.canvas.zoomHint")}` : `${skeletonName} · ${t("animation.canvas.zoomHint")}`}</small></div>;
+}
+
+function SkeletonEditor({ skeleton, busy, onSave }: { skeleton: Skeleton; busy: boolean; onSave: (next: Skeleton) => Promise<void> }) {
+  const t = useT();
+  const [draft, setDraft] = useState(() => structuredClone(skeleton));
+  const [selectedBone, setSelectedBone] = useState(skeleton.bones[0]?.id ?? "");
+  useEffect(() => { setDraft(structuredClone(skeleton)); setSelectedBone(skeleton.bones[0]?.id ?? ""); }, [skeleton]);
+  const selected = draft.bones.find((bone) => bone.id === selectedBone);
+  const sampled = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "skeleton-edit-rest", name: "Rest", skeletonId: draft.id, duration: 0, loop: false, tracks: [], events: [] }, draft, 0), [draft]);
+  const patchBone = (id: string, patch: Partial<Skeleton["bones"][number]>) => setDraft((old) => ({ ...old, bones: old.bones.map((bone) => bone.id === id ? { ...bone, ...patch } : bone) }));
+  const editOnCanvas = (id: string, patch: { tx?: number; ty?: number; rz?: number }) => {
+    const bone = draft.bones.find((item) => item.id === id);
+    if (!bone) return;
+    const translation = [...bone.rest.translation] as [number, number, number];
+    if (patch.tx !== undefined) translation[0] = patch.tx;
+    if (patch.ty !== undefined) translation[1] = patch.ty;
+    patchBone(id, { rest: { ...bone.rest, translation, rotation: patch.rz === undefined ? bone.rest.rotation : quaternionFromZRotation(patch.rz * Math.PI / 180) } });
+  };
+  const setRestNumber = (property: "tx" | "ty" | "rz" | "tipX" | "tipY", value: number) => {
+    if (!selected || !Number.isFinite(value)) return;
+    if (property === "tipX" || property === "tipY") {
+      const tip = [...(selected.tipOffset ?? [0, 0, 0])] as [number, number, number];
+      tip[property === "tipX" ? 0 : 1] = value;
+      patchBone(selected.id, { tipOffset: tip });
+      return;
+    }
+    const rest = structuredClone(selected.rest);
+    if (property === "tx") rest.translation[0] = value;
+    else if (property === "ty") rest.translation[1] = value;
+    else rest.rotation = quaternionFromZRotation(value * Math.PI / 180);
+    patchBone(selected.id, { rest });
+  };
+  const canParentTo = (parentId: string) => {
+    let cursor: string | null = parentId;
+    while (cursor) {
+      if (cursor === selectedBone) return false;
+      cursor = draft.bones.find((bone) => bone.id === cursor)?.parentId ?? null;
+    }
+    return true;
+  };
+  const changeParent = (parentId: string) => {
+    if (!selected || (parentId && !canParentTo(parentId))) return;
+    const oldParent = selected.parentId ? sampled.worldMatrices[selected.parentId]! : transformToMatrix(identity());
+    const newParent = parentId ? sampled.worldMatrices[parentId]! : transformToMatrix(identity());
+    patchBone(selected.id, { parentId: parentId || null, rest: reparentTransform2d(selected.rest, oldParent, newParent) });
+  };
+  const addBone = () => {
+    if (!selected) return;
+    const id = uid("bone"), translation = [...(selected.tipOffset ?? [40, 0, 0])] as [number, number, number];
+    setDraft((old) => ({ ...old, bones: [...old.bones, { id, name: t("animation.skeletonEditor.newBoneName"), parentId: selected.id, rest: { ...identity(), translation }, tipOffset: [40, 0, 0] }] }));
+    setSelectedBone(id);
+  };
+  const removeBone = () => {
+    if (!selected || draft.bones.length <= 1 || draft.bones.some((bone) => bone.parentId === selected.id)) return;
+    const next = draft.bones.find((bone) => bone.id !== selected.id)!;
+    setDraft((old) => ({ ...old, bones: old.bones.filter((bone) => bone.id !== selected.id) }));
+    setSelectedBone(selected.parentId ?? next.id);
+  };
+  const dirty = JSON.stringify(draft) !== JSON.stringify(skeleton);
+  return <section className="skeleton-editor">
+    <SkeletonPreview skeleton={draft} time={0} selectedBone={selectedBone} disabled={busy} onSelectBone={setSelectedBone} onEditBone={editOnCanvas} />
+    <aside className="skeleton-editor-inspector">
+      <header><div><span>{t("animation.skeletonEditor.selectedBone")}</span><h3>{selected?.name}</h3></div><button className="px-btn" type="button" disabled={!selected || busy} onClick={addBone}><Plus size={13} />{t("animation.skeletonEditor.addChild")}</button></header>
+      {selected && <>
+        <label>{t("animation.skeletonEditor.boneName")}<input className="px-input" value={selected.name} disabled={busy} onChange={(event) => patchBone(selected.id, { name: event.target.value })} /></label>
+        <label>{t("animation.skeletonEditor.parent")}<PxSelect value={selected.parentId ?? ""} disabled={busy} options={[{ value: "", label: t("animation.skeletonEditor.noParent") }, ...draft.bones.filter((bone) => bone.id !== selected.id && canParentTo(bone.id)).map((bone) => ({ value: bone.id, label: bone.name }))]} onChange={changeParent} /></label>
+        <div className="skeleton-editor-fields">
+          <label>{t("animation.translationX")}<input className="px-input" type="number" step="1" value={selected.rest.translation[0]} onChange={(event) => setRestNumber("tx", +event.target.value)} /></label>
+          <label>{t("animation.translationY")}<input className="px-input" type="number" step="1" value={selected.rest.translation[1]} onChange={(event) => setRestNumber("ty", +event.target.value)} /></label>
+          <label>{t("animation.rotationZ")}<input className="px-input" type="number" step="1" value={zRotationFromQuaternion(selected.rest.rotation) * 180 / Math.PI} onChange={(event) => setRestNumber("rz", +event.target.value)} /></label>
+          <label>{t("animation.skeletonEditor.tipX")}<input className="px-input" type="number" step="1" value={selected.tipOffset?.[0] ?? 0} onChange={(event) => setRestNumber("tipX", +event.target.value)} /></label>
+          <label>{t("animation.skeletonEditor.tipY")}<input className="px-input" type="number" step="1" value={selected.tipOffset?.[1] ?? 0} onChange={(event) => setRestNumber("tipY", +event.target.value)} /></label>
+        </div>
+        <button className="px-btn danger" type="button" disabled={busy || draft.bones.length <= 1 || draft.bones.some((bone) => bone.parentId === selected.id)} onClick={removeBone}><Trash2 size={13} />{t("animation.skeletonEditor.deleteBone")}</button>
+      </>}
+      <div className="skeleton-editor-actions"><span>{t(dirty ? "animation.skeletonEditor.unsaved" : "animation.skeletonEditor.saved")}</span><button className="px-btn accent" type="button" disabled={busy || !dirty} onClick={() => void onSave(draft)}>{t("common.save")}</button></div>
+    </aside>
+  </section>;
 }
 
 type BindingTransformTool = "translate" | "rotate" | "scale" | "pivot" | "warp";
@@ -575,6 +709,15 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
 }
 
 type AssetFilter = "all" | "skeleton" | "motion-clip";
+type PoseDraft = { tx: number; ty: number; rz: number; sx: number; sy: number };
+
+const transformToPoseDraft = (transform: ReturnType<typeof sampleMotionClip>["local"][string]): PoseDraft => ({
+  tx: transform.translation[0],
+  ty: transform.translation[1],
+  rz: zRotationFromQuaternion(transform.rotation) * 180 / Math.PI,
+  sx: transform.scale[0],
+  sy: transform.scale[1],
+});
 
 export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenProjects: () => void }) {
   const t = useT(), inputRef = useRef<HTMLInputElement>(null);
@@ -586,7 +729,8 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
   const [time, setTime] = useState(0), [playing, setPlaying] = useState(false), [renaming, setRenaming] = useState(false), [name, setName] = useState("");
   const [durationDraft, setDurationDraft] = useState("");
   const [selectedBone, setSelectedBone] = useState(""), [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ tx: 0, ty: 0, rz: 0, sx: 1, sy: 1 });
+  const [draft, setDraft] = useState<PoseDraft>({ tx: 0, ty: 0, rz: 0, sx: 1, sy: 1 });
+  const [stagedDrafts, setStagedDrafts] = useState<Record<string, PoseDraft>>({});
   const [eventDraft, setEventDraft] = useState({ type: "", name: "", payload: "" });
   const [eventPayloadError, setEventPayloadError] = useState("");
   const [undo, setUndo] = useState<MotionClip[]>([]), [redo, setRedo] = useState<MotionClip[]>([]);
@@ -598,7 +742,7 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
     void api.getAnimationAsset(selected).then(async ({ asset }) => {
       const nextSkeleton = asset.kind === "skeleton" ? asset : (await api.getAnimationAsset(asset.skeletonId)).asset as Skeleton;
       if (!active) return;
-      setStored(asset); setName(asset.name); setDurationDraft(asset.kind === "motion-clip" ? String(asset.duration) : ""); setTime(0); setPlaying(false); setSkeleton(nextSkeleton); setSelectedBone(nextSkeleton?.bones[0]?.id ?? ""); setUndo([]); setRedo([]);
+      setStored(asset); setName(asset.name); setDurationDraft(asset.kind === "motion-clip" ? String(asset.duration) : ""); setTime(0); setPlaying(false); setSkeleton(nextSkeleton); setSelectedBone(nextSkeleton?.bones[0]?.id ?? ""); setStagedDrafts({}); setUndo([]); setRedo([]);
     }).catch((e) => { if (active) notify(t("animation.loadFailed", { msg: e.message })); });
     return () => { active = false; };
   }, [selected, t]);
@@ -608,24 +752,35 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
     const bone = skeleton?.bones.find((item) => item.id === boneId);
     return bone && skeleton ? localizeBoneName(skeleton.id, bone.id, bone.name, t) : t("animation.unknownBone");
   };
-  const sampledSelectedTransform = useMemo(() => clip && skeleton && selectedBone ? sampleMotionClip(clip, skeleton, time).local[selectedBone] : undefined, [clip, skeleton, selectedBone, time]);
+  const sampledPose = useMemo(() => clip && skeleton ? sampleMotionClip(clip, skeleton, time) : undefined, [clip, skeleton, time]);
+  const sampledSelectedTransform = selectedBone ? sampledPose?.local[selectedBone] : undefined;
   const previewClip = useMemo(() => {
-    if (!clip || playing || !selectedBone || !sampledSelectedTransform || !Object.values(draft).every(Number.isFinite)) return clip;
-    let next = upsertMotionKeyframe(clip, selectedBone, "translation", time, [draft.tx, draft.ty, sampledSelectedTransform.translation[2]]);
-    next = upsertMotionKeyframe(next, selectedBone, "rotation", time, quaternionFromZRotation(draft.rz * Math.PI / 180));
-    return upsertMotionKeyframe(next, selectedBone, "scale", time, [draft.sx, draft.sy, sampledSelectedTransform.scale[2]]);
-  }, [clip, playing, selectedBone, sampledSelectedTransform, time, draft]);
-  const poseDraftDirty = !playing && !!sampledSelectedTransform && (
-    Math.abs(draft.tx - sampledSelectedTransform.translation[0]) > 1e-6
-    || Math.abs(draft.ty - sampledSelectedTransform.translation[1]) > 1e-6
-    || Math.abs(draft.rz - zRotationFromQuaternion(sampledSelectedTransform.rotation) * 180 / Math.PI) > 1e-6
-    || Math.abs(draft.sx - sampledSelectedTransform.scale[0]) > 1e-6
-    || Math.abs(draft.sy - sampledSelectedTransform.scale[1]) > 1e-6
-  );
+    if (!clip || playing || !selectedBone || !sampledPose) return clip;
+    let next = clip;
+    for (const [boneId, boneDraft] of Object.entries({ ...stagedDrafts, [selectedBone]: draft })) {
+      const transform = sampledPose.local[boneId];
+      if (!transform || !Object.values(boneDraft).every(Number.isFinite)) continue;
+      next = upsertMotionKeyframe(next, boneId, "translation", time, [boneDraft.tx, boneDraft.ty, transform.translation[2]]);
+      next = upsertMotionKeyframe(next, boneId, "rotation", time, quaternionFromZRotation(boneDraft.rz * Math.PI / 180));
+      next = upsertMotionKeyframe(next, boneId, "scale", time, [boneDraft.sx, boneDraft.sy, transform.scale[2]]);
+    }
+    return next;
+  }, [clip, playing, selectedBone, sampledPose, stagedDrafts, time, draft]);
+  const poseDraftDirty = !playing && !!sampledPose && Object.entries({ ...stagedDrafts, ...(selectedBone ? { [selectedBone]: draft } : {}) }).some(([boneId, boneDraft]) => {
+    const transform = sampledPose.local[boneId];
+    return !!transform && (
+      Math.abs(boneDraft.tx - transform.translation[0]) > 1e-6
+      || Math.abs(boneDraft.ty - transform.translation[1]) > 1e-6
+      || Math.abs(boneDraft.rz - zRotationFromQuaternion(transform.rotation) * 180 / Math.PI) > 1e-6
+      || Math.abs(boneDraft.sx - transform.scale[0]) > 1e-6
+      || Math.abs(boneDraft.sy - transform.scale[1]) > 1e-6
+    );
+  });
   useEffect(() => {
     if (!clip || !skeleton || !selectedBone) return;
     const transform = sampleMotionClip(clip, skeleton, time).local[selectedBone];
-    if (transform) setDraft({ tx: transform.translation[0], ty: transform.translation[1], rz: zRotationFromQuaternion(transform.rotation) * 180 / Math.PI, sx: transform.scale[0], sy: transform.scale[1] });
+    setStagedDrafts({});
+    if (transform) setDraft(transformToPoseDraft(transform));
   }, [clip, skeleton, time]);
   useEffect(() => { if (!playing || !clip) return; let raf = 0, last = performance.now(); const tick = (now: number) => { const delta = (now - last) / 1000; last = now; setTime((old) => { const next = old + delta; if (clip.loop && clip.duration) return next % clip.duration; if (next >= clip.duration) { setPlaying(false); return clip.duration; } return next; }); raf = requestAnimationFrame(tick); }; raf = requestAnimationFrame(tick); return () => cancelAnimationFrame(raf); }, [playing, clip]);
   const inFolder = assets.filter((a) => isBuiltinAnimationAssetId(a.id) || folder === "all" || (folder === "ungrouped" ? !a.folder_id : a.folder_id === folder));
@@ -636,6 +791,44 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
     setSelected(visible[0]?.id);
   }, [filter, folder, selected, visible]);
   const importFile = async (file?: File) => { if (!file) return; try { const value = JSON.parse(await file.text()) as AnimationAsset; const result = await api.createAnimationAsset(value, folder === "all" || folder === "ungrouped" ? null : folder); await load(); setSelected(result.asset.id); notify(t("animation.imported"), "info"); } catch (e) { notify(t("animation.importFailed", { msg: (e as Error).message })); } };
+  const createSkeleton = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const asset: Skeleton = {
+        schemaVersion: 1,
+        kind: "skeleton",
+        id: uid("skeleton"),
+        name: t("animation.skeletonEditor.newSkeletonName"),
+        coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "pixel" },
+        bones: [{ id: uid("root"), name: "Root", parentId: null, rest: identity(), tipOffset: [0, 60, 0] }],
+      };
+      const targetFolder = folder === "all" || folder === "ungrouped" ? null : folder;
+      const made = await api.createAnimationAsset(asset, targetFolder);
+      await load();
+      setFilter("skeleton");
+      setSelected(made.asset.id);
+    } catch (e) {
+      notify(t("animation.skeletonEditor.createFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveSkeleton = async (next: Skeleton) => {
+    if (busy || builtin || stored?.kind !== "skeleton") return;
+    setBusy(true);
+    try {
+      const saved = await api.putAnimationAsset(next.id, next);
+      setStored(saved.asset);
+      setSkeleton(saved.asset as Skeleton);
+      await load();
+      notify(t("animation.skeletonEditor.savedNotice"), "info");
+    } catch (e) {
+      notify(t("animation.skeletonEditor.saveFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
   const openCreateAction = () => {
     const skeletonId = skeleton?.id ?? assets.find((asset) => asset.kind === "skeleton")?.id ?? "";
     setNewAction({ name: t("animation.newActionName"), skeletonId, duration: 1, loop: false });
@@ -693,11 +886,17 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
     return true;
   };
   const writeKey = async () => {
-    if (!clip || !selectedBone || busy || !Object.values(draft).every(Number.isFinite)) return;
-    let next = upsertMotionKeyframe(clip, selectedBone, "translation", time, [draft.tx, draft.ty, sampleMotionClip(clip, skeleton!, time).local[selectedBone]!.translation[2]]);
-    next = upsertMotionKeyframe(next, selectedBone, "rotation", time, quaternionFromZRotation(draft.rz * Math.PI / 180));
-    next = upsertMotionKeyframe(next, selectedBone, "scale", time, [draft.sx, draft.sy, sampleMotionClip(clip, skeleton!, time).local[selectedBone]!.scale[2]]);
-    await commitClipEdit(next);
+    if (!clip || !skeleton || !selectedBone || busy) return;
+    const sampled = sampleMotionClip(clip, skeleton, time);
+    let next = clip;
+    for (const [boneId, boneDraft] of Object.entries({ ...stagedDrafts, [selectedBone]: draft })) {
+      const transform = sampled.local[boneId];
+      if (!transform || !Object.values(boneDraft).every(Number.isFinite)) return;
+      next = upsertMotionKeyframe(next, boneId, "translation", time, [boneDraft.tx, boneDraft.ty, transform.translation[2]]);
+      next = upsertMotionKeyframe(next, boneId, "rotation", time, quaternionFromZRotation(boneDraft.rz * Math.PI / 180));
+      next = upsertMotionKeyframe(next, boneId, "scale", time, [boneDraft.sx, boneDraft.sy, transform.scale[2]]);
+    }
+    if (await commitClipEdit(next)) setStagedDrafts({});
   };
   const deleteKey = async () => {
     if (!clip || !selectedBone || busy) return;
@@ -810,10 +1009,12 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
   const numberField = (key: keyof typeof draft, label: string, step = .01) => <label>{label}<input className="px-input" type="number" step={step} value={draft[key]} disabled={busy || builtin} onChange={(event) => { setPlaying(false); setDraft((old) => ({ ...old, [key]: +event.target.value })); }} /></label>;
   const selectBone = (id: string) => {
     setPlaying(false);
+    if (id === selectedBone) return;
+    if (selectedBone) setStagedDrafts((old) => ({ ...old, [selectedBone]: draft }));
     setSelectedBone(id);
     if (!clip || !skeleton) return;
     const transform = sampleMotionClip(clip, skeleton, time).local[id];
-    if (transform) setDraft({ tx: transform.translation[0], ty: transform.translation[1], rz: zRotationFromQuaternion(transform.rotation) * 180 / Math.PI, sx: transform.scale[0], sy: transform.scale[1] });
+    if (transform) setDraft(stagedDrafts[id] ?? transformToPoseDraft(transform));
   };
   const editBoneOnCanvas = (id: string, patch: { tx?: number; ty?: number; rz?: number }) => {
     if (!clip || !skeleton || builtin) return;
@@ -822,8 +1023,9 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
     else {
       const transform = sampleMotionClip(clip, skeleton, time).local[id];
       if (!transform) return;
+      if (selectedBone) setStagedDrafts((old) => ({ ...old, [selectedBone]: draft }));
       setSelectedBone(id);
-      setDraft({ tx: transform.translation[0], ty: transform.translation[1], rz: zRotationFromQuaternion(transform.rotation) * 180 / Math.PI, sx: transform.scale[0], sy: transform.scale[1], ...patch });
+      setDraft({ ...(stagedDrafts[id] ?? transformToPoseDraft(transform)), ...patch });
     }
   };
   const resetSelectedBone = () => {
@@ -855,10 +1057,10 @@ export default function AnimationAssetsWorkspace({ onOpenProjects }: { onOpenPro
   </ol><div className="animation-workspace">
     <FolderTree className="animation-folders" title={t("animation.folders")} kind="animation" folders={folders} selected={folder} onSelect={setFolder} onCreate={async (n, p) => { await api.createFolder("animation", n, p); await load(); }} onRename={async (id, n) => { await api.patchFolder(id, { name: n }); await load(); }} onDelete={async (id) => { await api.deleteFolder(id); await load(); }} onMoveFolder={async (id, p) => { await api.patchFolder(id, { parentId: p }); await load(); }} onDropItems={(folderId, ids) => void api.moveItems("animation", ids, folderId).then(load).catch((e) => notify(t("animation.moveFailed", { msg: e.message })))} />
     <div className="animation-filter-rail"><strong>{t("animation.filter.title")}</strong>{(["all", "skeleton", "motion-clip"] as AssetFilter[]).map((kind) => <button key={kind} className={filter === kind ? "on" : ""} onClick={() => setFilter(kind)}>{t(`animation.filter.${kind}`)} <span>{counts[kind]}</span></button>)}</div>
-    <section className="pixel-panel animation-library"><header><h2>{t("animation.assets")}</h2><div className="animation-library-actions"><input ref={inputRef} hidden type="file" accept="application/json,.json" onChange={(e) => { void importFile(e.target.files?.[0]); e.currentTarget.value = ""; }} /><button className="px-btn" onClick={() => inputRef.current?.click()}><Upload size={14} />{t("animation.importJson")}</button><button className="px-btn accent" onClick={openCreateAction}><Plus size={14} />{t("animation.createAction")}</button></div></header><div className="animation-list">{visible.map((asset) => { const locked = isBuiltinAnimationAssetId(asset.id); return <button draggable={!locked} onDragStart={locked ? undefined : (e) => e.dataTransfer.setData("application/x-framebaker-ids", JSON.stringify([asset.id]))} className={`${selected === asset.id ? "on" : ""}${locked ? " builtin" : ""}`} key={asset.id} onClick={() => setSelected(asset.id)}><strong>{asset.kind === "skeleton" ? localizeSkeletonName(asset.id, asset.name, t) : asset.name}</strong><span>{locked && <Lock size={11} />}{locked ? t("animation.builtin.badge") : asset.kind === "skeleton" ? t("animation.skeleton") : t("animation.motionClip")}</span></button>; })}{!visible.length && <p>{t("animation.empty")}</p>}</div></section>
+    <section className="pixel-panel animation-library"><header><h2>{t("animation.assets")}</h2><div className="animation-library-actions"><input ref={inputRef} hidden type="file" accept="application/json,.json" onChange={(e) => { void importFile(e.target.files?.[0]); e.currentTarget.value = ""; }} /><button className="px-btn" onClick={() => inputRef.current?.click()}><Upload size={14} />{t("animation.importJson")}</button><button className="px-btn" disabled={busy} onClick={() => void createSkeleton()}><Plus size={14} />{t("animation.skeletonEditor.create")}</button><button className="px-btn accent" onClick={openCreateAction}><Plus size={14} />{t("animation.createAction")}</button></div></header><div className="animation-list">{visible.map((asset) => { const locked = isBuiltinAnimationAssetId(asset.id); return <button draggable={!locked} onDragStart={locked ? undefined : (e) => e.dataTransfer.setData("application/x-framebaker-ids", JSON.stringify([asset.id]))} className={`${selected === asset.id ? "on" : ""}${locked ? " builtin" : ""}`} key={asset.id} onClick={() => setSelected(asset.id)}><strong>{asset.kind === "skeleton" ? localizeSkeletonName(asset.id, asset.name, t) : asset.name}</strong><span>{locked && <Lock size={11} />}{locked ? t("animation.builtin.badge") : asset.kind === "skeleton" ? t("animation.skeleton") : t("animation.motionClip")}</span></button>; })}{!visible.length && <p>{t("animation.empty")}</p>}</div></section>
     <main className="pixel-panel animation-preview">{stored && skeleton ? <><header>{renaming && !builtin ? <input className="px-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={() => void saveName()} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /> : <h2>{stored.kind === "skeleton" ? localizeSkeletonName(stored.id, stored.name, t) : stored.name}</h2>}<div>{builtin ? <span className="animation-builtin-badge"><Lock size={13} />{t("animation.builtin.badge")}</span> : <><button className="px-btn icon" onClick={() => setRenaming(true)} title={t("animation.rename")}><Pencil size={14} /></button><button className="px-btn icon danger" onClick={() => void remove()} title={t("common.delete")}><Trash2 size={14} /></button></>}</div></header>
       {builtin && <aside className="animation-builtin-notice"><Lock size={20} /><div><strong>{t("animation.builtin.title")}</strong><p>{t(clip ? "animation.builtin.clipHint" : "animation.builtin.skeletonHint")}</p></div>{clip && <button className="px-btn accent" disabled={busy} onClick={() => void copyBuiltinClip()}><Copy size={14} />{t("animation.builtin.copyEdit")}</button>}</aside>}
-      {stored.kind === "skeleton" && <SkeletonPreview skeleton={skeleton} time={0} />}
+      {stored.kind === "skeleton" && (builtin ? <SkeletonPreview skeleton={skeleton} time={0} /> : <SkeletonEditor skeleton={skeleton} busy={busy} onSave={saveSkeleton} />)}
       {clip && <>
         <div className="animation-motion-compose">
         <section className="animation-motion-stage">
