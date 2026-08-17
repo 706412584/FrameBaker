@@ -214,6 +214,8 @@ export interface RegionAttachment {
 export interface CharacterBinding extends AnimationAssetBase<"character-binding"> {
   schemaVersion: typeof CHARACTER_BINDING_SCHEMA_VERSION;
   skeletonId: string;
+  /** 当前角色项目叠加到静止姿势和所有动作上的局部 Z 轴关节修正（弧度）。 */
+  boneRotationOffsets?: Record<string, number>;
   slots: CharacterSlot[];
   attachments: RegionAttachment[];
 }
@@ -566,11 +568,20 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
   const issues: ValidationIssue[] = [];
   const jsonBudget: JsonNodeBudget = { remaining: ANIMATION_V1_LIMITS.maxArbitraryJsonNodes };
   if (!isRecord(value)) return { ok: false, issues: [{ path: "$", message: "角色绑定必须是对象" }] };
-  rejectUnknown(value, ["schemaVersion", "kind", "id", "name", "extensions", "skeletonId", "slots", "attachments"], "$", issues);
+  rejectUnknown(value, ["schemaVersion", "kind", "id", "name", "extensions", "skeletonId", "boneRotationOffsets", "slots", "attachments"], "$", issues);
   validateIdentity(value, "character-binding", CHARACTER_BINDING_SCHEMA_VERSION, issues, jsonBudget);
   if (typeof value.skeletonId !== "string" || !ID_PATTERN.test(value.skeletonId)) issues.push({ path: "skeletonId", message: "骨架 ID 无效" });
   else if (skeleton && value.skeletonId !== skeleton.id) issues.push({ path: "skeletonId", message: "绑定与骨架不匹配" });
   const boneIds = skeleton ? new Set(skeleton.bones.map((bone) => bone.id)) : undefined;
+  if (value.boneRotationOffsets !== undefined) {
+    if (!isRecord(value.boneRotationOffsets) || Object.keys(value.boneRotationOffsets).length > ANIMATION_V1_LIMITS.maxBones) issues.push({ path: "boneRotationOffsets", message: "项目关节修正必须是未超限的对象" });
+    else for (const [boneId, offset] of Object.entries(value.boneRotationOffsets)) {
+      const path = `boneRotationOffsets.${boneId}`;
+      if (!ID_PATTERN.test(boneId)) issues.push({ path, message: "骨骼 ID 无效" });
+      else if (boneIds && !boneIds.has(boneId)) issues.push({ path, message: "骨骼不存在" });
+      if (!isFiniteNumber(offset) || Math.abs(offset) > Math.PI) issues.push({ path, message: "项目关节修正必须是 [-π, π] 内的有限弧度" });
+    }
+  }
   const attachmentIds = new Set<string>();
   if (!Array.isArray(value.attachments) || value.attachments.length > ANIMATION_V1_LIMITS.maxRegionAttachments) issues.push({ path: "attachments", message: "必须是未超限的附件数组" });
   else for (const [index, attachment] of value.attachments.entries()) {
@@ -932,7 +943,7 @@ export function transformPoint(matrix: Mat4, point: Vec3): Vec3 {
   ];
 }
 
-export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requestedTime: number): EvaluatedPose {
+export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requestedTime: number, boneRotationOffsets?: Record<string, number>): EvaluatedPose {
   if (!Number.isFinite(requestedTime)) throw new Error("动作采样时间必须是有限数值");
   const time = clip.loop && clip.duration > 0
     ? ((requestedTime % clip.duration) + clip.duration) % clip.duration
@@ -945,6 +956,17 @@ export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requested
     if (track.property === "rotation") transform.rotation = normalizeQuaternion(value as Quaternion);
     else if (track.property === "translation") transform.translation = value as Vec3;
     else transform.scale = value as Vec3;
+  }
+  for (const [boneId, offset] of Object.entries(boneRotationOffsets ?? {})) {
+    const transform = local[boneId];
+    if (!transform || !Number.isFinite(offset) || offset === 0) continue;
+    const [ax, ay, az, aw] = transform.rotation, [bx, by, bz, bw] = quaternionFromZRotation(offset);
+    transform.rotation = normalizeQuaternion([
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz,
+    ]);
   }
   const worldMatrices: Record<string, Mat4> = {};
   const pending = new Set(skeleton.bones.map((bone) => bone.id));

@@ -1,12 +1,39 @@
 import { describe, expect, test } from "bun:test";
-import { validateCharacterBinding, validateFbanimEntryPath, validateFbanimManifest, type CharacterBinding, type Skeleton } from "../packages/shared/src";
+import { quaternionFromZRotation, sampleMotionClip, transformPoint, validateCharacterBinding, validateFbanimEntryPath, validateFbanimManifest, zRotationFromQuaternion, type CharacterBinding, type MotionClip, type Skeleton } from "../packages/shared/src";
 import { attachmentLocalBounds, attachmentSvgImageY, fitAttachmentSizeToImage } from "../apps/web/src/bindingGeometry";
 
-const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: "skel", name: "Skeleton", coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "pixel" }, bones: [{ id: "root", name: "Root", parentId: null, rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }] };
+const skeleton: Skeleton = { schemaVersion: 1, kind: "skeleton", id: "skel", name: "Skeleton", coordinateSystem: { handedness: "right", upAxis: "y", forwardAxis: "+z", unit: "pixel" }, bones: [
+  { id: "root", name: "Root", parentId: null, rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
+  { id: "child", name: "Child", parentId: "root", rest: { translation: [10, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
+] };
 const valid: CharacterBinding = { schemaVersion: 1, kind: "character-binding", id: "binding", name: "Binding", skeletonId: skeleton.id, attachments: [{ id: "region", name: "Region", type: "region", materialId: "material", imageSlot: "raw", size: [32, 64], pivot: [.5, 1], rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }], slots: [{ id: "slot", name: "Slot", boneId: "root", attachmentId: "region", drawOrder: 0 }] };
 
 describe("CharacterBinding v1", () => {
   test("accepts a valid Region binding", () => expect(validateCharacterBinding(valid, skeleton).ok).toBeTrue());
+  test("accepts finite project joint adjustments for existing bones", () => {
+    expect(validateCharacterBinding({ ...valid, boneRotationOffsets: { root: .25, child: -.5 } }, skeleton).ok).toBeTrue();
+  });
+  test.each([
+    ["missing bone", { missing: .25 }],
+    ["NaN", { root: Number.NaN }],
+    ["infinity", { root: Number.POSITIVE_INFINITY }],
+    ["angle beyond π", { root: Math.PI + .01 }],
+  ])("rejects invalid project joint adjustment: %s", (_, boneRotationOffsets) => {
+    expect(validateCharacterBinding({ ...valid, boneRotationOffsets }, skeleton).ok).toBeFalse();
+  });
+  test("adds project joint adjustments after motion sampling and before FK", () => {
+    const clip: MotionClip = {
+      schemaVersion: 1, kind: "motion-clip", id: "clip", name: "Clip", skeletonId: skeleton.id, duration: 1, loop: true, events: [],
+      tracks: [{ targetId: "root", property: "rotation", interpolation: "linear", keyframes: [{ time: 0, value: quaternionFromZRotation(.2) }] }],
+    };
+    const rest = sampleMotionClip({ ...clip, tracks: [] }, skeleton, 0, { root: .3 });
+    const animated = sampleMotionClip(clip, skeleton, 0, { root: .3 });
+    expect(zRotationFromQuaternion(rest.local.root!.rotation)).toBeCloseTo(.3, 8);
+    expect(zRotationFromQuaternion(animated.local.root!.rotation)).toBeCloseTo(.5, 8);
+    const childOrigin = transformPoint(rest.worldMatrices.child!, [0, 0, 0]);
+    expect(childOrigin[0]).toBeCloseTo(10 * Math.cos(.3), 8);
+    expect(childOrigin[1]).toBeCloseTo(10 * Math.sin(.3), 8);
+  });
   test("accepts bounded deterministic attachment deformation", () => {
     const value = structuredClone(valid);
     value.attachments[0]!.deform = { axis: "vertical", bend: .2, sway: .15, frequency: 2, phase: 0 };

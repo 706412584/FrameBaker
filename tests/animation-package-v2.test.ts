@@ -17,6 +17,7 @@ const binding: CharacterBinding = {
   id: "runtime-binding",
   name: "Runtime Binding",
   skeletonId: skeleton.id,
+  boneRotationOffsets: { root: .1 },
   attachments: [{ id: "body-region", name: "Body", type: "region", materialId: "local-material", imageSlot: "raw", size: [16, 16], pivot: [.5, .5], rest: { translation: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } }],
   slots: [{ id: "body-slot", name: "Body", boneId: "root", attachmentId: "body-region", drawOrder: 0 }],
 };
@@ -40,6 +41,7 @@ describe("fbanim v2 运行时包", () => {
     expect(verified.ok).toBeTrue();
     if (verified.ok) {
       expect(verified.value.actions[0]?.name).toBe("Idle");
+      expect(verified.value.characterBinding.boneRotationOffsets).toEqual({ root: .1 });
       expect(verified.value.textures[0]?.bytes).toEqual(png);
     }
     const validateSchema = new Ajv2020({ strict: true }).compile(manifestSchema);

@@ -6,6 +6,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ### Added
 
+- Added project-level character joint angle adjustments in the binding editor; per-bone base rotations persist with the character and apply consistently to the rest pose, every motion, and `.fbanim` exports without modifying shared skeleton assets.
 - Added deterministic flexible attachment deformation with canvas Warp dragging, rest bend, playback sway, axis, frequency, and phase controls for capes and other soft parts.
 - Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
 - Added material-folder filtering to the skeletal binding image picker, including hierarchical folder paths plus All and Ungrouped views.

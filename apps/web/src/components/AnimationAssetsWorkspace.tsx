@@ -131,7 +131,7 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
   const t = useT();
   const filterPrefix = useId().replaceAll(":", "");
   const boneName = (bone: Skeleton["bones"][number]) => localizeBoneName(skeleton.id, bone.id, bone.name, t);
-  const pose = useMemo(() => sampleMotionClip(clip ?? { schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, time), [clip, skeleton, time]);
+  const pose = useMemo(() => sampleMotionClip(clip ?? { schemaVersion: 1, kind: "motion-clip", id: "binding-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, time, binding.boneRotationOffsets), [binding.boneRotationOffsets, clip, skeleton, time]);
   const dragRef = useRef<BindingTransformDrag | undefined>(undefined);
   const frozenViewBoxRef = useRef<string | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
@@ -140,7 +140,7 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     const keyTimes = clip ? [...new Set([0, clip.duration, ...clip.tracks.flatMap((track) => track.keyframes.map((key) => key.time))])].sort((a, b) => a - b) : [0];
     const times = clip ? [...keyTimes, ...keyTimes.slice(1).map((end, index) => (keyTimes[index]! + end) / 2)] : keyTimes;
     const points = times.flatMap((sampleTime) => {
-      const sampled = sampleMotionClip(previewClip, skeleton, sampleTime);
+      const sampled = sampleMotionClip(previewClip, skeleton, sampleTime, binding.boneRotationOffsets);
       const attachmentPoints = binding.slots.flatMap((slot) => {
         const attachment = binding.attachments.find((item) => item.id === slot.attachmentId), bone = sampled.worldMatrices[slot.boneId];
         if (!attachment || !bone) return [];
@@ -330,12 +330,12 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
   const boneName = (bone: Skeleton["bones"][number]) => localizeBoneName(skeleton.id, bone.id, bone.name, t);
   const [draft, setDraft] = useState(binding), [selectedAttachmentId, setSelectedAttachmentId] = useState(binding.attachments[0]?.id ?? ""), [selectedBoneId, setSelectedBoneId] = useState(firstSlot?.boneId ?? skeleton.bones[0]?.id ?? "");
   const [transformTool, setTransformTool] = useState<BindingTransformTool>("translate"), [undoDrafts, setUndoDrafts] = useState<CharacterBinding[]>([]), [redoDrafts, setRedoDrafts] = useState<CharacterBinding[]>([]);
-  const [testAngle, setTestAngle] = useState(0), [fittingAspect, setFittingAspect] = useState(false);
+  const [fittingAspect, setFittingAspect] = useState(false);
   const initialMaterial = materials.find((item) => item.id === binding.attachments[0]?.materialId);
   const [materialFolder, setMaterialFolder] = useState<FolderSelection>(initialMaterial?.folder_id ?? (initialMaterial ? "ungrouped" : "all"));
   const draftRef = useRef(draft), continuousEditRef = useRef<CharacterBinding | undefined>(undefined), fitRequestRef = useRef(0);
   draftRef.current = draft;
-  const restPose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-editor-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0), [skeleton]);
+  const restPose = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "binding-editor-rest", name: "Rest", skeletonId: skeleton.id, duration: 0, loop: false, tracks: [], events: [] }, skeleton, 0, draft.boneRotationOffsets), [draft.boneRotationOffsets, skeleton]);
   const defaultAttachmentSize = useMemo(() => {
     const points = skeleton.bones.flatMap((bone) => {
       const world = restPose.worldMatrices[bone.id];
@@ -353,7 +353,6 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
     setUndoDrafts([]);
     setRedoDrafts([]);
     continuousEditRef.current = undefined;
-    setTestAngle(0);
     setSelectedAttachmentId((current) => binding.attachments.some((item) => item.id === current) ? current : binding.attachments[0]?.id ?? "");
     setSelectedBoneId((current) => skeleton.bones.some((bone) => bone.id === current) ? current : binding.slots[0]?.boneId ?? skeleton.bones[0]?.id ?? "");
   }, [binding, skeleton]);
@@ -441,31 +440,25 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
       : options;
   }, [selectedMaterial, t, visibleMaterials]);
   const selectedBone = skeleton.bones.find((bone) => bone.id === selectedBoneId);
-  const jointTestClip = useMemo<MotionClip | undefined>(() => selectedBone && testAngle !== 0 ? {
-    schemaVersion: 1,
-    kind: "motion-clip",
-    id: "binding-joint-test",
-    name: "Joint test",
-    skeletonId: skeleton.id,
-    duration: 1,
-    loop: false,
-    tracks: [{
-      targetId: selectedBone.id,
-      property: "rotation",
-      interpolation: "linear",
-      keyframes: [{ time: 0, value: quaternionFromZRotation(zRotationFromQuaternion(selectedBone.rest.rotation) + testAngle * Math.PI / 180) }],
-    }],
-    events: [],
-  } : undefined, [selectedBone, skeleton.id, testAngle]);
+  const selectedBoneOffset = (draft.boneRotationOffsets?.[selectedBoneId] ?? 0) * 180 / Math.PI;
+  const setSelectedBoneOffset = (degrees: number) => {
+    if (!selectedBone) return;
+    setDraft((old) => {
+      const boneRotationOffsets = { ...old.boneRotationOffsets };
+      if (Math.abs(degrees) < 1e-8) delete boneRotationOffsets[selectedBone.id];
+      else boneRotationOffsets[selectedBone.id] = degrees * Math.PI / 180;
+      const next = { ...old, ...(Object.keys(boneRotationOffsets).length ? { boneRotationOffsets } : { boneRotationOffsets: undefined }) };
+      draftRef.current = next;
+      return next;
+    });
+  };
   const selectAttachment = (id: string) => {
     setSelectedAttachmentId(id);
-    setTestAngle(0);
     const slot = draft.slots.find((item) => item.attachmentId === id);
     if (slot) setSelectedBoneId(slot.boneId);
   };
   const bindSelectedToBone = (boneId: string) => {
     setSelectedBoneId(boneId);
-    setTestAngle(0);
     if (!selectedAttachment || !selectedSlot || selectedSlotIndex < 0 || selectedSlot.boneId === boneId) return;
     const oldParent = restPose.worldMatrices[selectedSlot.boneId], newParent = restPose.worldMatrices[boneId];
     if (!oldParent || !newParent) return;
@@ -565,8 +558,8 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
           <span className="binding-current-link">{selectedAttachment ? `${selectedAttachment.name} → ${selectedBone ? boneName(selectedBone) : t("animation.binding.chooseBone")}` : t("animation.binding.choosePart")}</span>
           <div className="binding-history-actions"><button className="px-btn icon" disabled={!undoDrafts.length} onClick={() => travelDraftHistory("undo")} title={t("animation.binding.undo")}><Undo2 size={14} /></button><button className="px-btn icon" disabled={!redoDrafts.length} onClick={() => travelDraftHistory("redo")} title={t("animation.binding.redo")}><Redo2 size={14} /></button></div>
         </div>
-        <div className="binding-joint-test"><span><RotateCw size={14} /><strong>{t("animation.binding.jointTest")}</strong><small>{t("animation.binding.jointTestHint")}</small></span><input type="range" min="-90" max="90" step="1" value={testAngle} disabled={!selectedBone} onChange={(event) => setTestAngle(Number(event.target.value))} /><output>{testAngle}°</output><button type="button" className="px-btn" disabled={testAngle === 0} onClick={() => setTestAngle(0)}>{t("animation.binding.jointTestReset")}</button></div>
-        <CharacterPreview binding={draft} skeleton={skeleton} clip={jointTestClip} time={0} selectedAttachmentId={selectedAttachmentId} selectedBoneId={selectedBoneId} showSkeleton transformTool={transformTool} onSelectAttachment={selectAttachment} onSelectBone={bindSelectedToBone} onTransformAttachment={patchRegion} onBeginTransform={beginContinuousEdit} onEndTransform={endContinuousEdit} />
+        <div className="binding-joint-test"><span><RotateCw size={14} /><strong>{t("animation.binding.jointTest")}</strong><small>{t("animation.binding.jointTestHint")}</small></span><input type="range" min="-180" max="180" step="1" value={selectedBoneOffset} disabled={!selectedBone} onPointerDown={beginContinuousEdit} onPointerUp={endContinuousEdit} onPointerCancel={endContinuousEdit} onChange={(event) => setSelectedBoneOffset(Number(event.target.value))} /><output>{Math.round(selectedBoneOffset)}°</output><button type="button" className="px-btn" disabled={Math.abs(selectedBoneOffset) < 1e-8} onClick={() => { rememberDraft(); setSelectedBoneOffset(0); }}>{t("animation.binding.jointTestReset")}</button></div>
+        <CharacterPreview binding={draft} skeleton={skeleton} time={0} selectedAttachmentId={selectedAttachmentId} selectedBoneId={selectedBoneId} showSkeleton transformTool={transformTool} onSelectAttachment={selectAttachment} onSelectBone={bindSelectedToBone} onTransformAttachment={patchRegion} onBeginTransform={beginContinuousEdit} onEndTransform={endContinuousEdit} />
         <p>{t("animation.binding.canvasHint")}</p>
       </article>
       <aside className="binding-inspector">{selectedAttachment && selectedSlot ? <>

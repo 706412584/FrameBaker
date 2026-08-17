@@ -10,6 +10,12 @@
     "name": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/name" },
     "extensions": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/extensions" },
     "skeletonId": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+    "boneRotationOffsets": {
+      "type": "object",
+      "maxProperties": 4096,
+      "propertyNames": { "$ref": "urn:framebaker:schema:animation:common:1#/$defs/id" },
+      "additionalProperties": { "type": "number", "minimum": -3.141592653589793, "maximum": 3.141592653589793 }
+    },
     "slots": {
       "type": "array",
       "maxItems": 4096,
