@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type AnimationAssetSummary, type CharacterBinding, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
-import { ArrowLeft, Bone, Boxes, Download, Pause, Pencil, Play, Plus, Trash2, Upload, X } from "lucide-react";
+import { buildHumanoidAutoBinding, diagnoseHumanoidSkeleton, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
+import { ArrowLeft, Bone, Boxes, Download, Pause, Pencil, Play, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api, type Folder, type Project, type SkeletalProjectDocument } from "../api";
 import { localizeSkeletonName } from "../builtinAnimationLabels";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -23,6 +23,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const [skeleton, setSkeleton] = useState<Skeleton>();
   const [clip, setClip] = useState<MotionClip>();
   const [skeletonToUse, setSkeletonToUse] = useState("");
+  const [partSets, setPartSets] = useState<CharacterPartSet[]>([]);
+  const [partSetToUse, setPartSetToUse] = useState("");
   const [clipToAdd, setClipToAdd] = useState("");
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -49,8 +51,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
 
   useEffect(() => {
     let active = true;
-    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listFolders("material")])
-      .then(([nextDocument, nextAssets, nextMaterials, nextMaterialFolders]) => {
+    Promise.all([api.getSkeletalProjectDocument(project.id), api.listAnimationAssets(), api.listMaterials(), api.listFolders("material"), api.listCharacterPartSets().catch(() => [])])
+      .then(([nextDocument, nextAssets, nextMaterials, nextMaterialFolders, nextPartSets]) => {
         if (!active) return;
         documentRef.current = nextDocument;
         setDocument(nextDocument);
@@ -59,6 +61,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
         setAssets(nextAssets);
         setMaterials(nextMaterials.filter((item) => item.kind === "image"));
         setMaterialFolders(nextMaterialFolders);
+        // 空部件集（如成员素材已被删除）无法自动组装，不进入向导。
+        setPartSets(nextPartSets.filter((item) => item.members.length > 0));
       })
       .catch((e) => active && notify(t("skeletal.loadFailed", { msg: (e as Error).message })));
     return () => { active = false; };
@@ -156,6 +160,51 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
     if (!clipToAdd || !compatibleClips.some((item) => item.id === clipToAdd)) setClipToAdd(compatibleClips.find((item) => !document?.animations.some((action) => action.motionClipId === item.id))?.id ?? "");
   }, [binding?.skeletonId, clipToAdd, compatibleClips, document, skeletonAssets, skeletonToUse]);
 
+  useEffect(() => {
+    if (!partSetToUse || !partSets.some((item) => item.id === partSetToUse)) setPartSetToUse(partSets[0]?.id ?? "");
+  }, [partSets, partSetToUse]);
+
+  const humanoidDiagnosis = skeleton ? diagnoseHumanoidSkeleton(skeleton) : null;
+  const canAutoAssemble = !!skeleton && !!humanoidDiagnosis?.isHumanoid && partSets.length > 0;
+
+  const autoAssemble = async () => {
+    if (!document || !binding || !skeleton || !partSetToUse) return;
+    const partSet = partSets.find((item) => item.id === partSetToUse);
+    if (!partSet) return;
+    if (binding.slots.length && !(await askConfirm(t("skeletal.character.autoAssembleReplaceConfirm")))) return;
+    setBusy(true);
+    try {
+      const materialById = new Map(materials.map((item) => [item.id, item]));
+      const parts = partSet.members
+        .filter((member) => materialById.has(member.materialId))
+        .map((member) => ({
+          role: member.role,
+          materialId: member.materialId,
+          name: member.name,
+          imageSlot: (materialById.get(member.materialId)?.processed_path ? "processed" : "raw") as "raw" | "processed",
+        }));
+      if (!parts.length) throw new Error(t("skeletal.character.autoAssembleNoMaterials"));
+      const { binding: assembled, skipped } = buildHumanoidAutoBinding({
+        id: binding.id,
+        name: binding.name,
+        skeleton,
+        parts,
+      });
+      if (!assembled.slots.length) throw new Error(t("skeletal.character.autoAssembleNoMaterials"));
+      if (await save({ ...document, character: { binding: { ...assembled, boneRotationOffsets: binding.boneRotationOffsets } } })) {
+        const skippedNames = skipped.filter((role) => role !== "weapon").map((role) => t(`skeletal.partRole.${role}`));
+        notify(skippedNames.length
+          ? t("skeletal.character.autoAssembledWithSkips", { count: assembled.slots.length, skipped: skippedNames.join("、") })
+          : t("skeletal.character.autoAssembled", { count: assembled.slots.length }), "info");
+        setBindingEditorOpen(true);
+      }
+    } catch (e) {
+      notify(t("skeletal.character.autoAssembleFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const createCharacter = async () => {
     if (!document || !skeletonToUse) return;
     setBusy(true);
@@ -248,6 +297,19 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
           </label>
           <button type="button" className="px-btn accent" disabled={busy || !skeletonToUse} onClick={() => void createCharacter()}>{binding ? t("skeletal.character.resetBinding") : t("skeletal.character.createBinding")} </button>
           {!skeletonAssets.length && <p className="animation-empty">{t("skeletal.character.noSkeletons")}</p>}
+          {binding && canAutoAssemble && <div className="skeletal-auto-assemble">
+            <h3>{t("skeletal.character.autoAssembleTitle")}</h3>
+            <p>{t("skeletal.character.autoAssembleHint")}</p>
+            <label>{t("skeletal.character.partSet")}
+              <PxSelect value={partSetToUse} options={partSets.map((item) => ({ value: item.id, label: item.name }))} onChange={setPartSetToUse} placeholder={t("skeletal.character.choosePartSet")} />
+            </label>
+            <button type="button" className="px-btn accent" disabled={busy || !partSetToUse} onClick={() => void autoAssemble()}><Sparkles size={14} /> {t("skeletal.character.autoAssemble")}</button>
+          </div>}
+          {binding && skeleton && humanoidDiagnosis && !humanoidDiagnosis.isHumanoid && <div className="skeletal-semantic-warning">
+            <h3>{t("skeletal.character.semanticMismatchTitle")}</h3>
+            <p>{t("skeletal.character.semanticMismatchHint")}</p>
+            <ul>{humanoidDiagnosis.missing.map((semantic) => <li key={semantic}>{t(`skeletal.boneSemantic.${semantic}`)}</li>)}</ul>
+          </div>}
           <button type="button" className="px-btn" onClick={onEditActionLibrary}>{t("skeletal.openActionLibrary")}</button>
         </section>
         <section className="pixel-panel skeletal-character-editor">

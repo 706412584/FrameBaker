@@ -1,6 +1,6 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
 
-import { computeImageAnalysis, computeOpaqueBounds, type CropRect, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 
 let worker: Worker | null = null;
@@ -59,6 +59,21 @@ async function mainBounds(blob: Blob): Promise<CropRect | null> {
     ctx.drawImage(bitmap, 0, 0);
     const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
     return computeOpaqueBounds(imageData.data, imageData.width, imageData.height);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function mainComponents(blob: Blob, options?: DetectComponentsOptions): Promise<CropRect[]> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return detectOpaqueComponents(imageData.data, imageData.width, imageData.height, options);
   } finally {
     bitmap.close();
   }
@@ -156,6 +171,17 @@ export async function findOpaqueBounds(blob: Blob): Promise<CropRect | null> {
     return r.rect ?? null;
   } catch {
     return mainBounds(blob);
+  }
+}
+
+/** 连通域自动检测不透明部件包围盒（阅读顺序）；worker 失败自动降级主线程 */
+export async function detectComponents(blob: Blob, options?: DetectComponentsOptions): Promise<CropRect[]> {
+  try {
+    const r = await runInWorker({ op: "components", blob, componentOptions: options });
+    if (!r.ok || !r.rects) throw new Error(r.error ?? "components 失败");
+    return r.rects;
+  } catch {
+    return mainComponents(blob, options);
   }
 }
 

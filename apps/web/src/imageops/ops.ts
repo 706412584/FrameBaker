@@ -35,22 +35,35 @@ export interface EraseStroke {
 }
 
 /** worker 消息协议（Blob 走 structured clone，无需手动 transfer） */
+/** 连通域自动检测参数（阅读顺序返回不透明部件包围盒）。 */
+export interface DetectComponentsOptions {
+  alphaThreshold?: number;
+  /** 面积下限占总不透明像素比例（滤除碎屑）。 */
+  minAreaRatio?: number;
+  /** 面积绝对下限像素。 */
+  minAreaPixels?: number;
+  /** 保留最大的前 N 个部件。 */
+  maxComponents?: number;
+}
+
 export interface ImageOpRequest {
   id: number;
 
-  op: "bounds" | "crop" | "analyze" | "edit";
+  op: "bounds" | "crop" | "analyze" | "edit" | "components";
 
   blob: Blob;
   rect?: CropRect;
   strokes?: EraseStroke[];
   quarterTurns?: number;
   flipHorizontal?: boolean;
+  componentOptions?: DetectComponentsOptions;
 }
 
 export interface ImageOpResponse {
   id: number;
   ok: boolean;
   rect?: CropRect | null;
+  rects?: CropRect[];
   blob?: Blob;
   analysis?: ImageAnalysis;
   error?: string;
@@ -79,6 +92,76 @@ export function computeOpaqueBounds(data: Uint8ClampedArray, width: number, heig
 
 const ANALYSIS_ALPHA_THRESHOLD = 8;
 const SAMPLE_SIZE = 16;
+
+/**
+ * 连通域自动检测：4 连通洪泛扫描 alpha>阈值 的不透明块，返回按阅读顺序
+ * （上到下分行带、行内左到右）排列的显著部件包围盒。用于精灵图按部件而非
+ * 均匀网格切分，避免切穿部件。碎屑按面积阈值滤除。
+ */
+export function detectOpaqueComponents(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options: DetectComponentsOptions = {},
+): CropRect[] {
+  const alphaThreshold = options.alphaThreshold ?? ANALYSIS_ALPHA_THRESHOLD;
+  const total = width * height;
+  if (total <= 0) return [];
+  const foreground = (index: number) => data[index * 4 + 3] > alphaThreshold;
+  let opaquePixels = 0;
+  for (let i = 0; i < total; i++) if (foreground(i)) opaquePixels++;
+  if (opaquePixels === 0) return [];
+
+  const visited = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  const components: Array<{ rect: CropRect; area: number }> = [];
+  for (let start = 0; start < total; start++) {
+    if (visited[start] || !foreground(start)) continue;
+    let read = 0;
+    let write = 0;
+    let area = 0;
+    let minX = width, minY = height, maxX = -1, maxY = -1;
+    visited[start] = 1;
+    queue[write++] = start;
+    while (read < write) {
+      const index = queue[read++];
+      area++;
+      const x = index % width;
+      const y = (index - x) / width;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      const visit = (next: number) => {
+        if (!visited[next] && foreground(next)) {
+          visited[next] = 1;
+          queue[write++] = next;
+        }
+      };
+      if (x > 0) visit(index - 1);
+      if (x + 1 < width) visit(index + 1);
+      if (y > 0) visit(index - width);
+      if (y + 1 < height) visit(index + width);
+    }
+    components.push({ area, rect: { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } });
+  }
+
+  const minArea = Math.max(options.minAreaPixels ?? 16, Math.ceil(opaquePixels * (options.minAreaRatio ?? 0.005)));
+  let significant = components.filter((component) => component.area >= minArea);
+  if (!significant.length) significant = [components.reduce((largest, current) => (current.area > largest.area ? current : largest))];
+  if (options.maxComponents && significant.length > options.maxComponents) {
+    significant = [...significant].sort((a, b) => b.area - a.area).slice(0, options.maxComponents);
+  }
+
+  // 阅读顺序：中位高度的行带聚合，行带内按中心 x 排序。
+  const sortedHeights = significant.map((component) => component.rect.h).sort((a, b) => a - b);
+  const medianHeight = sortedHeights.length ? sortedHeights[Math.floor(sortedHeights.length / 2)] : 1;
+  const band = Math.max(1, medianHeight * 0.6);
+  return significant
+    .map((component) => ({ rect: component.rect, cx: component.rect.x + component.rect.w / 2, cy: component.rect.y + component.rect.h / 2 }))
+    .sort((a, b) => (Math.floor(a.cy / band) - Math.floor(b.cy / band)) || (a.cx - b.cx))
+    .map((entry) => entry.rect);
+}
 
 function countSignificantComponents(data: Uint8ClampedArray, width: number, height: number, opaquePixels: number): number {
   if (opaquePixels === 0) return 0;

@@ -653,6 +653,13 @@ input[type="range"] {
 .skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
+.skeletal-auto-assemble { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--border); }
+.skeletal-auto-assemble h3 { font-size: 13px; }
+.skeletal-auto-assemble p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.skeletal-semantic-warning { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--warning); color: var(--warning); }
+.skeletal-semantic-warning h3 { font-size: 13px; }
+.skeletal-semantic-warning p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.skeletal-semantic-warning ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .skeletal-character-editor, .skeletal-sequence-editor { min-height: calc(100dvh - 186px); padding: 12px; }
 .skeletal-binding-overview { min-height: calc(100dvh - 212px); display: grid; align-content: start; gap: 10px; }
 .skeletal-binding-overview > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }

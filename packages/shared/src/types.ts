@@ -87,16 +87,24 @@ export function buildArticulatedCharacterPrompt(options: { description?: string;
   return `Create one complete full-body pixel-art game character as the canonical design reference for skeletal animation. Show exactly one assembled character from head to feet in a neutral front-facing T-pose, centered and fully visible, with natural anatomy and deliberate head-to-body, torso-to-leg, and arm-to-leg proportions. Keep both hands empty. If the design includes a weapon, show it as one separate isolated prop beside the character with at least one head-width of clear space. Keep both arms, both legs, all elbow and knee joints clearly visible and separated; do not cross limbs or let the torso, cape, skirt, long hair, or weapon cover any joint. Preserve a coherent outfit, lighting, pixel density, facing direction, and silhouette across the whole body. Use a transparent or plain high-contrast background with generous empty margin. No parts sheet, no separated body pieces, no alternate poses, no text, no labels, and no extra characters.${description}${extra}`;
 }
 
-/** 用完整角色参考图构造可切分的骨骼部件表提示词；默认人形布局为 4×3、12 部件。 */
-export function buildArticulatedPartsPrompt(options: { description?: string; reference?: boolean; extra?: string; rows?: number; cols?: number }): string {
+/**
+ * 用完整角色参考图构造可切分的骨骼部件表提示词；默认人形布局为 4×3、12 部件。
+ * 传入 partDescriptors（来自目标骨架的骨骼段语义）时改为骨骼驱动：AI 按给定
+ * 部件列表的数量和语义逐格生成，避免与目标骨架的骨骼段对不上。
+ */
+export function buildArticulatedPartsPrompt(options: { description?: string; reference?: boolean; extra?: string; rows?: number; cols?: number; partDescriptors?: string[] }): string {
   const rows = Math.max(1, Math.min(8, Math.floor(options.rows ?? 3)));
   const cols = Math.max(1, Math.min(8, Math.floor(options.cols ?? 4)));
   const count = rows * cols;
-  const standardHumanoid = rows === 3 && cols === 4;
+  const descriptors = options.partDescriptors?.map((entry) => entry.trim()).filter(Boolean) ?? [];
+  const boneDriven = descriptors.length > 0;
+  const standardHumanoid = !boneDriven && rows === 3 && cols === 4;
   const introduction = options.reference
     ? "Reference image is the single source of truth. Preserve identity, outfit, palette, lighting, facing, pixel density, exact head-to-body ratio and limb proportions; never redesign or independently rescale a part."
     : "Create a pixel-art skeletal parts sheet with one consistent character design, scale, lighting and facing.";
-  const layout = standardHumanoid
+  const layout = boneDriven
+    ? `Generate exactly ${descriptors.length} distinct parts matching the target skeleton bone segments, one part per cell in reading order (left to right, top to bottom): ${descriptors.map((entry, index) => `${index + 1}. ${entry}`).join("; ")}. Follow this list exactly; do not add, drop, merge, split or reorder parts. Fill the first ${descriptors.length} cells in order and leave every remaining cell fully transparent.`
+    : standardHumanoid
     ? "Use up to 12 slots in strict 4 columns by 3 rows: row 1 head, torso, pelvis, the reference weapon or an empty slot; row 2 left upper arm, left forearm, right upper arm, right forearm; row 3 left thigh, left shin, right thigh, right shin. Never invent a weapon."
     : `Use up to ${count} slots in strict ${cols} columns by ${rows} rows. Generate only distinct parts actually required by the character and Extra requirements; leave every surplus cell fully transparent. Never invent filler parts, duplicate limbs, or unnecessary accessories merely to fill the grid.`;
   const separation = `Use a regular ${cols} × ${rows} lattice of identical cells; no grid lines. One isolated part per cell/block, opaque bounds centered, balanced margins, at least 10% clear padding. Oversized part: use a contiguous rectangular 2+ cell block, keep covered cells empty and edges lattice-aligned. Use one global scale factor; with no spare cells, shrink all parts uniformly, never one alone. Identical center spacing and row/column pitch, cell size/gutters; no variable gaps, packed/staggered layout, touching, crossing, labels, or assembled character. Transparent background only; never black, dark, checked, or textured. Weapon must not touch an arm.`;

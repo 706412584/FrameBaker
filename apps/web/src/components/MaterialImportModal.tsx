@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Bone, Scissors, Sparkles, Upload, X } from "lucide-react";
-import { buildArticulatedCharacterPrompt, buildArticulatedPartsPrompt } from "@framebaker/shared";
+import { buildArticulatedCharacterPrompt, buildArticulatedPartsPrompt, deriveSkeletonPartDescriptors, type AnimationAssetSummary } from "@framebaker/shared";
 import { api } from "../api";
 import { useServerConfig } from "../config";
 import { useT } from "../i18n";
@@ -61,6 +61,10 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
   const [skeletalMode, setSkeletalMode] = useState<"parts" | "decompose">(initialReferenceMaterialId ? "decompose" : "parts");
   const [gridRows, setGridRows] = useState(3);
   const [gridCols, setGridCols] = useState(4);
+  // 拆分选骨骼：可选目标骨架，AI 按其骨骼段数量/语义生成分件；空则退回网格数量驱动。
+  const [skeletons, setSkeletons] = useState<AnimationAssetSummary[]>([]);
+  const [targetSkeletonId, setTargetSkeletonId] = useState("");
+  const [targetDescriptors, setTargetDescriptors] = useState<string[]>([]);
   const [cropDismissed, setCropDismissed] = useState(false); // 「是否需要剪裁」确认行已回答
   const fileRef = useRef<HTMLInputElement>(null);
   const cfg = useServerConfig();
@@ -76,6 +80,44 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
   const resetAll = workflow.reset;
 
   const hasVideo = items.some((it) => isVideoFile(it.file));
+
+  // 目标骨架列表仅在骨骼生成 Tab 需要
+  useEffect(() => {
+    if (tab !== "cli" || generationLine !== "skeletal") return;
+    let alive = true;
+    api.listAnimationAssets("skeleton").then((assets) => { if (alive) setSkeletons(assets); }).catch(() => {});
+    return () => { alive = false; };
+  }, [tab, generationLine]);
+
+  /** 部件数换算成 ≤8×8 的网格，列优先补满一行（人形 11 段 → 4×3）。 */
+  const fitGrid = (count: number) => {
+    const cols = count <= 4 ? Math.max(1, count) : 4;
+    return { cols, rows: Math.max(1, Math.min(8, Math.ceil(count / cols))) };
+  };
+
+  const selectTargetSkeleton = async (id: string) => {
+    setTargetSkeletonId(id);
+    if (!id) {
+      setTargetDescriptors([]);
+      return;
+    }
+    try {
+      const { asset } = await api.getAnimationAsset(id);
+      if (asset.kind !== "skeleton") {
+        setTargetDescriptors([]);
+        return;
+      }
+      const descriptors = deriveSkeletonPartDescriptors(asset);
+      setTargetDescriptors(descriptors);
+      if (descriptors.length) {
+        const grid = fitGrid(descriptors.length);
+        setGridCols(grid.cols);
+        setGridRows(grid.rows);
+      }
+    } catch {
+      setTargetDescriptors([]);
+    }
+  };
 
   // 上传 Tab：多选逐个分发——图片直接成素材（立即完成），GIF/MP4 走 job 队列
   const submitUpload = async () => {
@@ -103,13 +145,16 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
         videoOnly: mediaKind === "video",
         preferI2v: mediaKind === "video" && references.length > 0,
       });
+      const decomposeDescriptors = skeletalMode === "decompose" ? targetDescriptors : [];
+      const decomposeGrid = decomposeDescriptors.length ? fitGrid(decomposeDescriptors.length) : { rows: gridRows, cols: gridCols };
       const skeletalPrompt = buildArticulatedPartsPrompt(skeletalMode === "decompose"
-        ? { reference: true, extra: prompt, rows: gridRows, cols: gridCols }
+        ? { reference: true, extra: prompt, rows: decomposeGrid.rows, cols: decomposeGrid.cols, ...(decomposeDescriptors.length ? { partDescriptors: decomposeDescriptors } : {}) }
         : { reference: true, description: prompt, rows: gridRows, cols: gridCols });
       const completeCharacterPrompt = buildArticulatedCharacterPrompt({ description: prompt });
       const generatedName = prompt.trim().slice(0, 24) || t("skeletal.parts.autoName");
       const completeMaterialName = t("skeletal.generate.completeMaterialName", { name: generatedName });
-      const partsMaterialName = t("skeletal.generate.partsMaterialName", { name: generatedName, count: gridRows * gridCols });
+      const partsCount = skeletalMode === "decompose" ? decomposeGrid.rows * decomposeGrid.cols : gridRows * gridCols;
+      const partsMaterialName = t("skeletal.generate.partsMaterialName", { name: generatedName, count: partsCount });
       await api.generateMaterial({
         prompt: generationLine === "skeletal" && skeletalMode === "parts" ? completeCharacterPrompt : generationLine === "skeletal" ? skeletalPrompt : prompt.trim(),
         count: generationLine === "skeletal" ? 1 : count,
@@ -119,7 +164,7 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
         ...(generationLine === "skeletal" ? {
           intent: skeletalMode === "decompose" ? "skeletal-decompose" as const : "skeletal-character" as const,
           name: skeletalMode === "parts" ? completeMaterialName : partsMaterialName,
-          ...(skeletalMode === "decompose" ? { gridRows, gridCols } : {}),
+          ...(skeletalMode === "decompose" ? { gridRows: decomposeGrid.rows, gridCols: decomposeGrid.cols, ...(targetSkeletonId ? { targetSkeletonId } : {}) } : {}),
           ...(skeletalMode === "parts" ? { followUp: { prompt: skeletalPrompt, name: partsMaterialName, autoMatting, gridRows, gridCols } } : {}),
         } : { intent: mediaKind === "video" ? "frame-video" as const : "frame-image" as const }),
         ...(mediaKind === "video" ? { mediaKind: "video" as const } : {}),
@@ -273,17 +318,26 @@ export default function MaterialImportModal({ initialTab, initialReferenceMateri
                 <button type="button" role="tab" aria-selected={skeletalMode === "decompose"} className={skeletalMode === "decompose" ? "active" : ""} onClick={() => setSkeletalMode("decompose")}>{t("skeletal.generate.fromReference")}</button>
               </div>
               {skeletalMode === "decompose" && <div className="hint">{t("skeletal.generate.decomposeHint")}</div>}
+              {skeletalMode === "decompose" && <label className="skeletal-target-skeleton">{t("skeletal.generate.targetSkeleton")}
+                <PxSelect
+                  value={targetSkeletonId}
+                  options={[{ value: "", label: t("skeletal.generate.targetSkeletonNone") }, ...skeletons.map((item) => ({ value: item.id, label: item.name }))]}
+                  onChange={(id) => void selectTargetSkeleton(id)}
+                  placeholder={t("skeletal.generate.targetSkeletonNone")}
+                />
+              </label>}
+              {skeletalMode === "decompose" && targetDescriptors.length > 0 && <div className="hint">{t("skeletal.generate.targetSkeletonHint", { count: targetDescriptors.length })}</div>}
               {skeletalMode === "parts" && <ol className="skeletal-generation-flow">
                 <li><b>1</b><span><strong>{t("skeletal.generate.characterStage")}</strong><small>{t("skeletal.generate.characterStageHint")}</small></span></li>
                 <li><b>2</b><span><strong>{t("skeletal.generate.partsStage")}</strong><small>{t("skeletal.generate.partsStageHint")}</small></span></li>
               </ol>}
               <div className="skeletal-grid-config">
-                <div><strong>{t("skeletal.generate.gridTitle")}</strong><span>{t("skeletal.generate.gridHint")}</span></div>
-                <label>{t("msg.cols")}<input className="px-input" type="number" min="1" max="8" value={gridCols} onChange={(event) => setGridCols(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
+                <div><strong>{t("skeletal.generate.gridTitle")}</strong><span>{skeletalMode === "decompose" && targetDescriptors.length > 0 ? t("skeletal.generate.gridBoneDriven") : t("skeletal.generate.gridHint")}</span></div>
+                <label>{t("msg.cols")}<input className="px-input" type="number" min="1" max="8" value={gridCols} disabled={skeletalMode === "decompose" && targetDescriptors.length > 0} onChange={(event) => setGridCols(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
                 <span>×</span>
-                <label>{t("msg.rows")}<input className="px-input" type="number" min="1" max="8" value={gridRows} onChange={(event) => setGridRows(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
+                <label>{t("msg.rows")}<input className="px-input" type="number" min="1" max="8" value={gridRows} disabled={skeletalMode === "decompose" && targetDescriptors.length > 0} onChange={(event) => setGridRows(Math.max(1, Math.min(8, Math.floor(Number(event.target.value)) || 1)))} /></label>
                 <strong>{t("skeletal.generate.gridCount", { count: gridRows * gridCols })}</strong>
-                {(gridRows !== 3 || gridCols !== 4) && <button type="button" className="px-btn" onClick={() => { setGridRows(3); setGridCols(4); }}>{t("skeletal.generate.useHumanoidDefault")}</button>}
+                {(gridRows !== 3 || gridCols !== 4) && !(skeletalMode === "decompose" && targetDescriptors.length > 0) && <button type="button" className="px-btn" onClick={() => { setGridRows(3); setGridCols(4); }}>{t("skeletal.generate.useHumanoidDefault")}</button>}
               </div>
             </div>}
             {generationLine === "frame" && <div className="form-row">

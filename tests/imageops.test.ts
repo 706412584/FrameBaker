@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   computeImageAnalysis,
+  detectOpaqueComponents,
   findSkeletalPartQualityIssues,
   imageAnalysisSimilarity,
   reviewSkeletalGrid,
@@ -84,6 +85,43 @@ describe("骨骼分件图像质量检查", () => {
     expect(issues).toContainEqual({ code: "touches-edge", cells: [3] });
     expect(issues).toContainEqual({ code: "fragmented", cells: [4] });
     expect(issues).toContainEqual({ code: "duplicate", cells: [1, 5] });
+  });
+
+  test("连通域检测按阅读顺序返回部件包围盒并滤除碎屑", () => {
+    const width = 40;
+    const height = 20;
+    const data = new Uint8ClampedArray(width * height * 4);
+    const fill = (x0: number, y0: number, w: number, h: number) => {
+      for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+        data.set([120, 80, 40, 255], (y * width + x) * 4);
+      }
+    };
+    // 两个分离部件（上行左、上行右）+ 一颗噪点碎屑。
+    fill(2, 2, 8, 6);
+    fill(24, 3, 10, 5);
+    data.set([120, 80, 40, 255], (18 * width + 38) * 4);
+    const rects = detectOpaqueComponents(data, width, height, { minAreaRatio: 0.02 });
+    expect(rects).toEqual([
+      { x: 2, y: 2, w: 8, h: 6 },
+      { x: 24, y: 3, w: 10, h: 5 },
+    ]);
+  });
+
+  test("连通域检测：全透明返回空，maxComponents 保留最大的前 N 个", () => {
+    const empty = new Uint8ClampedArray(8 * 8 * 4);
+    expect(detectOpaqueComponents(empty, 8, 8)).toEqual([]);
+
+    const width = 30;
+    const height = 10;
+    const data = new Uint8ClampedArray(width * height * 4);
+    const fill = (x0: number, w: number) => {
+      for (let y = 2; y < 8; y++) for (let x = x0; x < x0 + w; x++) data.set([10, 10, 10, 255], (y * width + x) * 4);
+    };
+    fill(1, 2);
+    fill(8, 6); // 最大
+    fill(20, 4);
+    const rects = detectOpaqueComponents(data, width, height, { minAreaPixels: 1, minAreaRatio: 0, maxComponents: 1 });
+    expect(rects).toEqual([{ x: 8, y: 2, w: 6, h: 6 }]);
   });
 
   test("左右对应肢体使用更敏感的重复阈值", () => {

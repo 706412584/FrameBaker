@@ -153,6 +153,25 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
+  test("传入骨架部件描述时改为骨骼驱动：按语义逐格生成且不套用人形固定槽位", () => {
+    const descriptors = ["head with helmet", "torso", "left upper arm", "left forearm with hand"];
+    const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 4, partDescriptors: descriptors });
+    expect(prompt).toContain("Generate exactly 4 distinct parts matching the target skeleton bone segments");
+    expect(prompt).toContain("1. head with helmet");
+    expect(prompt).toContain("4. left forearm with hand");
+    expect(prompt).toContain("leave every remaining cell fully transparent");
+    expect(prompt).toContain("Split at real joints");
+    expect(prompt).not.toContain("Use up to 12 slots");
+    expect(prompt).not.toContain("row 1 head, torso, pelvis");
+    expect(prompt.length).toBeLessThanOrEqual(1490);
+  });
+
+  test("空的骨架部件描述退回原有网格驱动行为", () => {
+    const prompt = buildArticulatedPartsPrompt({ reference: true, partDescriptors: [] });
+    expect(prompt).toContain("Use up to 12 slots");
+    expect(prompt).toContain("4 columns by 3 rows");
+  });
+
   test("自定义行列数只决定容量，多余格允许留空且不套用固定人形槽位", () => {
     const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 5, extra: "include a tail and two shoulder plates" });
     expect(prompt).toContain("Use up to 15 slots");

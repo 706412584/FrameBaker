@@ -1,7 +1,7 @@
 // 图像处理 worker：解码 / 透明边扫描 / 剪裁编码都在 worker 线程，避免阻塞 UI
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
 
-import { computeImageAnalysis, computeOpaqueBounds, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 
 declare function postMessage(message: ImageOpResponse): void;
@@ -12,6 +12,14 @@ function boundsFromBitmap(bitmap: ImageBitmap) {
   ctx.drawImage(bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
   return computeOpaqueBounds(imageData.data, imageData.width, imageData.height);
+}
+
+function componentsFromBitmap(bitmap: ImageBitmap, options?: DetectComponentsOptions) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  return detectOpaqueComponents(imageData.data, imageData.width, imageData.height, options);
 }
 
 async function cropFromBitmap(bitmap: ImageBitmap, rect: { x: number; y: number; w: number; h: number }) {
@@ -63,13 +71,15 @@ async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quart
 }
 
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
     if (op === "bounds") {
       const bounds = boundsFromBitmap(bitmap);
       postMessage({ id, ok: true, rect: bounds });
+    } else if (op === "components") {
+      postMessage({ id, ok: true, rects: componentsFromBitmap(bitmap, componentOptions) });
     } else if (op === "crop") {
       if (!rect) throw new Error("crop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);

@@ -61,10 +61,13 @@ describe("内置人形骨骼与六组动作", () => {
     }
   });
 
-  test("每个固定采样的通用 FK 骨端与基准标量 FK 完全一致", () => {
+  test("未修正骨骼的通用 FK 骨端与基准标量 FK 完全一致", () => {
     const skeleton = createBuiltinHumanoidSkeleton();
+    // 臂链带视角修正/肢体重定向，run 的颈链另有重定向；其余骨骼必须与旧标量 FK 无损一致。
+    const armBones = new Set(["leftShoulder", "leftElbow", "leftWrist", "rightShoulder", "rightElbow", "rightWrist"]);
     for (const id of BUILTIN_MOTION_IDS) {
       const clip = createBuiltinMotionClip(id);
+      const retargetedNeck = id === "run";
       BUILTIN_MOTIONS[id].frames.forEach((frame, index) => {
         const legacy = legacyForward(frame);
         const pose = sampleMotionClip(clip, skeleton, index / 12);
@@ -72,6 +75,8 @@ describe("内置人形骨骼与六组动作", () => {
         expect(pose.local[BUILTIN_HUMANOID_ROOT_ID]!.translation[1]).toBeCloseTo(-frame[1]!, 10);
         expect(pose.local[BUILTIN_HUMANOID_ROOT_ID]!.translation[2]).toBe(0);
         for (const bone of BUILTIN_HUMANOID_RIG) {
+          if (armBones.has(bone.id)) continue;
+          if (retargetedNeck && (bone.id === "neck" || bone.id === "head")) continue;
           const point = bone.length
             ? getBoneEndpoint(pose, skeleton, BUILTIN_HUMANOID_BONE_IDS[bone.id])
             : pose.worldMatrices[BUILTIN_HUMANOID_BONE_IDS[bone.id]]!.slice(12, 15);
@@ -79,6 +84,42 @@ describe("内置人形骨骼与六组动作", () => {
         }
       });
     }
+  });
+
+  test("重定向后的臂部姿态保持自然：静态动作前臂下垂、run 屈肘不翻转", () => {
+    const skeleton = createBuiltinHumanoidSkeleton();
+    const worldDirection = (pose: ReturnType<typeof sampleMotionClip>, semantic: "leftElbow" | "rightElbow") => {
+      const boneId = BUILTIN_HUMANOID_BONE_IDS[semantic];
+      const matrix = pose.worldMatrices[boneId]!;
+      const tip = getBoneEndpoint(pose, skeleton, boneId)!;
+      return Math.atan2(tip[1] - matrix[13], tip[0] - matrix[12]) * 180 / Math.PI;
+    };
+    const localAngle = (pose: ReturnType<typeof sampleMotionClip>, semantic: "leftElbow" | "rightElbow") => {
+      const rotation = pose.local[BUILTIN_HUMANOID_BONE_IDS[semantic]]!.rotation;
+      return 2 * Math.atan2(rotation[2], rotation[3]) * 180 / Math.PI;
+    };
+    for (const id of ["idle", "walk", "hurt"] as const) {
+      const clip = createBuiltinMotionClip(id);
+      BUILTIN_MOTIONS[id].frames.forEach((_, index) => {
+        const pose = sampleMotionClip(clip, skeleton, index / 12);
+        for (const semantic of ["leftElbow", "rightElbow"] as const) {
+          const direction = worldDirection(pose, semantic);
+          // 前臂应大致下垂（允许步态自然前摆），不再水平外伸。
+          expect(direction).toBeGreaterThan(-140);
+          expect(direction).toBeLessThan(-25);
+        }
+      });
+    }
+    const run = createBuiltinMotionClip("run");
+    BUILTIN_MOTIONS.run.frames.forEach((_, index) => {
+      const pose = sampleMotionClip(run, skeleton, index / 12);
+      for (const semantic of ["leftElbow", "rightElbow"] as const) {
+        const bend = localAngle(pose, semantic);
+        // 奔跑屈肘应稳定向前弯曲，不出现反关节符号翻转。
+        expect(bend).toBeGreaterThan(40);
+        expect(bend).toBeLessThan(115);
+      }
+    });
   });
 
   test("循环动作显式闭合到首帧，非循环动作停在最后采样", () => {

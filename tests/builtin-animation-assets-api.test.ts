@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  BUILTIN_ANIMATION_CATALOG_VERSION,
   BUILTIN_ANIMATION_EXTENSION,
   BUILTIN_HUMANOID_SKELETON_ID,
   BUILTIN_MOTION_ASSET_IDS,
@@ -30,7 +31,7 @@ describe("内置动画资产 API", () => {
     expect(builtins.filter((row) => row.kind === "motion-clip").map((row) => row.id).sort()).toEqual(Object.values(BUILTIN_MOTION_ASSET_IDS).sort());
     expect(builtins.every((row) => {
       const marker = JSON.parse(row.data).extensions?.[BUILTIN_ANIMATION_EXTENSION];
-      return marker?.catalog === "quaternius-legacy-humanoid" && marker.version === 2;
+      return marker?.catalog === "quaternius-legacy-humanoid" && marker.version === BUILTIN_ANIMATION_CATALOG_VERSION;
     })).toBeTrue();
   });
 

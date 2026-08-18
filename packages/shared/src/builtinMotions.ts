@@ -48,9 +48,73 @@ export const BUILTIN_HUMANOID_RIG: readonly BuiltinHumanoidRigBone[] = [
   { id: "rightAnkle", parent: "rightKnee", length: 65, rest: 0 },
 ] as const;
 
+/**
+ * 侧视 2D 回放的视角修正（弧度）。原 3D 采样正交投影后，把"手臂自然垂在身体两侧"
+ * 的姿态投成了系统性抬臂（左肩摆动中心约 +35°、右肩约 +143°，应为自然下垂 -75°~-105°）。
+ * 在此统一把肩部摆动中心压回自然位置；前臂/手随骨骼链继承修正，屈肘模式不变。
+ */
+const MOTION_VIEW_CORRECTIONS: Partial<Record<(typeof MOTION_BONE_ORDER)[number], number>> = {
+  leftShoulder: (110 * Math.PI) / 180,
+  rightShoulder: (-112 * Math.PI) / 180,
+};
+
+const degrees = (value: number) => (value * Math.PI) / 180;
+
+interface MotionBoneRetarget {
+  /** 新的局部角摆动中心（弧度，含视角修正后的局部系）。 */
+  center: number;
+  /** 原始摆幅缩放，保留节奏相位；缺省 1（只平移中心）。 */
+  swingScale?: number;
+}
+
+/**
+ * 采样端肢体重定向。正交投影把肘部绕臂轴的 3D 旋转折算成大幅 Z 向摆动伪影
+ * （如 run 左肘相对角在 +141°~-70° 间翻转、idle 前臂水平外伸），恒定偏移无法修复。
+ * 对循环/受击动作按骨骼重设摆动中心并压缩伪影摆幅；attack/death 的臂部本身就是
+ * 动作内容，保留原始数据。局部角为屈肘角：正值向身体前方（+x 朝向）弯曲。
+ */
+const MOTION_LIMB_RETARGETS: Partial<Record<BuiltinMotionId, Partial<Record<(typeof MOTION_BONE_ORDER)[number], MotionBoneRetarget>>>> = {
+  idle: { leftElbow: { center: degrees(6) }, rightElbow: { center: degrees(16) } },
+  walk: { leftElbow: { center: degrees(21) }, rightElbow: { center: degrees(20) } },
+  run: {
+    leftElbow: { center: degrees(85), swingScale: 0.25 },
+    rightElbow: { center: degrees(70) },
+    // 颈部不再额外前倾：让头与胸保持同一前倾角，避免头图脱离衣领。
+    neck: { center: 0, swingScale: 0.3 },
+  },
+  hurt: { leftElbow: { center: degrees(6) }, rightElbow: { center: degrees(16) } },
+};
+
+const wrapToPi = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
+
+/**
+ * 动作数据的修正局部角序列：展开 ±π 回绕 → 叠加视角修正 → 应用肢体重定向。
+ * 这是内置动作与骨架静止姿态共同的姿态事实源。
+ */
+function motionCorrectedLocalAngles(id: BuiltinMotionId, boneId: (typeof MOTION_BONE_ORDER)[number], rest: number): number[] {
+  const sourceFrames = BUILTIN_MOTIONS[id].frames as readonly (readonly number[])[];
+  const sourceIndex = MOTION_BONE_ORDER.indexOf(boneId) + 2;
+  const viewCorrection = MOTION_VIEW_CORRECTIONS[boneId] ?? 0;
+  // 先展开角度连续性再算局部角，避免 ±π 回绕污染摆动中心与摆幅。
+  const unwrapped: number[] = [];
+  for (const frame of sourceFrames) {
+    const raw = frame[sourceIndex]!;
+    const previous = unwrapped.at(-1);
+    unwrapped.push(previous === undefined ? raw : previous + wrapToPi(raw - previous));
+  }
+  let locals = unwrapped.map((value) => -(rest + viewCorrection + value));
+  const retarget = MOTION_LIMB_RETARGETS[id]?.[boneId];
+  if (retarget) {
+    const mean = locals.reduce((sum, value) => sum + value, 0) / locals.length;
+    const swingScale = retarget.swingScale ?? 1;
+    locals = locals.map((value) => retarget.center + (value - mean) * swingScale);
+  }
+  return locals;
+}
+
 export const BUILTIN_ANIMATION_EXTENSION = "app.framebaker.builtin";
 export const BUILTIN_ANIMATION_CATALOG = "quaternius-legacy-humanoid";
-export const BUILTIN_ANIMATION_CATALOG_VERSION = 2;
+export const BUILTIN_ANIMATION_CATALOG_VERSION = 3;
 export const BUILTIN_HUMANOID_SKELETON_ID = "skeleton-original-six-presets";
 export const BUILTIN_HUMANOID_ROOT_ID = "builtin-humanoid-root";
 export const BUILTIN_HUMANOID_BONE_IDS = Object.fromEntries(
@@ -97,6 +161,8 @@ export function getBuiltinAnimationCatalogVersion(asset: AnimationAsset): number
 /**
  * 生成内置动作使用的稳定人形骨骼。每根历史骨骼表示“从父节点到本节点”的骨段，
  * 子骨骼平移固定为父骨端，因此通用 T*R*S FK 与旧标量 FK 的端点逐帧完全一致。
+ * 静止（绑定）姿态取修正后 idle 第 0 帧：动作轨道是绝对旋转、会整体覆盖 rest，
+ * 让绑定页所见即播放站姿是“绑定完成即可正常播放”的结构保证，不要改回抽象 T-pose。
  */
 export function createBuiltinHumanoidSkeleton(): Skeleton {
   const rigById = new Map(BUILTIN_HUMANOID_RIG.map((bone) => [bone.id, bone]));
@@ -118,7 +184,7 @@ export function createBuiltinHumanoidSkeleton(): Skeleton {
           parentId: bone.parent ? BUILTIN_HUMANOID_BONE_IDS[bone.parent] : BUILTIN_HUMANOID_ROOT_ID,
           rest: {
             translation: parent ? [parent.length, 0, 0] as [number, number, number] : [0, 0, 0] as [number, number, number],
-            rotation: quaternionFromZRotation(-bone.rest),
+            rotation: quaternionFromZRotation(motionCorrectedLocalAngles("idle", bone.id, bone.rest)[0]!),
             scale: [1, 1, 1] as [number, number, number],
           },
           ...(bone.length ? { tipOffset: [bone.length, 0, 0] as [number, number, number] } : {}),
@@ -144,12 +210,13 @@ export function createBuiltinMotionClip(id: BuiltinMotionId): MotionClip {
     keyframes: sampledFrames.map((frame, index) => ({ time: index / fps, value: [frame[0]!, -frame[1]!, 0] })),
   };
   const rotationTracks: MotionTrack[] = BUILTIN_HUMANOID_RIG.map((bone) => {
-    const sourceIndex = MOTION_BONE_ORDER.indexOf(bone.id) + 2;
+    const locals = motionCorrectedLocalAngles(id, bone.id, bone.rest);
+    const sampledLocals = source.loop ? [...locals, locals[0]!] : locals;
     return {
       targetId: BUILTIN_HUMANOID_BONE_IDS[bone.id],
       property: "rotation",
       interpolation: "linear",
-      keyframes: sampledFrames.map((frame, index) => ({ time: index / fps, value: quaternionFromZRotation(-(bone.rest + frame[sourceIndex]!)) })),
+      keyframes: sampledLocals.map((value, index) => ({ time: index / fps, value: quaternionFromZRotation(value) })),
     };
   });
   return {

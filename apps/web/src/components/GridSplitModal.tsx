@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, X } from "lucide-react";
+import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, ScanSearch, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
-import { analyzeImage, cropImage, findOpaqueBounds } from "../imageops/client";
+import { analyzeImage, cropImage, detectComponents, findOpaqueBounds } from "../imageops/client";
 import { reviewSkeletalGrid, type CropRect, type SkeletalPartQualityIssue } from "../imageops/ops";
 import { notify } from "../notice";
 import { useT } from "../i18n";
@@ -89,6 +89,8 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [mergedCellGroups, setMergedCellGroups] = useState<number[][]>([]);
   const [cellSplits, setCellSplits] = useState<CellSplit[]>([]);
   const [manualMergedCells, setManualMergedCells] = useState<ManualMergedCell[]>([]);
+  // 连通域自动检测得到的部件单元（合成 id 单格组）；非空时取代均匀网格作为基础布局。
+  const [detectedGroups, setDetectedGroups] = useState<number[][] | null>(null);
   const [splitCellRects, setSplitCellRects] = useState<Record<number, CropRect>>({});
   const [selectedCells, setSelectedCells] = useState<number[]>([]);
   const [cellContextMenu, setCellContextMenu] = useState<{ x: number; y: number; groupId: number } | null>(null);
@@ -111,15 +113,20 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   useModalEscClose(onClose);
 
   const skipCenter = splitLine === "frame" && /_8directions_3x3$/.test(m.name.trim()) && rows === 3 && cols === 3;
-  const standardHumanoidGrid = splitLine === "skeletal" && rows === 3 && cols === 4;
+  const standardHumanoidGrid = splitLine === "skeletal" && rows === 3 && cols === 4 && !detectedGroups;
   const cellGroups = useMemo(() => {
     if (splitLine !== "skeletal") return Array.from({ length: rows * cols }, (_, index) => [index]);
-    const owner = new Map<number, number[]>();
-    for (const group of mergedCellGroups) for (const index of group) owner.set(index, group);
-    const baseGroups: number[][] = [];
-    for (let index = 0; index < rows * cols; index++) {
-      const group = owner.get(index) ?? [index];
-      if (group[0] === index) baseGroups.push(group);
+    let baseGroups: number[][];
+    if (detectedGroups) {
+      baseGroups = detectedGroups;
+    } else {
+      const owner = new Map<number, number[]>();
+      for (const group of mergedCellGroups) for (const index of group) owner.set(index, group);
+      baseGroups = [];
+      for (let index = 0; index < rows * cols; index++) {
+        const group = owner.get(index) ?? [index];
+        if (group[0] === index) baseGroups.push(group);
+      }
     }
     const splitByParent = new Map(cellSplits.map((split) => [split.parentId, split.children]));
     const expand = (group: number[]): number[][] => {
@@ -137,9 +144,9 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       return [[merged.id]];
     });
     return mergedGroups.flatMap(expand);
-  }, [cellSplits, cols, manualMergedCells, mergedCellGroups, rows, splitLine]);
+  }, [cellSplits, cols, detectedGroups, manualMergedCells, mergedCellGroups, rows, splitLine]);
   const cellGroupsKey = cellGroups.map((group) => group.join(",")).join("|");
-  const cellGroupLabel = (group: number[]) => cellSplits.length
+  const cellGroupLabel = (group: number[]) => detectedGroups || cellSplits.length
     ? String(cellGroups.findIndex((candidate) => candidate[0] === group[0]) + 1)
     : group.map((index) => index + 1).join("+");
   const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0 && cellSplits.length === 0;
@@ -164,6 +171,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setSelectedCells([]);
     setCellContextMenu(null);
     setActiveCellIndex(null);
+    setDetectedGroups(null);
     setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
     setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
     setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
@@ -645,6 +653,67 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setRegion({ x: 0, y: 0, w: imgSize.w, h: imgSize.h });
   };
 
+  /** 连通域自动检测：按不透明块生成部件单元，铺满整图后即可逐格微调/命名/切分。 */
+  const autoDetectComponents = async () => {
+    if (!imgSize || busy) return;
+    setBusy(true);
+    setProgress(t("skeletal.split.detecting"));
+    try {
+      const res = await fetch(materialImageUrl(m.id, v, slot));
+      if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
+      const blob = await res.blob();
+      const rects = await detectComponents(blob, { minAreaRatio: 0.004, maxComponents: 64 });
+      if (!rects.length) {
+        notify(t("skeletal.split.noComponents"), "info");
+        return;
+      }
+      const ids: number[] = [];
+      const nextRects: Record<number, CropRect> = {};
+      // 检测在整图坐标进行：把网格区域重置为整图，splitCellRects 的相对坐标即等于绝对坐标。
+      for (const rect of rects) {
+        const id = nextSplitCellIdRef.current++;
+        ids.push(id);
+        nextRects[id] = { ...rect };
+      }
+      setRegion({ x: 0, y: 0, w: imgSize.w, h: imgSize.h });
+      setSplitCellRects(nextRects);
+      setMergedCellGroups([]);
+      setCellSplits([]);
+      setManualMergedCells([]);
+      setCellOffsets([]);
+      setCellSourceSizes([]);
+      setCellFrameOffsets([]);
+      setSelectedCells([]);
+      setCellContextMenu(null);
+      setActiveCellIndex(ids[0] ?? null);
+      setDetectedGroups(ids.map((id) => [id]));
+      setSkeletalReview(null);
+      setReviewConfirmed(false);
+      onToast(t("skeletal.split.detectedComponents", { count: rects.length }));
+    } catch (e) {
+      notify(t("skeletal.split.detectFailed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  };
+
+  const clearDetection = () => {
+    setDetectedGroups(null);
+    setSplitCellRects({});
+    setMergedCellGroups([]);
+    setCellSplits([]);
+    setManualMergedCells([]);
+    setCellOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setCellSourceSizes(Array.from({ length: rows * cols }, () => null));
+    setCellFrameOffsets(Array.from({ length: rows * cols }, () => ({ x: 0, y: 0 })));
+    setSelectedCells([]);
+    setCellContextMenu(null);
+    setActiveCellIndex(null);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
   const nudge = (dx: number, dy: number) => {
     if (!region || !imgSize) return;
     setRegion(clampRegion({ ...region, x: region.x + dx, y: region.y + dy }, imgSize.w, imgSize.h));
@@ -1025,6 +1094,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                     {t("skeletal.split.selectToMerge")}
                   </button>
                 </div>}
+                {splitLine === "skeletal" && <button type="button" className={`px-btn mini${detectedGroups ? " accent" : ""}`} disabled={busy || !imgSize} title={t("skeletal.split.autoDetectHint")} onClick={() => void autoDetectComponents()}>
+                  <ScanSearch size={14} /> {t("skeletal.split.autoDetect")}
+                </button>}
+                {splitLine === "skeletal" && detectedGroups && <button type="button" className="px-btn mini" disabled={busy} onClick={clearDetection}>
+                  {t("skeletal.split.restoreGrid")}
+                </button>}
                 {splitLine === "skeletal" && dragMode === "merge" && <>
                   <button type="button" className="px-btn mini accent" disabled={busy || selectedCells.length < 2} onClick={mergeSelectedCells}>
                     {t("skeletal.split.mergeSelected")}
