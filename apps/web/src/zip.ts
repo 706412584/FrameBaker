@@ -48,6 +48,51 @@ interface ZipEntry {
   data: Uint8Array;
 }
 
+/** 读取本应用生成的 ZIP：仅支持无加密、deflate/store 条目。 */
+export async function readZip(blob: Blob): Promise<ZipEntry[]> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const entries: ZipEntry[] = [];
+  const decoder = new TextDecoder();
+  const maxEntries = 1024, maxTotalBytes = 128 * 1024 * 1024, maxAssetBytes = 32 * 1024 * 1024;
+  let totalBytes = 0;
+  let offset = 0;
+  while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+    if (entries.length >= maxEntries) throw new Error("ZIP 文件数超限");
+    const method = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + nameLength + extraLength;
+    const name = decoder.decode(bytes.slice(nameStart, nameStart + nameLength));
+    const maxOutput = name === "manifest.json" ? 1024 * 1024 : maxAssetBytes;
+    if (compressedSize > maxOutput) throw new Error("ZIP 单文件过大");
+    const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+    if (dataStart + compressedSize > bytes.length) throw new Error("ZIP 文件已截断");
+    let data: Uint8Array;
+    if (method === 0) data = compressed;
+    else if (method === 8) {
+      const stream = new DecompressionStream("deflate-raw");
+      const writer = stream.writable.getWriter();
+      await writer.write(compressed);
+      await writer.close();
+      const chunks: Uint8Array[] = [], reader = stream.readable.getReader();
+      let outputBytes = 0;
+      for (;;) { const item = await reader.read(); if (item.done) break; if (item.value) { outputBytes += item.value.length; if (outputBytes > maxOutput) throw new Error("ZIP 解压后单文件过大"); chunks.push(item.value); } }
+      data = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+      let writeOffset = 0;
+      for (const chunk of chunks) { data.set(chunk, writeOffset); writeOffset += chunk.length; }
+    } else throw new Error("ZIP 使用了不支持的压缩方式");
+    totalBytes += data.length;
+    if (totalBytes > maxTotalBytes) throw new Error("ZIP 解压后总体积超限");
+    entries.push({ name, data });
+    offset = dataStart + compressedSize;
+  }
+  if (!entries.length || !entries.some((entry) => entry.name === "manifest.json")) throw new Error("不是有效的 .fbanim 包");
+  return entries;
+}
+
 /** 把多个文件打包成 ZIP Blob */
 export async function createZip(entries: ZipEntry[]): Promise<Blob> {
   const localParts: Uint8Array[] = [];

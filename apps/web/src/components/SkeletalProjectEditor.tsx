@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildHumanoidAutoBinding, diagnoseHumanoidSkeleton, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
+import { buildHumanoidAutoBinding, diagnoseHumanoidSkeleton, verifyFbanimV2Entries, type AnimationAssetSummary, type CharacterBinding, type CharacterPartSet, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Download, Pause, Pencil, Play, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api, type Folder, type Project, type SkeletalProjectDocument } from "../api";
 import { localizeSkeletonName } from "../builtinAnimationLabels";
@@ -7,6 +7,7 @@ import { useModalEscClose } from "../hooks/useModalEscClose";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { exportSkeletalProjectPackage } from "../export";
+import { readZip } from "../zip";
 import { BindingEditor, CharacterPreview } from "./AnimationAssetsWorkspace";
 import MaterialImportModal from "./MaterialImportModal";
 import PxSelect from "./PxSelect";
@@ -35,6 +36,7 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRevisionRef = useRef(0);
   const pendingSaveCountRef = useRef(0);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const exportPackage = async () => {
     if (!skeleton || !document?.character || !document.animations.length) return;
@@ -44,6 +46,47 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
       notify(t("skeletal.export.done"), "info");
     } catch (e) {
       notify(t("skeletal.export.failed", { msg: (e as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importPackage = async (file?: File) => {
+    if (!file || busy) return;
+    if (document?.character && !(await askConfirm(t("skeletal.import.replaceConfirm")))) return;
+    setBusy(true);
+    try {
+      const verified = await verifyFbanimV2Entries((await readZip(file)).map((entry) => ({ path: entry.name, bytes: entry.data })));
+      if (!verified.ok) throw new Error(verified.issues[0]?.message ?? "包内容校验失败");
+      const imported = verified.value;
+      const skeletonId = `skeleton-${crypto.randomUUID()}`;
+      await api.createAnimationAsset({ ...imported.skeleton, id: skeletonId, name: imported.skeleton.name || file.name.replace(/\.fbanim$/i, "") }, null);
+      const materialIds = new Map<string, string>();
+      for (const texture of imported.textures) {
+        const attachment = imported.characterBinding.attachments.find((item) => item.id === texture.attachmentId);
+        const form = new FormData();
+        form.append("file", new Blob([texture.bytes.slice().buffer as ArrayBuffer], { type: "image/png" }), `${attachment?.name ?? texture.attachmentId}.png`);
+        const result = await api.uploadMaterial(form) as { materialId?: string };
+        if (!result.materialId) throw new Error(`纹理「${attachment?.name ?? texture.attachmentId}」导入失败`);
+        materialIds.set(texture.attachmentId, result.materialId);
+      }
+      const binding: CharacterBinding = {
+        ...imported.characterBinding,
+        id: `binding-${crypto.randomUUID()}`,
+        skeletonId,
+        attachments: imported.characterBinding.attachments.map((attachment) => ({ ...attachment, materialId: materialIds.get(attachment.id)! })),
+      };
+      const animations: SkeletalProjectAnimation[] = [];
+      for (const action of imported.actions) {
+        const motionClipId = `motion-${crypto.randomUUID()}`;
+        await api.createAnimationAsset({ ...action.motionClip, id: motionClipId, skeletonId }, null);
+        animations.push({ id: `action-${crypto.randomUUID()}`, name: action.name, motionClipId, speed: action.speed, repeat: action.repeat, loop: action.loop });
+      }
+      const next: SkeletalProjectDocument = { schemaVersion: 1, projectId: project.id, character: { binding }, animations, activeAnimationId: animations[0]?.id ?? null };
+      if (!(await save(next))) throw new Error("项目文档保存失败");
+      notify(t("skeletal.import.done"), "info");
+    } catch (e) {
+      notify(t("skeletal.import.failed", { msg: (e as Error).message }));
     } finally {
       setBusy(false);
     }
@@ -285,6 +328,8 @@ export default function SkeletalProjectEditor({ project, onBack, onEditActionLib
       <nav className="skeletal-project-tabs" aria-label={t("skeletal.workspaceTabs")}>
         <button type="button" className={`${tab === "character" ? "active " : ""}${binding ? "done" : ""}`} onClick={() => setTab("character")}><Boxes size={17} /> 1. {t("skeletal.tab.character")}</button>
         <button type="button" title={!binding ? t("skeletal.step.requiresCharacter") : undefined} className={`${tab === "animations" ? "active " : ""}${document.animations.length ? "done" : ""}`} onClick={() => binding ? setTab("animations") : undefined}><Play size={17} /> 2. {t("skeletal.tab.animations")} <span>{document.animations.length}</span></button>
+        <input ref={importInputRef} hidden type="file" accept=".zip,.fbanim,application/zip" onChange={(event) => { void importPackage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+        <button type="button" className="px-btn" disabled={busy} onClick={() => importInputRef.current?.click()}><Upload size={15} /> {t("skeletal.import.runtime")}</button>
         <button type="button" className="skeletal-export-button" disabled={busy || !binding || !document.animations.length} onClick={() => void exportPackage()}><Download size={17} /> {t("skeletal.export.runtime")}</button>
       </nav>
 

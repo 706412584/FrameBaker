@@ -237,13 +237,19 @@ character.fbanim
 - v2 是与 v1 平行的运行时包 API（`buildFbanimV2Entries` / `verifyFbanimV2Entries`），`format: "fbanim"`、`version: 2`。每个包只闭包一个项目本地 `CharacterBinding` 及其 `Skeleton`，并按项目动作 ID 排序收录动作名、MotionClip 路径、speed、repeat 和 loop；不会改变 v1 的多资产交换行为；
 - v2 的 JSON 和 PNG 均以内容摘要命名。manifest 的 `entry` 显式记录 skeleton、characterBinding、actions、textures 的路径、SHA-256、字节数和骨架依赖；每个 attachmentId 必须恰好映射一个 `textures/*.png`。绑定中的 materialId 仅作来源记录，运行时纹理由该映射解析；
 - v2 构建与验证拒绝未知核心字段、重复 ID/路径、非规范 JSON、路径穿越、摘要或字节数不符、非 PNG 签名、缺失/多余文件、附件引用和 Skeleton 不匹配，并在读取内容前执行文件数、单文件及总解压字节预算；
-- 当前实现以 `{ path, bytes }` 逻辑条目建立、验证和往返，ZIP 仅是后续传输层；在具备重复路径、压缩炸弹、CRC、大小与压缩比防护的读取器前，不复用现有仅导出用途的 ZIP 写入器；
+- 当前实现以 `{ path, bytes }` 逻辑条目建立、验证和往返，`.fbanim` 是 ZIP 传输层；FrameBaker 已支持在骨骼项目中导入该包，导入时会校验摘要和安全预算，并为本地数据库 ID 建立映射；
 - 路径必须相对包根且禁止 `..`，解包时防止路径穿越和压缩炸弹；
 - JSON 使用正式 schema 校验，未知可选扩展在往返保存时尽量保留；
 - 纹理使用 PNG；预览文件不是必需且不参与事实源计算；
 - 包内 ID 保持稳定，导入数据库发生冲突时生成映射而不是改写内部引用失败；
 - 首版优先可读性和迁移能力，性能确有需要时再为密集关键帧增加可选二进制块；
 - 数据库 schemaVersion、`.fbanim` packageVersion 和各资产 schemaVersion 分开演进。
+
+### 5.2.1 使用方式
+
+- FrameBaker：打开任意骨骼项目，点击“导入骨骼 ZIP”，会恢复骨架、角色绑定、纹理和动作；已有角色与动作会先要求确认替换。导出文件直接使用 `.zip` 扩展名，系统和其他工具无需认识自定义扩展名即可打开；旧的 `.fbanim` 文件仍可导入。
+- 其他运行时：按 ZIP 读取 `manifest.json`，根据 `entry` 中的 `path` 读取 JSON/PNG，校验 `sha256` 与 `byteLength`，再按 `characterBinding.attachments[].id → textures[].attachmentId` 建立纹理映射；动作播放读取对应 MotionClip 的 tracks，并应用 action 的 `speed`、`repeat`、`loop`。
+- 该格式是公开的 JSON + PNG 规范，不要求安装 FrameBaker；`packages/shared/src/animationPackageV2.ts` 中的校验规则和本文档就是实现依据。
 
 ### 5.2 扩展机制
 

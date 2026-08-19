@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createZip } from "../apps/web/src/zip";
+import { createZip, readZip } from "../apps/web/src/zip";
 
 async function readZipEntries(blob: Blob): Promise<Map<string, Uint8Array>> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -47,5 +47,15 @@ describe("ZIP 导出", () => {
     const entries = await readZipEntries(zip);
     expect(new TextDecoder().decode(entries.get("hello.txt"))).toBe("hello world");
     expect(entries.get("素材/空.bin")).toEqual(new Uint8Array());
+  });
+
+  test("读取应用生成的 ZIP", async () => {
+    const zip = await createZip([
+      { name: "manifest.json", data: new TextEncoder().encode("{}") },
+      { name: "motions/a.json", data: new TextEncoder().encode("motion") },
+    ]);
+    const entries = await readZip(zip);
+    expect(entries.map((entry) => entry.name)).toEqual(["manifest.json", "motions/a.json"]);
+    expect(new TextDecoder().decode(entries[1]!.data)).toBe("motion");
   });
 });

@@ -40,7 +40,7 @@ export async function exportSkeletalProjectPackage(name: string, document: Skele
     actions,
     textures,
   });
-  download(await createZip(entries.map((entry) => ({ name: entry.path, data: entry.bytes }))), `${safeFilename(name)}.fbanim`);
+  download(await createZip(entries.map((entry) => ({ name: entry.path, data: entry.bytes }))), `${safeFilename(name)}.zip`);
 }
 
 /** 导出单个素材图片：raw=原图，processed=抠图后（单张直接下载） */
