@@ -285,7 +285,7 @@ export function imageAnalysisSimilarity(a: ImageAnalysis, b: ImageAnalysis, mirr
  * 骨骼分件硬性质量闸门。这里只拦截可由像素证实的错误；
  * 头/骨盆/手等语义仍需在提交前由逐格人工复核。
  */
-export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standardHumanoidLayout = true): SkeletalPartQualityIssue[] {
+export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standardHumanoidLayout = true, allowTightBounds = false): SkeletalPartQualityIssue[] {
   const issues: SkeletalPartQualityIssue[] = [];
   const oppositeSidePairs = standardHumanoidLayout ? new Set(["4:6", "5:7", "8:10", "9:11"]) : new Set<string>();
   analyses.forEach((analysis, index) => {
@@ -295,7 +295,7 @@ export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standar
       return;
     }
     const { bounds } = analysis;
-    if (bounds.x === 0 || bounds.y === 0 || bounds.x + bounds.w === analysis.width || bounds.y + bounds.h === analysis.height) {
+    if (!allowTightBounds && (bounds.x === 0 || bounds.y === 0 || bounds.x + bounds.w === analysis.width || bounds.y + bounds.h === analysis.height)) {
       issues.push({ code: "touches-edge", cells: [cell] });
     }
     if (analysis.significantComponents > 1) issues.push({ code: "fragmented", cells: [cell] });
@@ -325,16 +325,16 @@ export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standar
 }
 
 /** 自定义网格跳过透明余格；标准人形网格只允许明确标记的可选格留空。 */
-export function reviewSkeletalGrid(analyses: ImageAnalysis[], requireEveryCell: boolean, optionalEmptyIndexes: number[] = []): { activeIndexes: number[]; issues: SkeletalPartQualityIssue[] } {
+export function reviewSkeletalGrid(analyses: ImageAnalysis[], requireEveryCell: boolean, optionalEmptyIndexes: number[] = [], allowTightBounds = false): { activeIndexes: number[]; issues: SkeletalPartQualityIssue[] } {
   if (requireEveryCell) {
     const optional = new Set(optionalEmptyIndexes);
     const activeIndexes = analyses.flatMap((analysis, index) => analysis.bounds || !optional.has(index) ? [index] : []);
-    const issues = findSkeletalPartQualityIssues(analyses, true).filter((issue) => !(issue.code === "empty" && optional.has(issue.cells[0] - 1)));
+    const issues = findSkeletalPartQualityIssues(analyses, true, allowTightBounds).filter((issue) => !(issue.code === "empty" && optional.has(issue.cells[0] - 1)));
     return { activeIndexes, issues };
   }
   const activeIndexes = analyses.flatMap((analysis, index) => analysis.bounds ? [index] : []);
   if (!activeIndexes.length) return { activeIndexes, issues: [{ code: "empty", cells: [1] }] };
-  const issues = findSkeletalPartQualityIssues(activeIndexes.map((index) => analyses[index]), false).map((issue) => ({
+  const issues = findSkeletalPartQualityIssues(activeIndexes.map((index) => analyses[index]), false, allowTightBounds).map((issue) => ({
     ...issue,
     cells: issue.cells.map((cell) => activeIndexes[cell - 1] + 1),
   }));

@@ -7,7 +7,7 @@ Pixel-art frame-by-frame animation editor (Bun fullstack). Material import (GIF/
 ```
 apps/
   server/        @framebaker/server — Elysia API + job queue + bun:sqlite; Bun.serve hosts frontend
-  web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react; index.html is the bundle entry
+  web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react; index.html is the bundle entry; HTTP facade in src/api.ts, media URLs in src/api/mediaUrls.ts, WS client in src/api/ws.ts
 packages/
   shared/        @framebaker/shared — shared types/constants for front & back (no build, exports point directly to src/index.ts)
 docs/            architecture / API / roadmap / changelog documentation

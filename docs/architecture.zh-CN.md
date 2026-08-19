@@ -91,6 +91,7 @@
 - **图像处理 worker**（`apps/web/src/imageops/`）：剪裁的解码 / 透明边包围盒扫描 / PNG 编码放 Web Worker（OffscreenCanvas）。Bun 的 HTML 打包不处理 `new Worker(new URL(...))`，worker 脚本由服务端路由 `GET /imageops/imageOps.worker.js` 按需 `Bun.build` 同源下发；`client.ts` 懒加载单例并在 worker 不可用/出错时自动降级主线程 canvas，纯计算（`ops.ts`）两侧共用。
 - **帧变换几何**（`apps/web/src/frameGeometry.ts`）：集中中心锚点、offset、rotation、scale 的轴对齐包围盒、fit-to-view 与 rotation 归一化；Pixi `FrameEditor` 与 Canvas `export.ts` 是两个渲染 adapter，共用同一几何语义。
 - **导入工作流**（`apps/web/src/hooks/useImportWorkflow.ts`）：项目导入与素材导入共用文件状态转换、顺序上传、任务轮询、部分失败、计时器清理与完成汇总；两个 modal 仅提供各自的 FormData/API adapter，剪裁阶段继续由 `useCropQueue` 负责。
+- **前端客户端边界**：`apps/web/src/api.ts` 保留为类型化 HTTP API 方法与共享响应类型的兼容门面；素材/帧图片 URL 构造位于 `api/mediaUrls.ts`，带重连的应用级 WebSocket 客户端位于 `api/ws.ts`。新增传输职责应放回所属模块，不再继续膨胀门面文件。
 - **生成 provider adapter 与产物提交**：`providerAdapter.ts` 每次任务实时解析 provider，封装配置/模型/能力校验、CLI argv、API/CLI 产出分发及 doctor 的模型探测；`jobs/generatedArtifacts.ts` 拥有产物 allocation、媒体分类、帧/素材/视频入库、暂存清理、广播与自动抠图收尾。`jobs/extract.ts` 只协调“产出 → 提交”，API 厂商协议仍位于 `jobs/generateApi.ts`。
 
 ## 数据流
@@ -218,4 +219,4 @@ storage/
 - `theme.ts`：主题管理（localStorage `framebaker-theme`；无记录时跟随系统 prefers-color-scheme 并实时响应系统变化）
 - `i18n.ts` + `i18n/zh.ts` / `i18n/en.ts`：界面语言（zh 默认 / en）；文案用稳定 key（如 `common.close`），`t(key)` / `useT()` 查表；localStorage `framebaker-lang` + settings `lang`
 - `notice.ts` + `AppModals`（挂在 App 根部）：全局通知条与确认弹窗，替代浏览器默认 `alert`/`confirm`——任何组件调 `notify(text)` / `await askConfirm(text)`，禁止再用浏览器默认弹窗
-- `api.ts`：fetch 封装 + WS 客户端（断线 3s 重连）
+- `api.ts`：类型化 fetch 封装与兼容门面；`api/mediaUrls.ts` 负责帧/素材 URL 构造，`api/ws.ts` 负责 WebSocket 客户端（断线 3s 重连）

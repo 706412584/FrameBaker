@@ -743,7 +743,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
         if (rect) cells.push(await cropImage(blob, rect));
       }
       const analyses = await Promise.all(cells.map(analyzeImage));
-      const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : []);
+      const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : [], detectedGroups != null);
       setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews: cells.map((cell) => URL.createObjectURL(cell)) });
       setReviewConfirmed(false);
       if (issues.length > 0) notify(t("skeletal.split.qualityBlocked", { count: issues.length }));
@@ -761,7 +761,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     const cells = [...current.cells];
     cells[groupIndex] = editedCell;
     const analyses = await Promise.all(cells.map(analyzeImage));
-    const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : []);
+    const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : [], detectedGroups != null);
     const previews = cells.map((cell) => URL.createObjectURL(cell));
     current.previews.forEach((url) => URL.revokeObjectURL(url));
     setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews });
@@ -830,9 +830,13 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
             }
             if (!m.processed_path) rawCell = cell;
             const draft = splitLine === "skeletal" ? partDrafts[groupIndex] : undefined;
+            // 自动检测会移除无武器的空格；标准 11 部件顺序仍对应内置人形骨骼语义。
+            const inferredRole = detectedGroups && total === ARTICULATED_CHARACTER_PART_ROLES.length
+              ? ARTICULATED_CHARACTER_PART_ROLES[groupIndex]
+              : draft?.role;
             const fd = new FormData();
             const partName = draft?.name.trim();
-            const cellName = draft ? partName || `${base}_${draft.role}` : `${base}_r${r + 1}c${c + 1}`;
+            const cellName = draft ? partName || `${base}_${inferredRole ?? draft.role}` : `${base}_r${r + 1}c${c + 1}`;
             fd.append("file", rawCell, `${cellName}.png`);
             if (m.processed_path) fd.append("processedFile", cell, `${cellName}_processed.png`);
             fd.append("autoMatting", String(autoMatting && !m.processed_path));
@@ -857,7 +861,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
             const uploaded = await api.uploadMaterial(fd);
             if (splitLine === "skeletal") {
               if (!("materialId" in uploaded)) throw new Error(t("skeletal.split.imageUploadExpected"));
-              createdMembers.push({ materialId: uploaded.materialId, role: draft!.role, name: partName || `${base} ${i}` });
+              createdMembers.push({ materialId: uploaded.materialId, role: inferredRole ?? draft!.role, name: partName || `${base} ${i}` });
             }
             ok++;
           } catch (e) {

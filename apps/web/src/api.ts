@@ -52,6 +52,8 @@ import type {
 } from "@framebaker/shared";
 
 export type { AttackEffect, AttackEffectCell, Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
+export { frameImageUrl, materialFileUrl, materialImageUrl } from "./api/mediaUrls";
+export { wsClient } from "./api/ws";
 
 // ---- fetch 封装 ----
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -256,59 +258,3 @@ export const api = {
     req<AnimationAssetResponse>(`/api/animation-assets/${id}/copy`, { method: "POST", ...json({ ...(name ? { name } : {}), ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
   deleteAnimationAsset: (id: string) => req<OkResponse>(`/api/animation-assets/${id}`, { method: "DELETE" }),
 };
-
-/** 帧图片 URL；size 仅用于列表/时间轴缩略图，编辑画布不传 size 以保留原图。 */
-export const frameImageUrl = (id: string, v?: number, size?: number) =>
-  `/api/frames/${id}/image.png?type=processed${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}`;
-
-
-/** 素材图片 URL；size 仅用于列表缩略图，详情/编辑不传 size。 */
-export const materialImageUrl = (id: string, v?: number, type: "raw" | "processed" = "processed", size?: number, strict = false) =>
-  `/api/materials/${id}/image.png?type=${type}${v ? `&v=${v}` : ""}${size ? `&size=${size}` : ""}${strict ? "&strict=1" : ""}`;
-
-
-/** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
-export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>
-  `/api/materials/${id}/image?type=${type}${v ? `&v=${v}` : ""}`;
-
-// ---- WS 客户端：断线 3s 重连 ----
-type Listener = (msg: WSMessage) => void;
-
-class WSClient {
-  private ws: WebSocket | null = null;
-  private listeners = new Set<Listener>();
-  private started = false;
-
-  start() {
-    if (this.started) return;
-    this.started = true;
-    this.connect();
-  }
-
-  private connect() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
-    this.ws = ws;
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data as string) as WSMessage;
-        this.listeners.forEach((l) => l(msg));
-      } catch {
-        /* 忽略非法消息 */
-      }
-    };
-    ws.onclose = () => {
-      this.ws = null;
-      if (this.started) setTimeout(() => this.connect(), 3000);
-    };
-  }
-
-  subscribe(l: Listener): () => void {
-    this.listeners.add(l);
-    return () => {
-      this.listeners.delete(l);
-    };
-  }
-}
-
-export const wsClient = new WSClient();
