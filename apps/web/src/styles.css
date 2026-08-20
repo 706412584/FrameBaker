@@ -4821,3 +4821,8 @@ body.resizing-row * {
   pointer-events: none;
   user-select: none;
 }
+
+/* ===== 绑定/动作画布：自由变形（warp）网格覆盖层 ===== */
+.binding-warp-grid { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
+.binding-warp-point { fill: var(--surface); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
+.binding-warp-point:hover { fill: var(--accent); stroke: var(--text); }

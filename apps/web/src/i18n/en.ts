@@ -1151,6 +1151,16 @@ export const en = {
   "exportAnimation.spritesheet": "Single sprite sheet",
   "exportAnimation.spritesheetHint": "Trim shared transparent padding and pack playback order into a compact row-major PNG plus frame JSON.",
   "exportAnimation.exporting": "Compositing and packaging…",
+
+  "animation.channel.warp": "Warp",
+  "animation.binding.freeWarp": "Free warp",
+  "animation.binding.warpGrid": "Grid density",
+  "animation.binding.enableWarp": "Enable free warp",
+  "animation.binding.disableWarp": "Disable free warp",
+  "animation.binding.warpHint": "Switch to the warp tool (W) and drag grid control points to reshape the part; in motion mode, drag control points to keyframe the warp.",
+  "animation.binding.warpPoint": "Drag free-warp control point",
+  "animation.binding.warpGridResetConfirm": "Changing the grid density resets all control point offsets. Continue?",
+  "animation.binding.disableWarpConfirm": "Disabling free warp clears all control point offsets. Continue?",
 } as const;
 
 export type MsgKey = keyof typeof en;

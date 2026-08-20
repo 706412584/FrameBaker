@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { addMotionEvent, ATTACHMENT_TARGET_PREFIX, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, DEFAULT_CUBIC_MOTION_INTERPOLATION, deleteMotionEvent, deleteMotionKeyframe, findMotionSegmentIndex, getBoneEndpoint, isAttachmentTargetId, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, setMotionSegmentInterpolation, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type AnyMotionTrack, type AttachmentOffset, type CharacterBinding, type CubicBezierMotionInterpolation, type JsonValue, type Mat4, type Material, type MotionClip, type MotionSegmentInterpolation, type MotionTrack, type MotionTrackV2, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
+import { addMotionEvent, ATTACHMENT_TARGET_PREFIX, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, DEFAULT_CUBIC_MOTION_INTERPOLATION, deleteMotionEvent, deleteMotionKeyframe, findMotionSegmentIndex, getBoneEndpoint, isAttachmentTargetId, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, setMotionSegmentInterpolation, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type AnyMotionTrack, type AttachmentOffset, type CharacterBinding, type CubicBezierMotionInterpolation, type JsonValue, type Mat4, type Material, type MotionClip, type MotionSegmentInterpolation, type MotionTrack, type MotionTrackV2, type RegionAttachmentWarp, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
 import { Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, Waves, ZoomIn } from "lucide-react";
 import { api, materialImageUrl, wsClient, type Folder } from "../api";
 import { attachmentLocalBounds, attachmentLocalCorners, attachmentSvgImageY, fitAttachmentSizeToImage } from "../bindingGeometry";
 import { localizeBoneName, localizeSkeletonName } from "../builtinAnimationLabels";
 import { useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
+import { useWarpedAttachments } from "../hooks/useWarpedAttachments";
 import FolderTree, { type FolderSelection } from "./FolderTree";
 import { useMaterialEditor } from "./MaterialEditor";
 import PxSelect from "./PxSelect";
@@ -248,8 +249,8 @@ interface CharacterPreviewProps {
   onSelectAttachment?: (id: string) => void;
   onSelectBone?: (id: string) => void;
   onTransformAttachment?: (id: string, patch: Partial<CharacterBinding["attachments"][number]>) => void;
-  /** 动作编辑模式：拖拽/检查器产生部件偏移关键帧（att: 轨道）而非修改绑定 rest；tx/ty 为 rest 后局部像素、rz 为角度制，sx/sy 为缩放倍率，bend 为 deform 弯曲增量的绝对值。 */
-  onTransformAttachmentOffset?: (id: string, patch: { tx?: number; ty?: number; rz?: number; sx?: number; sy?: number; bend?: number }) => void;
+  /** 动作编辑模式：拖拽/检查器产生部件偏移关键帧（att: 轨道）而非修改绑定 rest；tx/ty 为 rest 后局部像素、rz 为角度制，sx/sy 为缩放倍率，bend 为 deform 弯曲增量的绝对值，warp 为自描述轨道值 [列数, 行数, dx0, dy0, …]。 */
+  onTransformAttachmentOffset?: (id: string, patch: { tx?: number; ty?: number; rz?: number; sx?: number; sy?: number; bend?: number; warp?: number[] }) => void;
   onBeginTransform?: () => void;
   onEndTransform?: () => void;
 }
@@ -271,6 +272,11 @@ interface BindingTransformDrag {
   restWorld: Mat4;
   /** 拖拽开始时的部件偏移（rz 弧度），偏移模式下以此累加。 */
   offsetStart: { tx: number; ty: number; rz: number; sx: number; sy: number };
+  /** warp 控制点拖拽：命中的控制点序号（行优先，首行为图片顶部）；未命中则为图片本体 bend 拖拽。 */
+  warpPoint?: number;
+  /** 控制点拖拽的网格与起始位移：绑定模式为静态 warp 值，动作模式为拖拽起始的轨道 delta 采样值。 */
+  warpGrid?: [number, number];
+  warpStart?: number[];
 }
 
 /** 部件偏移（att: 轨道采样值）转为叠加矩阵（T×R×S）；无偏移时返回 undefined，行为与之前完全一致。 */
@@ -283,6 +289,24 @@ function attachmentOffsetMatrix(offset: AttachmentOffset | undefined): Mat4 | un
 function effectiveDeformBend(attachment: CharacterBinding["attachments"][number], offset: AttachmentOffset | undefined): number | undefined {
   const bend = (attachment.deform?.bend ?? 0) + (offset?.deformBend ?? 0);
   return attachment.deform || offset?.deformBend ? bend : undefined;
+}
+
+/**
+ * 有效 warp 合成（含全零）：轨道 delta 仅在与静态 grid 相同时叠加静态 points，否则以轨道为准。
+ * deformWarp.grid 可能是 lerp 出的小数（同轨道 keyframe 等长、grid 头一致），消费时取整。
+ */
+function resolveWarp(attachment: CharacterBinding["attachments"][number], offset: AttachmentOffset | undefined): RegionAttachmentWarp | undefined {
+  const track = offset?.deformWarp;
+  if (!track) return attachment.warp;
+  const grid: [number, number] = [Math.round(track.grid[0]), Math.round(track.grid[1])];
+  const base = attachment.warp && attachment.warp.grid[0] === grid[0] && attachment.warp.grid[1] === grid[1] ? attachment.warp.points : undefined;
+  return { grid, points: track.points.map((value, index) => value + (base?.[index] ?? 0)) };
+}
+
+/** 全零位移视为无 warp（预览不请求 warp 贴图，直接显示原图）。 */
+function effectiveWarp(attachment: CharacterBinding["attachments"][number], offset: AttachmentOffset | undefined): RegionAttachmentWarp | undefined {
+  const resolved = resolveWarp(attachment, offset);
+  return resolved && resolved.points.some((value) => Math.abs(value) > 1e-9) ? resolved : undefined;
 }
 
 export function CharacterPreview({ binding, skeleton, clip, time, selectedAttachmentId, selectedBoneId, showSkeleton = false, transformTool = "translate", onSelectAttachment, onSelectBone, onTransformAttachment, onTransformAttachmentOffset, onBeginTransform, onEndTransform }: CharacterPreviewProps) {
@@ -299,6 +323,14 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     const id = (msg.payload as { id?: string } | undefined)?.id;
     if (id) setMaterialV((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
   }), []);
+  // 有效 warp 非零的部件请求 warp 贴图（worker 光栅，pending 保留上一帧防闪烁）；全零不请求
+  const warpRequests = useMemo(() => binding.slots.flatMap((slot) => {
+    const attachment = binding.attachments.find((item) => item.id === slot.attachmentId);
+    if (!attachment) return [];
+    const warp = effectiveWarp(attachment, pose.attachmentOffsets[slot.attachmentId]);
+    return warp ? [{ id: attachment.id, url: materialImageUrl(attachment.materialId, materialV[attachment.materialId], attachment.imageSlot), grid: warp.grid, points: warp.points }] : [];
+  }), [binding, materialV, pose]);
+  const warpedUrls = useWarpedAttachments(warpRequests);
   const dragRef = useRef<BindingTransformDrag | undefined>(undefined);
   const frozenViewBoxRef = useRef<string | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
@@ -316,11 +348,14 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
         const world = offset ? multiplyMatrices(restWorld, offset) : restWorld;
         const deform = attachment.deform ?? DEFAULT_ATTACHMENT_DEFORM;
         const bend = effectiveDeformBend(attachment, sampled.attachmentOffsets[slot.attachmentId]);
-        const deformExtent = bend !== undefined ? Math.min(1, Math.abs(bend) + Math.abs(deform.sway)) * Math.max(...attachment.size) / 2 : 0;
-        return attachmentLocalCorners(attachment.size, attachment.pivot).flatMap((point) => {
-          const offset: [number, number] = deform.axis === "horizontal" ? [0, deformExtent] : [deformExtent, 0];
-          return [transformPoint(world, [point[0] - offset[0], point[1] - offset[1], 0]), transformPoint(world, [point[0] + offset[0], point[1] + offset[1], 0])];
-        });
+        const bendExtent = bend !== undefined ? Math.min(1, Math.abs(bend) + Math.abs(deform.sway)) * Math.max(...attachment.size) / 2 : 0;
+        // warp 节点最大位移（归一化 × 部件尺寸）也并入画布估算
+        const warp = effectiveWarp(attachment, sampled.attachmentOffsets[slot.attachmentId]);
+        const warpX = warp ? Math.max(0, ...warp.points.filter((_, index) => index % 2 === 0).map(Math.abs)) * attachment.size[0] : 0;
+        const warpY = warp ? Math.max(0, ...warp.points.filter((_, index) => index % 2 === 1).map(Math.abs)) * attachment.size[1] : 0;
+        const extentX = (deform.axis === "horizontal" ? 0 : bendExtent) + warpX;
+        const extentY = (deform.axis === "horizontal" ? bendExtent : 0) + warpY;
+        return attachmentLocalCorners(attachment.size, attachment.pivot).flatMap((point) => [transformPoint(world, [point[0] - extentX, point[1] - extentY, 0]), transformPoint(world, [point[0] + extentX, point[1] + extentY, 0])]);
       });
       const skeletonPoints = showSkeleton
         ? skeleton.bones.flatMap((bone) => {
@@ -346,7 +381,7 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     const matrix = svg.getScreenCTM();
     return matrix ? point.matrixTransform(matrix.inverse()) : point;
   };
-  const beginTransform = (event: React.PointerEvent<SVGGraphicsElement>, attachment: CharacterBinding["attachments"][number], bone: Mat4, world: Mat4, tool = transformTool) => {
+  const beginTransform = (event: React.PointerEvent<SVGGraphicsElement>, attachment: CharacterBinding["attachments"][number], bone: Mat4, world: Mat4, tool = transformTool, warpPoint?: number) => {
     if (canTransform && attachment.id !== selectedAttachmentId) return;
     onSelectAttachment?.(attachment.id);
     if (!canTransform) return;
@@ -359,6 +394,19 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     svg.setPointerCapture(event.pointerId);
     frozenViewBoxRef.current = viewBox;
     const offset = pose.attachmentOffsets[attachment.id];
+    // warp 控制点拖拽：确定编辑网格与起始位移。绑定模式写静态 warp；动作模式写轨道 delta，
+    // 基准取拖拽起始采样值（同 offsetStart 模式），部件无静态 warp 时默认 3×3 网格。
+    let warpGrid: [number, number] | undefined, warpStart: number[] | undefined;
+    if (warpPoint !== undefined) {
+      const sampledWarp = offset?.deformWarp;
+      if (offsetMode) {
+        warpGrid = sampledWarp ? [Math.round(sampledWarp.grid[0]), Math.round(sampledWarp.grid[1])] : (attachment.warp?.grid ?? [3, 3]);
+        warpStart = sampledWarp && sampledWarp.points.length === 2 * warpGrid[0] * warpGrid[1] ? [...sampledWarp.points] : new Array(2 * warpGrid[0] * warpGrid[1]).fill(0);
+      } else {
+        warpGrid = attachment.warp?.grid ?? [3, 3];
+        warpStart = attachment.warp ? [...attachment.warp.points] : new Array(2 * warpGrid[0] * warpGrid[1]).fill(0);
+      }
+    }
     dragRef.current = {
       id: attachment.id,
       tool,
@@ -374,6 +422,9 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
       deform: attachment.deform ? structuredClone(attachment.deform) : undefined,
       restWorld: multiplyMatrices(bone, transformToMatrix(attachment.rest)),
       offsetStart: { tx: offset?.translation?.[0] ?? 0, ty: offset?.translation?.[1] ?? 0, rz: offset?.rotation ? zRotationFromQuaternion(offset.rotation) : 0, sx: offset?.scale?.[0] ?? 1, sy: offset?.scale?.[1] ?? 1 },
+      warpPoint,
+      warpGrid,
+      warpStart,
     };
     onBeginTransform?.();
     setDragging(true);
@@ -420,6 +471,22 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
       }
       if (!onTransformAttachment) return;
       onTransformAttachment(drag.id, { rest: { ...drag.rest, scale: [drag.rest.scale[0] * factor, drag.rest.scale[1] * factor, drag.rest.scale[2]] } });
+      return;
+    }
+    // warp 控制点拖拽：绑定/动作模式都可用（动作模式写轨道 delta，图片本体 bend 拖拽仍仅绑定模式）
+    if (drag.tool === "warp" && drag.warpPoint !== undefined && drag.warpGrid && drag.warpStart) {
+      const determinant = drag.world[0] * drag.world[5] - drag.world[1] * drag.world[4];
+      if (Math.abs(determinant) < 1e-8) return;
+      const worldX = point[0] - drag.start[0], worldY = point[1] - drag.start[1];
+      // 指针增量经 drag.world 逆变换到部件局部，除以尺寸归一化；图像像素空间 y 向下、部件局部 y 向上，dy 取反
+      const localX = (drag.world[5] * worldX - drag.world[4] * worldY) / determinant;
+      const localY = (-drag.world[1] * worldX + drag.world[0] * worldY) / determinant;
+      const clamp = (value: number) => Math.max(-2, Math.min(2, value));
+      const points = [...drag.warpStart];
+      points[drag.warpPoint * 2] = clamp(drag.warpStart[drag.warpPoint * 2]! + localX / drag.size[0]);
+      points[drag.warpPoint * 2 + 1] = clamp(drag.warpStart[drag.warpPoint * 2 + 1]! - localY / drag.size[1]);
+      if (onTransformAttachmentOffset) onTransformAttachmentOffset(drag.id, { warp: [drag.warpGrid[0], drag.warpGrid[1], ...points] });
+      else if (onTransformAttachment) onTransformAttachment(drag.id, { warp: { grid: drag.warpGrid, points } });
       return;
     }
     if (!onTransformAttachment) return;
@@ -474,6 +541,26 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
     const rotate = transformPoint(selectedWorld, [(left + right) / 2, top + Math.max(width, height) * .13, 0]);
     return { corners, pivot: transformPoint(selectedWorld, [0, 0, 0]), rotateStem, rotate, scale: corners[2]! };
   })() : undefined;
+  // warp 网格覆盖层：绑定模式需 warp 工具激活；动作模式无工具切换，选中部件即显示（无静态 warp 时默认 3×3 网格）
+  const warpOverlay = canTransform && selectedAttachment && selectedWorld && (offsetMode || transformTool === "warp") ? (() => {
+    const resolved = resolveWarp(selectedAttachment, pose.attachmentOffsets[selectedAttachment.id]);
+    const { grid, points } = resolved ?? { grid: [3, 3] as [number, number], points: new Array<number>(18).fill(0) };
+    const [cols, rows] = grid;
+    const { left, top } = attachmentLocalBounds(selectedAttachment.size, selectedAttachment.pivot);
+    const [width, height] = selectedAttachment.size;
+    // 节点行优先、首行为图片顶部；部件局部空间 y 向上，dy 取反（与 moveTransform 的写入约定互逆）
+    const nodeAt = (index: number) => {
+      const col = index % cols, row = Math.floor(index / cols);
+      const x = left + col / (cols - 1) * width + (points[index * 2] ?? 0) * width;
+      const y = top - row / (rows - 1) * height - (points[index * 2 + 1] ?? 0) * height;
+      return transformPoint(selectedWorld, [x, y, 0]);
+    };
+    const nodes = Array.from({ length: cols * rows }, (_, index) => nodeAt(index));
+    const lines: string[] = [];
+    for (let row = 0; row < rows; row++) lines.push(Array.from({ length: cols }, (_, col) => `${nodes[row * cols + col]![0]},${nodes[row * cols + col]![1]}`).join(" "));
+    for (let col = 0; col < cols; col++) lines.push(Array.from({ length: rows }, (_, row) => `${nodes[row * cols + col]![0]},${nodes[row * cols + col]![1]}`).join(" "));
+    return { nodes, lines };
+  })() : undefined;
   return <svg className={`animation-skeleton binding-preview${canTransform ? " interactive" : ""}`} data-tool={transformTool} data-offset-mode={offsetMode || undefined} viewBox={dragging ? frozenViewBoxRef.current : viewBox} role="img" onPointerMove={moveTransform} onPointerUp={endTransform} onPointerCancel={endTransform}>
     <defs>{binding.attachments.filter((attachment) => effectiveDeformBend(attachment, pose.attachmentOffsets[attachment.id]) !== undefined).map((attachment) => {
       const deform = attachment.deform ?? DEFAULT_ATTACHMENT_DEFORM;
@@ -488,8 +575,9 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
       const restWorld = multiplyMatrices(matrix, transformToMatrix(attachment.rest)), offset = attachmentOffsetMatrix(pose.attachmentOffsets[slot.attachmentId]);
       const world = offset ? multiplyMatrices(restWorld, offset) : restWorld, [w, h] = attachment.size, [px] = attachment.pivot;
       const deformed = effectiveDeformBend(attachment, pose.attachmentOffsets[slot.attachmentId]) !== undefined;
+      // 合成顺序：先 warp 位图（warpedUrls 替换 href），后 bend 的 feDisplacementMap filter
       return <g key={slot.id}>
-        <image className={`${selectedAttachmentId === attachment.id ? "selected" : ""}${deformed ? " deformed" : ""}`} href={materialImageUrl(attachment.materialId, materialV[attachment.materialId], attachment.imageSlot)} x={-px * w} y={attachmentSvgImageY(attachment.size, attachment.pivot)} width={w} height={h} preserveAspectRatio="none" filter={deformed ? `url(#${filterPrefix}-warp-${attachment.id})` : undefined} transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} onPointerDown={canTransform && selectedAttachmentId === attachment.id ? (event) => beginTransform(event, attachment, matrix, world) : undefined} onClick={onSelectAttachment ? () => onSelectAttachment(attachment.id) : undefined} />
+        <image className={`${selectedAttachmentId === attachment.id ? "selected" : ""}${deformed ? " deformed" : ""}`} href={warpedUrls[attachment.id] ?? materialImageUrl(attachment.materialId, materialV[attachment.materialId], attachment.imageSlot)} x={-px * w} y={attachmentSvgImageY(attachment.size, attachment.pivot)} width={w} height={h} preserveAspectRatio="none" filter={deformed ? `url(#${filterPrefix}-warp-${attachment.id})` : undefined} transform={`matrix(${world[0]} ${world[1]} ${world[4]} ${world[5]} ${world[12]} ${world[13]}) scale(1 -1)`} onPointerDown={canTransform && selectedAttachmentId === attachment.id ? (event) => beginTransform(event, attachment, matrix, world) : undefined} onClick={onSelectAttachment ? () => onSelectAttachment(attachment.id) : undefined} />
       </g>;
     })}{showSkeleton && <g className="binding-bone-overlay">
       {skeleton.bones.map((bone) => {
@@ -521,6 +609,10 @@ export function CharacterPreview({ binding, skeleton, clip, time, selectedAttach
       {!offsetMode && <circle className="binding-transform-handle pivot" cx={selectedGeometry.pivot[0]} cy={selectedGeometry.pivot[1]} r={handleRadius * .82} onPointerDown={(event) => beginTransform(event, selectedAttachment, selectedBoneMatrix, selectedWorld, "pivot")}><title>{t("animation.binding.toolPivot")}</title></circle>}
       {!offsetMode && <line className="binding-pivot-cross" x1={selectedGeometry.pivot[0] - handleRadius * 1.5} y1={selectedGeometry.pivot[1]} x2={selectedGeometry.pivot[0] + handleRadius * 1.5} y2={selectedGeometry.pivot[1]} />}
       {!offsetMode && <line className="binding-pivot-cross" x1={selectedGeometry.pivot[0]} y1={selectedGeometry.pivot[1] - handleRadius * 1.5} x2={selectedGeometry.pivot[0]} y2={selectedGeometry.pivot[1] + handleRadius * 1.5} />}
+      {warpOverlay && <>
+        {warpOverlay.lines.map((line, index) => <polyline className="binding-warp-grid" key={`warp-line-${index}`} points={line} />)}
+        {warpOverlay.nodes.map((node, index) => <circle className="binding-warp-point" key={`warp-point-${index}`} cx={node[0]} cy={node[1]} r={handleRadius * .7} onPointerDown={(event) => beginTransform(event, selectedAttachment, selectedBoneMatrix, selectedWorld, "warp", index)}><title>{t("animation.binding.warpPoint")}</title></circle>)}
+      </>}
     </g>}</g>
   </svg>;
 }
@@ -713,6 +805,26 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
     setSelectedAttachmentId(next?.id ?? "");
     setSelectedBoneId(slots.find((item) => item.attachmentId === next?.id)?.boneId ?? skeleton.bones[0]?.id ?? "");
   };
+  // 自由变形（warp）：启用默认 3×3 全零网格；切换密度/关闭都会清空位移，需确认
+  const enableWarp = () => {
+    if (!selectedAttachment) return;
+    rememberDraft();
+    patchRegion(selectedAttachment.id, { warp: { grid: [3, 3], points: new Array<number>(18).fill(0) } });
+  };
+  const changeWarpGrid = async (value: string) => {
+    if (!selectedAttachment?.warp) return;
+    const [cols, rows] = value.split("x").map(Number);
+    if (!cols || !rows || (cols === selectedAttachment.warp.grid[0] && rows === selectedAttachment.warp.grid[1])) return;
+    if (!(await askConfirm(t("animation.binding.warpGridResetConfirm")))) return;
+    rememberDraft();
+    patchRegion(selectedAttachment.id, { warp: { grid: [cols, rows], points: new Array<number>(2 * cols * rows).fill(0) } });
+  };
+  const disableWarp = async () => {
+    if (!selectedAttachment?.warp) return;
+    if (!(await askConfirm(t("animation.binding.disableWarpConfirm")))) return;
+    rememberDraft();
+    patchRegion(selectedAttachment.id, { warp: undefined });
+  };
   const sliderField = (label: string, value: number, min: number, max: number, step: number, onChange: (value: number) => void) => <label className="binding-tuning-row"><span>{label}</span><input type="range" min={min} max={max} step={step} value={Math.max(min, Math.min(max, value))} onPointerDown={beginContinuousEdit} onPointerUp={endContinuousEdit} onPointerCancel={endContinuousEdit} onChange={(event) => onChange(Number(event.target.value))} /><input className="px-input" type="number" min={min} max={max} step={step} value={Math.round(value * 1000) / 1000} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => onChange(Number(event.target.value))} /></label>;
   const setSelectedPivot = (axis: 0 | 1, value: number) => {
     if (!selectedAttachment) return;
@@ -774,6 +886,10 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
         <section className="binding-inspector-basics"><label>{t("animation.binding.slotName")}<input className="px-input" value={selectedSlot.name} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { name: event.target.value })} /></label><label>{t("animation.bone")}<PxSelect value={selectedSlot.boneId} options={skeleton.bones.map((bone) => ({ value: bone.id, label: boneName(bone) }))} onChange={bindSelectedToBone} /></label><label>{t("animation.binding.materialFolder")}<PxSelect value={materialFolder} options={materialFolderOptions} onChange={setMaterialFolder} /></label><label>{t("animation.binding.material")}<PxSelect value={selectedAttachment.materialId} options={materialOptions} onChange={(materialId) => { const imageSlot = materials.find((item) => item.id === materialId)?.processed_path ? "processed" : "raw"; rememberDraft(); patchRegion(selectedAttachment.id, { materialId, imageSlot }); void fitRegionToMaterial(selectedAttachment, materialId, imageSlot, false); }} /></label><label>{t("animation.binding.imageSlot")}<PxSelect value={selectedAttachment.imageSlot} options={[{ value: "raw", label: t("animation.binding.originalImage") }, { value: "processed", label: t("animation.binding.cutoutImage"), disabled: !selectedMaterial?.processed_path }]} onChange={(value) => { const imageSlot = value as "raw" | "processed"; rememberDraft(); patchRegion(selectedAttachment.id, { imageSlot }); void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, imageSlot, false); }} /></label><button type="button" className="px-btn binding-fit-aspect" disabled={fittingAspect || !selectedAttachment.materialId} onClick={() => void fitRegionToMaterial(selectedAttachment, selectedAttachment.materialId, selectedAttachment.imageSlot)}>{t(fittingAspect ? "animation.binding.fittingImageAspect" : "animation.binding.fitImageAspect")}</button><button type="button" className="px-btn" disabled={!selectedAttachment.materialId} title={t("animation.binding.editMaterialHint")} onClick={() => openMaterialEditor({ id: selectedAttachment.materialId, name: attachmentName(selectedAttachment), onSaved: () => onMaterialsChanged?.() })}><Pencil size={13} />{t("animation.binding.editMaterial")}</button></section>
         <section className="binding-tuning"><h4>{t("animation.binding.restTransform")}</h4>{sliderField(t("animation.binding.translationX"), selectedAttachment.rest.translation[0], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.translationY"), selectedAttachment.rest.translation[1], -translationRange, translationRange, .01, (value) => { const translation = [...selectedAttachment.rest.translation] as [number, number, number]; translation[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, translation } }); })}{sliderField(t("animation.binding.rotation"), zRotationFromQuaternion(selectedAttachment.rest.rotation) * 180 / Math.PI, -180, 180, 1, (value) => patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, rotation: quaternionFromZRotation(value * Math.PI / 180) } }))}{sliderField(t("animation.binding.scaleX"), selectedAttachment.rest.scale[0], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[0] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}{sliderField(t("animation.binding.scaleY"), selectedAttachment.rest.scale[1], .05, scaleRange, .01, (value) => { const scale = [...selectedAttachment.rest.scale] as [number, number, number]; scale[1] = value; patchRegion(selectedAttachment.id, { rest: { ...selectedAttachment.rest, scale } }); })}</section>
         <details className="binding-geometry"><summary>{t("animation.binding.deform")}</summary><label className="binding-order-field">{t("animation.binding.deformAxis")}<PxSelect value={selectedAttachment.deform?.axis ?? "vertical"} options={[{ value: "vertical", label: t("animation.binding.deformVertical") }, { value: "horizontal", label: t("animation.binding.deformHorizontal") }]} onChange={(axis) => { rememberDraft(); patchRegion(selectedAttachment.id, { deform: { ...(selectedAttachment.deform ?? DEFAULT_ATTACHMENT_DEFORM), axis: axis as "vertical" | "horizontal" } }); }} /></label>{sliderField(t("animation.binding.bend"), selectedAttachment.deform?.bend ?? 0, -1, 1, .01, (value) => patchRegion(selectedAttachment.id, { deform: { ...(selectedAttachment.deform ?? DEFAULT_ATTACHMENT_DEFORM), bend: value } }))}{sliderField(t("animation.binding.sway"), selectedAttachment.deform?.sway ?? 0, -1, 1, .01, (value) => patchRegion(selectedAttachment.id, { deform: { ...(selectedAttachment.deform ?? DEFAULT_ATTACHMENT_DEFORM), sway: value } }))}{sliderField(t("animation.binding.frequency"), selectedAttachment.deform?.frequency ?? 2, 0, 10, .1, (value) => patchRegion(selectedAttachment.id, { deform: { ...(selectedAttachment.deform ?? DEFAULT_ATTACHMENT_DEFORM), frequency: value } }))}{sliderField(t("animation.binding.phase"), (selectedAttachment.deform?.phase ?? 0) * 180 / Math.PI, -360, 360, 1, (value) => patchRegion(selectedAttachment.id, { deform: { ...(selectedAttachment.deform ?? DEFAULT_ATTACHMENT_DEFORM), phase: value * Math.PI / 180 } }))}<button type="button" className="px-btn" disabled={!selectedAttachment.deform} onClick={() => { rememberDraft(); patchRegion(selectedAttachment.id, { deform: undefined }); }}>{t("animation.binding.disableDeform")}</button></details>
+        <details className="binding-geometry"><summary>{t("animation.binding.freeWarp")}</summary><p className="animation-bone-hint">{t("animation.binding.warpHint")}</p>{selectedAttachment.warp ? <>
+          <label className="binding-order-field">{t("animation.binding.warpGrid")}<PxSelect value={`${selectedAttachment.warp.grid[0]}x${selectedAttachment.warp.grid[1]}`} options={(() => { const options = [{ value: "2x2", label: "2×2" }, { value: "3x3", label: "3×3" }, { value: "4x4", label: "4×4" }]; const current = `${selectedAttachment.warp!.grid[0]}x${selectedAttachment.warp!.grid[1]}`; return options.some((option) => option.value === current) ? options : [{ value: current, label: current.replace("x", "×") }, ...options]; })()} onChange={(value) => void changeWarpGrid(value)} /></label>
+          <button type="button" className="px-btn" onClick={() => void disableWarp()}>{t("animation.binding.disableWarp")}</button>
+        </> : <button type="button" className="px-btn" onClick={enableWarp}>{t("animation.binding.enableWarp")}</button>}</details>
         <details className="binding-geometry"><summary>{t("animation.binding.geometry")}</summary>{sliderField(t("animation.binding.pivotX"), selectedAttachment.pivot[0], 0, 1, .01, (value) => setSelectedPivot(0, value))}{sliderField(t("animation.binding.pivotY"), selectedAttachment.pivot[1], 0, 1, .01, (value) => setSelectedPivot(1, value))}{sliderField(t("animation.binding.width"), selectedAttachment.size[0], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [value, selectedAttachment.size[1]] }))}{sliderField(t("animation.binding.height"), selectedAttachment.size[1], .01, sizeRange, .01, (value) => patchRegion(selectedAttachment.id, { size: [selectedAttachment.size[0], value] }))}<label className="binding-order-field">{t("animation.binding.drawOrder")}<input className="px-input" type="number" step="1" value={selectedSlot.drawOrder} onFocus={beginContinuousEdit} onBlur={endContinuousEdit} onChange={(event) => patchSlot(selectedSlotIndex, { drawOrder: Number(event.target.value) })} /></label></details>
         <button className="px-btn" title={t("animation.binding.resetTransform")} onClick={() => { const original = binding.attachments.find((item) => item.id === selectedAttachment.id); if (original) { rememberDraft(); patchRegion(selectedAttachment.id, { rest: structuredClone(original.rest), pivot: [...original.pivot], size: [...original.size], deform: original.deform ? structuredClone(original.deform) : undefined }); } }}><Redo2 size={13} />{t("animation.binding.resetTransform")}</button>
       </> : <p className="animation-empty">{t("animation.binding.empty")}</p>}</aside>
@@ -783,9 +899,8 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
 
 type AssetFilter = "all" | "skeleton" | "motion-clip";
 type PoseDraft = { tx: number; ty: number; rz: number; sx: number; sy: number };
-/** 部件偏移草稿：tx/ty 为 rest 后局部像素，rz 为角度制。 */
-/** 部件偏移草稿：tx/ty 为 rest 后局部像素，rz 为角度制，sx/sy 为缩放倍率，bend 为 deform 弯曲增量。 */
-type AttachmentDraft = { tx: number; ty: number; rz: number; sx: number; sy: number; bend: number };
+/** 部件偏移草稿：tx/ty 为 rest 后局部像素，rz 为角度制，sx/sy 为缩放倍率，bend 为 deform 弯曲增量，warp 为自描述轨道值（含 grid 头 [列数, 行数, dx0, dy0, …]）。 */
+type AttachmentDraft = { tx: number; ty: number; rz: number; sx: number; sy: number; bend: number; warp?: number[] };
 
 const offsetToAttachmentDraft = (offset?: AttachmentOffset): AttachmentDraft => ({
   tx: offset?.translation?.[0] ?? 0,
@@ -794,7 +909,12 @@ const offsetToAttachmentDraft = (offset?: AttachmentOffset): AttachmentDraft => 
   sx: offset?.scale?.[0] ?? 1,
   sy: offset?.scale?.[1] ?? 1,
   bend: offset?.deformBend ?? 0,
+  // deformWarp.grid 可能是 lerp 出的小数，还原轨道值时取整
+  ...(offset?.deformWarp ? { warp: [Math.round(offset.deformWarp.grid[0]), Math.round(offset.deformWarp.grid[1]), ...offset.deformWarp.points] } : {}),
 });
+
+/** 草稿字段有限性检查：数组字段（warp）逐项判断，缺省（undefined）视为有效。 */
+const finiteDraftValue = (value: number | number[] | undefined) => value === undefined || (Array.isArray(value) ? value.every(Number.isFinite) : Number.isFinite(value));
 
 const transformToPoseDraft = (transform: ReturnType<typeof sampleMotionClip>["local"][string]): PoseDraft => ({
   tx: transform.translation[0],
@@ -860,12 +980,13 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
     }
     // 部件偏移草稿临时写入 att: 轨道做所见即所得（未保存，不落库）
     for (const [attachmentId, partDraft] of Object.entries({ ...stagedAttachmentDrafts, ...(selectedAttachmentId ? { [selectedAttachmentId]: attachmentDraft } : {}) })) {
-      if (!Object.values(partDraft).every(Number.isFinite)) continue;
+      if (!Object.values(partDraft).every(finiteDraftValue)) continue;
       const targetId = `${ATTACHMENT_TARGET_PREFIX}${attachmentId}`;
       next = upsertMotionKeyframe(next, targetId, "translation", time, [partDraft.tx, partDraft.ty, 0]);
       next = upsertMotionKeyframe(next, targetId, "rotation", time, quaternionFromZRotation(partDraft.rz * Math.PI / 180));
       next = upsertMotionKeyframe(next, targetId, "scale", time, [partDraft.sx, partDraft.sy, 1]);
       next = upsertMotionKeyframe(next, targetId, "deform", time, [partDraft.bend, 0, 0]);
+      if (partDraft.warp) next = upsertMotionKeyframe(next, targetId, "warp", time, partDraft.warp);
     }
     return next;
   }, [clip, playing, selectedBone, sampledPose, stagedDrafts, stagedAttachmentDrafts, selectedAttachmentId, attachmentDraft, time, draft]);
@@ -881,8 +1002,9 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
   });
   const attachmentDraftDirty = !playing && !!sampledPose && Object.entries({ ...stagedAttachmentDrafts, ...(selectedAttachmentId ? { [selectedAttachmentId]: attachmentDraft } : {}) }).some(([attachmentId, partDraft]) => {
     const base = offsetToAttachmentDraft(sampledPose.attachmentOffsets[attachmentId]);
+    const warpDirty = (partDraft.warp?.length ?? 0) !== (base.warp?.length ?? 0) || !!partDraft.warp?.some((value, index) => Math.abs(value - base.warp![index]!) > 1e-6);
     return Math.abs(partDraft.tx - base.tx) > 1e-6 || Math.abs(partDraft.ty - base.ty) > 1e-6 || Math.abs(partDraft.rz - base.rz) > 1e-6
-      || Math.abs(partDraft.sx - base.sx) > 1e-6 || Math.abs(partDraft.sy - base.sy) > 1e-6 || Math.abs(partDraft.bend - base.bend) > 1e-6;
+      || Math.abs(partDraft.sx - base.sx) > 1e-6 || Math.abs(partDraft.sy - base.sy) > 1e-6 || Math.abs(partDraft.bend - base.bend) > 1e-6 || warpDirty;
   });
   useEffect(() => {
     if (!clip || !skeleton || !selectedBone) return;
@@ -1005,12 +1127,13 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
     if (previewBinding && selectedAttachmentId) {
       let next = clip;
       for (const [attachmentId, partDraft] of Object.entries({ ...stagedAttachmentDrafts, [selectedAttachmentId]: attachmentDraft })) {
-        if (!Object.values(partDraft).every(Number.isFinite)) return;
+        if (!Object.values(partDraft).every(finiteDraftValue)) return;
         const targetId = `${ATTACHMENT_TARGET_PREFIX}${attachmentId}`;
         next = upsertMotionKeyframe(next, targetId, "translation", time, [partDraft.tx, partDraft.ty, 0]);
         next = upsertMotionKeyframe(next, targetId, "rotation", time, quaternionFromZRotation(partDraft.rz * Math.PI / 180));
         next = upsertMotionKeyframe(next, targetId, "scale", time, [partDraft.sx, partDraft.sy, 1]);
         next = upsertMotionKeyframe(next, targetId, "deform", time, [partDraft.bend, 0, 0]);
+        if (partDraft.warp) next = upsertMotionKeyframe(next, targetId, "warp", time, partDraft.warp);
       }
       if (await commitClipEdit(next)) setStagedAttachmentDrafts({});
       return;
@@ -1030,7 +1153,7 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
   const deleteKey = async () => {
     if (!clip || busy) return;
     if (previewBinding && selectedAttachmentId) {
-      const next = deleteMotionKeyframe(clip, `${ATTACHMENT_TARGET_PREFIX}${selectedAttachmentId}`, ["translation", "rotation", "scale", "deform"], time);
+      const next = deleteMotionKeyframe(clip, `${ATTACHMENT_TARGET_PREFIX}${selectedAttachmentId}`, ["translation", "rotation", "scale", "deform", "warp"], time);
       if (next === clip) return;
       await commitClipEdit(next);
       return;
@@ -1080,7 +1203,7 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
     const tracks = clip.tracks.flatMap((track) => {
       const keyframes = track.keyframes.filter((key) => key.time <= duration);
       if (!keyframes.length) return [];
-      if (clip.schemaVersion === 2) keyframes[keyframes.length - 1] = { ...keyframes[keyframes.length - 1]!, outInterpolation: null };
+      if (clip.schemaVersion === 2) keyframes[keyframes.length - 1] = { ...keyframes[keyframes.length - 1]!, outInterpolation: null } as (typeof keyframes)[number];
       return [{ ...track, keyframes } as AnyMotionTrack];
     });
     const terminalTime = Math.max(0, duration - MOTION_KEY_TIME_EPSILON);

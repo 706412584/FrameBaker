@@ -1151,6 +1151,16 @@ export const zh = {
   "exportAnimation.spritesheet": "单张精灵图",
   "exportAnimation.spritesheetHint": "裁去统一透明空白，按播放顺序紧凑排列成多行 PNG；附每帧矩形 JSON。",
   "exportAnimation.exporting": "正在合成并打包…",
+
+  "animation.channel.warp": "自由变形",
+  "animation.binding.freeWarp": "自由变形",
+  "animation.binding.warpGrid": "网格密度",
+  "animation.binding.enableWarp": "启用自由变形",
+  "animation.binding.disableWarp": "关闭自由变形",
+  "animation.binding.warpHint": "切到弯曲工具（W）后拖动网格控制点改变部件形状；动作模式下拖动控制点可打关键帧。",
+  "animation.binding.warpPoint": "拖动自由变形控制点",
+  "animation.binding.warpGridResetConfirm": "切换网格密度会重置全部控制点位移，确定继续？",
+  "animation.binding.disableWarpConfirm": "关闭自由变形会清除全部控制点位移，确定继续？",
 } as const;
 
 export type MsgKey = keyof typeof zh;
