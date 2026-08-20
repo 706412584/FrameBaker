@@ -4,7 +4,7 @@
 
 多来源素材导入（GIF/MP4 拆帧、PNG 上传、外部 CLI 生成），内置 rembg 抠图引擎一键去背，在素材库里对比确认效果，再用 PixiJS 洋葱皮编辑器逐帧调整，时间轴排序，播放预览，最后导出精灵表（spritesheet）。
 
-> ✅ **多轴 / 多轨 MVP 已交付：**支持动画变体、合成轨道、共享步骤、合成预览与导出；骨骼动画绑定仍在开发中。
+> ✅ **多轴 / 多轨 MVP 已交付：**支持动画变体、合成轨道、共享步骤、合成预览与导出，并提供骨骼绑定、角色上动作编辑与部件自由变形能力。
 
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
@@ -23,6 +23,16 @@
 | ![角色骨骼绑定](docs/media/skeletal-rigging.png) | ![骨骼动画编辑](docs/media/skeletal-animation.png) |
 
 [观看披甲战士绑定、披风弯曲与跑动流程录制](docs/media/warrior-run-workflow.mp4)
+
+### 骨骼动作工作流
+
+先用部件组装角色，再在当前角色上直接制作动作：在画布上拖骨骼关节或部件控制点网格，按轨道为位移/旋转/缩放/弯曲/自由变形打关键帧，并在项目画板上实时预览效果。
+
+| 动作制作工作区与实时预览 | 在当前角色上编辑动作 |
+| --- | --- |
+| ![带实时预览的骨骼动作工作区](docs/media/skeletal-action-workspace.png) | ![在当前角色上编辑动作](docs/media/skeletal-action-editor.png) |
+
+![动作时间轴上的逐骨骼与逐部件关键帧轨道](docs/media/skeletal-action-timeline.png)
 
 ### 人物骨骼分件工作流
 

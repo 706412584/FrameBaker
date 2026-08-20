@@ -455,8 +455,9 @@ MotionClip 除骨骼轨道外，允许 `targetId` 以 `att:` 为前缀（`att:<a
 
 约定：
 
-- `property` 支持 `translation`（Vec3，z 固定 0，单位为 rest 后局部像素）、`rotation`（归一化四元数，仅 Z 轴旋转）、`scale`（Vec3，z 固定 1）与 `deform`（Vec3，x 为 bend 弯曲增量，y/z 保留为 0 备用）；`deform` 仅对 `att:` 目标合法，骨骼目标会被校验拒绝；
-- 轨道值是**叠加偏移**而非替换：最终部件矩阵为 `boneWorld × transformToMatrix(attachment.rest) × offsetMatrix(t)`（offsetMatrix 为 T×R×S 组合），无轨道时偏移为单位变换，渲染与既有行为完全一致；deform 的有效 bend = 绑定静态 bend + 轨道增量，axis/sway/frequency/phase 仍取绑定静态参数（无 deform 绑定的部件按纵向轴默认参数渲染）；
-- 校验上 `att:` 目标跳过「目标骨骼必须存在」检查（attachment 属于项目侧绑定，动作库不持有），其余关键帧/插值校验与骨骼轨道一致；
-- `sampleMotionClip` 返回的 `EvaluatedPose.attachmentOffsets` 以去掉前缀的 attachmentId 为 key 给出当前时刻的偏移采样值（translation/rotation/scale/deformBend）；
-- 动作编辑器在角色预览模式下点击部件即可选中，拖动平移、拖动圆柄旋转、拖动角柄缩放、检查器滑杆调弯曲，写入/删除关键帧作用于 `att:<id>` 的 translation/rotation/scale/deform 轨道；时间线轨道行显示部件名。
+- `property` 支持 `translation`（Vec3，z 固定 0，单位为 rest 后局部像素）、`rotation`（归一化四元数，仅 Z 轴旋转）、`scale`（Vec3，z 固定 1）、`deform`（Vec3，x 为 bend 弯曲增量，y/z 保留为 0 备用）与 `warp`（自描述 number[]：`[cols, rows, dx0, dy0, …]`，长度 2+2·cols·rows，位移为相对部件宽高的归一化 delta）；`deform`/`warp` 仅对 `att:` 目标合法，骨骼目标会被校验拒绝；
+- 轨道值是**叠加偏移**而非替换：最终部件矩阵为 `boneWorld × transformToMatrix(attachment.rest) × offsetMatrix(t)`（offsetMatrix 为 T×R×S 组合），无轨道时偏移为单位变换，渲染与既有行为完全一致；deform 的有效 bend = 绑定静态 bend + 轨道增量，axis/sway/frequency/phase 仍取绑定静态参数（无 deform 绑定的部件按纵向轴默认参数渲染）；warp 的有效位移 = 绑定静态 `attachment.warp.points` + 轨道增量，**仅当轨道与静态 grid 相同才叠加，否则以轨道为准**，全零位移视为无 warp；
+- warp 的静态数据存放在 CharacterBinding 的 `attachment.warp`（`{ grid, points }`，grid 为 [2..8] 整数对、|位移| ≤ 2；轨道增量 |位移| ≤ 4 且同轨道关键帧等长）；渲染时先把部件贴图按网格做三角形 warp（nearest-neighbor，输出保持原尺寸、越界像素裁剪），再叠加 bend 的位移贴图滤镜，顺序固定；
+- 校验上 `att:` 目标跳过「目标骨骼必须存在」检查（attachment 属于项目侧绑定，动作库不持有），其余关键帧/插值校验与骨骼轨道一致（warp 的非 rotation 插值为等长数组逐元素 lerp）；
+- `sampleMotionClip` 返回的 `EvaluatedPose.attachmentOffsets` 以去掉前缀的 attachmentId 为 key 给出当前时刻的偏移采样值（translation/rotation/scale/deformBend/deformWarp）；
+- 动作编辑器在角色预览模式下点击部件即可选中，拖动平移、拖动圆柄旋转、拖动角柄缩放、检查器滑杆调弯曲、拖拽网格控制点调自由变形，写入/删除关键帧作用于 `att:<id>` 的 translation/rotation/scale/deform/warp 轨道；时间线轨道行显示部件名。

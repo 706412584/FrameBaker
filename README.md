@@ -4,7 +4,7 @@
 
 Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI generation), cut out backgrounds with the built-in rembg matting engine, review results in the materials library, then edit frames on a PixiJS onion-skin canvas, arrange the timeline, preview playback, and export a spritesheet.
 
-> ✅ **Multi-axis / multi-track MVP:** animation variants, compositing tracks, shared steps, composite preview and export are available. Skeletal-animation binding remains in development.
+> ✅ **Multi-axis / multi-track MVP:** animation variants, compositing tracks, shared steps, composite preview and export are available — along with skeletal binding, on-character motion editing, and freeform part warping.
 
 ![Bun](https://img.shields.io/badge/Bun-1.3-14151A?logo=bun)
 ![Elysia](https://img.shields.io/badge/Elysia-1.4-6f61c0)
@@ -23,6 +23,16 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 | ![Character skeletal binding](docs/media/skeletal-rigging.png) | ![Skeletal animation editor](docs/media/skeletal-animation.png) |
 
 [Watch the armored-warrior rigging, cape-warp, and run workflow](docs/media/warrior-run-workflow.mp4)
+
+### Skeletal Motion Workflow
+
+Assemble a character from parts, then edit motions directly on the bound character: drag bones or part control-point grids on the canvas, keyframe translation/rotation/scale/bend/warp per track, and preview the result live on the project board.
+
+| Motion workspace & live preview | On-character motion editor |
+| --- | --- |
+| ![Skeletal motion workspace with live preview](docs/media/skeletal-action-workspace.png) | ![Editing a motion on the bound character](docs/media/skeletal-action-editor.png) |
+
+![Per-bone and per-part keyframe tracks on the motion timeline](docs/media/skeletal-action-timeline.png)
 
 ### Skeletal Parts Workflow
 
