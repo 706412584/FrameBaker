@@ -4,6 +4,8 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-20
+
 ### Added
 
 - Added project-level character joint angle adjustments in the binding editor; per-bone base rotations persist with the character and apply consistently to the rest pose, every motion, and `.fbanim` exports without modifying shared skeleton assets.
@@ -17,6 +19,7 @@ This document records features, changes, and bug fixes by release. Main releases
 - Completed image-material context menus with direct crop, frame/skeletal split, character decomposition, multi-action/eight-direction generation, matting restore, import, layering, trim, export, and delete actions.
 - Motion events can now accept, validate, display, and persist an optional JSON payload.
 - Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.
+- Added freeform attachment warping: parts can enable a draggable control-point grid (2×2/3×3/4×4) for static deformation in the binding editor, and `att:` warp tracks animate the same grid deltas on the motion timeline; warped bitmaps are rasterized deterministically (nearest-neighbor) and compose ahead of the bend filter, with full `.fbanim` round-trip support.
 
 ### Changed
 
@@ -29,6 +32,7 @@ This document records features, changes, and bug fixes by release. Main releases
 
 - Made the selected attachment's transform outline capture canvas drags, so overlapping parts cannot redirect a Warp or transform edit to another layer.
 - Made erase strokes reach the exact image boundary when dragged outside the editor, and stopped near-transparent antialias residue from falsely triggering skeletal-part edge warnings.
+- Fixed the skeletal project editor not reflecting animation-asset saves: the live preview canvas and the skeleton/binding views now subscribe to `animation_assets_changed` and refetch the current clip, skeleton, and asset list as soon as the motion editor (or any other page) persists changes.
 ## [0.3.1] - 2026-08-13
 
 ### Changed

@@ -247,6 +247,36 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 <!-- latest-changelog:start -->
 ## Latest Changes
 
+### [0.4.0](docs/CHANGELOG.md#040---2026-08-20) · 2026-08-20
+
+#### Added
+
+- Added project-level character joint angle adjustments in the binding editor; per-bone base rotations persist with the character and apply consistently to the rest pose, every motion, and `.fbanim` exports without modifying shared skeleton assets.
+- Added deterministic flexible attachment deformation with canvas Warp dragging, rest bend, playback sway, axis, frequency, and phase controls for capes and other soft parts.
+- Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
+- Added connected-component auto-detection to the skeletal split modal: opaque parts are detected as individual cells (in reading order) so a uniform grid no longer cuts through a part, and each detected cell stays editable, splittable, mergeable, and renamable.
+- Added an optional target-skeleton selector to reference decomposition: parts are generated to match the selected skeleton's bone-segment count and semantics, and the grid is fitted automatically.
+- Added a skeleton semantics diagnosis that warns in the character editor when a bound skeleton is missing or inconsistently naming required humanoid bone segments (which silently disabled auto-assembly), listing every unmatched segment.
+- Added material-folder filtering to the skeletal binding image picker, including hierarchical folder paths plus All and Ungrouped views.
+- Added material renaming from the library context menu, REST API, and MCP tool, with immediate open-view synchronization.
+- Completed image-material context menus with direct crop, frame/skeletal split, character decomposition, multi-action/eight-direction generation, matting restore, import, layering, trim, export, and delete actions.
+- Motion events can now accept, validate, display, and persist an optional JSON payload.
+- Added MotionClip schema v2 with per-segment cubic-bezier timing, explicit lossless v1 migration, eased quaternion slerp, curve editing, and `.fbanim`/raster compatibility.
+- Added freeform attachment warping: parts can enable a draggable control-point grid (2×2/3×3/4×4) for static deformation in the binding editor, and `att:` warp tracks animate the same grid deltas on the motion timeline; warped bitmaps are rasterized deterministically (nearest-neighbor) and compose ahead of the bend filter, with full `.fbanim` round-trip support.
+
+#### Changed
+
+- Localized the built-in humanoid skeleton and its joint labels throughout skeleton selection, motion editing, canvas hints, timelines, and character binding while preserving custom names verbatim.
+- Refined skeletal-parts prompts to treat the requested grid as capacity, allow transparent surplus cells and rectangular multi-cell blocks for oversized parts, and forbid invented filler parts or weapons.
+- Limited divider dragging to the active cell and only the cells directly facing that edge, leaving lateral cells unchanged.
+- Unified skeletal project output on the `.fbanim` runtime package and removed the frame-project compatibility bake path, RenderProfile, and RasterSequence APIs.
+
+#### Fixed
+
+- Made the selected attachment's transform outline capture canvas drags, so overlapping parts cannot redirect a Warp or transform edit to another layer.
+- Made erase strokes reach the exact image boundary when dragged outside the editor, and stopped near-transparent antialias residue from falsely triggering skeletal-part edge warnings.
+- Fixed the skeletal project editor not reflecting animation-asset saves: the live preview canvas and the skeleton/binding views now subscribe to `animation_assets_changed` and refetch the current clip, skeleton, and asset list as soon as the motion editor (or any other page) persists changes.
+
 ### [0.3.1](docs/CHANGELOG.md#031---2026-08-13) · 2026-08-13
 
 #### Changed
@@ -270,28 +300,6 @@ Job queue is in-memory (unfinished jobs are lost on restart); GIF frame delays a
 - Strengthened the character eight-view generation prompt so every occupied 3×3 cell explicitly requires a distinct full-body heading instead of allowing the reference orientation to be repeated.
 - Fixed grid split uploads failing validation because multipart JSON metadata was parsed into an object, and now surface the first per-cell upload error when every cell fails.
 - Prevented the video frame picker workspace from overlapping its selection and submit areas on short desktop viewports, and made the `M` capture shortcut work after focusing timeline and button controls.
-
-### [0.3.0](docs/CHANGELOG.md#030---2026-08-12) · 2026-08-12
-
-#### Added
-
-- Added ordered multi-reference image selection (up to 10 mixed materials/project frames) across the web UI, REST API, MCP tools, queue, and provider adapters. OpenAI-compatible edits, DashScope, Gemini, DashScope r2v, and structured CLI providers now submit all references while single-image protocols reject unsupported combinations explicitly.
-- Added an in-context model compatibility tip when multiple references are selected, and wrap asynchronous provider failures with actionable guidance while preserving the original provider error.
-- Refined prompt enhancement with explicit subject/action/composition/style/continuity structure, conservative detail completion, prompt-injection-resistant input handling, and separate image/video guidance.
-- Added a visual-prompt few-shot example plus automatic correction retry, preventing short descriptions such as character names from being returned as encyclopedia answers or clarification questions.
-- Made prompt-enhancement examples follow the selected style and image/video mode, and clear stale comparisons when the style or enhancer changes.
-- Pass the selected reference-image count into prompt enhancement so it can switch between text-to-generation, single-reference editing, and ordered Image 1…N multi-reference instructions.
-- Added project-level Cmd/Ctrl+Z for successful frame and timeline edits, with per-project serialization, database-only snapshots for lightweight edits, file snapshots only when project images change, failure-safe restore, and a 50-entry history limit.
-
-#### Changed
-
-- Added cached server-side frame/material thumbnails, conditional image responses with ETag and immutable versioned caching, lazy thumbnail loading, and editor-only Pixi loading through a locally hosted gzip bundle.
-- Reduced timeline and live-update work by using indexed frame lookup maps and coalescing WebSocket-driven refreshes.
-- Stage asynchronous generation and matting outputs before committing them to project storage; completed background jobs and MCP project mutations invalidate older undo history so stale snapshots cannot remove newer artifacts.
-
-#### Fixed
-
-- Preserve the actual JPEG, WebP, GIF, or PNG MIME type when reference images are sent to generation providers instead of declaring every source as PNG.
 
 [View the complete changelog →](docs/CHANGELOG.md)
 <!-- latest-changelog:end -->
