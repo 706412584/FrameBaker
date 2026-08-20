@@ -16,14 +16,6 @@ Import sprites from anywhere (GIF/MP4 frame extraction, PNG upload, external CLI
 
 ![Playback preview demo](docs/media/demo.gif)
 
-> 🚧 **In progress:** skeletal binding and skeletal-animation editing are under development.
-
-| Character skeletal binding | Skeletal animation editor |
-| --- | --- |
-| ![Character skeletal binding](docs/media/skeletal-rigging.png) | ![Skeletal animation editor](docs/media/skeletal-animation.png) |
-
-[Watch the armored-warrior rigging, cape-warp, and run workflow](docs/media/warrior-run-workflow.mp4)
-
 ### Skeletal Motion Workflow
 
 Assemble a character from parts, then edit motions directly on the bound character: drag bones or part control-point grids on the canvas, keyframe translation/rotation/scale/bend/warp per track, and preview the result live on the project board.
