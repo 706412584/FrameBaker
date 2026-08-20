@@ -142,3 +142,44 @@ describe("MotionClip v2 cubic 时间曲线", () => {
     expect(() => sampleMotionClip(malformed, skeleton, 1)).toThrow("缺少片段插值");
   });
 });
+
+describe("自由变形 warp 轨道", () => {
+  // 3×3 网格的自描述 value：[列数, 行数, 之后 18 个行优先位移分量]
+  const warpA = [3, 3, ...new Array<number>(18).fill(0)];
+  const warpB = [3, 3, ...new Array<number>(18).fill(.4)];
+
+  test("step 插值取片段起始值，采样还原 grid 与 points", () => {
+    let value = upsertMotionKeyframe(clip(), "att:part", "warp", 1, warpB);
+    value = upsertMotionKeyframe(value, "att:part", "warp", 0, warpA);
+    value.tracks[0]!.interpolation = "step";
+    expect(validateMotionClip(value, skeleton).ok).toBe(true);
+    const warp = sampleMotionClip(value, skeleton, .5).attachmentOffsets.part!.deformWarp!;
+    expect(warp.grid).toEqual([3, 3]);
+    expect(warp.points).toEqual(new Array<number>(18).fill(0));
+  });
+
+  test("linear 中点逐元素插值", () => {
+    let value = upsertMotionKeyframe(clip(), "att:part", "warp", 0, warpA);
+    value = upsertMotionKeyframe(value, "att:part", "warp", 2, warpB);
+    const warp = sampleMotionClip(value, skeleton, 1).attachmentOffsets.part!.deformWarp!;
+    expect(warp.grid).toEqual([3, 3]);
+    expect(warp.points).toEqual(new Array<number>(18).fill(.2));
+  });
+
+  test("校验拒绝骨骼目标的 warp 轨道", () => {
+    const value = upsertMotionKeyframe(clip(), "b", "warp", 0, warpA);
+    expect(validateMotionClip(value, skeleton).ok).toBe(false);
+  });
+
+  test.each([
+    // 头声明 3×3 需要 20 个数，这里只有 6 个，长度不自洽
+    ["value 长度不自洽", [{ time: 0, value: [3, 3, 0, 0, 0, 0] }]],
+    // 两条 key 各自自洽（3×3 与 2×2），但同轨道长度不一致
+    ["keyframe 长度不一致", [{ time: 0, value: warpA }, { time: 1, value: [2, 2, ...new Array<number>(8).fill(0)] }]],
+    // 位移分量超出 [-4, 4]
+    ["位移超出范围", [{ time: 0, value: [2, 2, 5, ...new Array<number>(7).fill(0)] }]],
+  ])("校验拒绝非法 warp 轨道：%s", (_, keyframes) => {
+    const value: MotionClip = { ...clip(), tracks: [{ targetId: "att:part", property: "warp", interpolation: "linear", keyframes }] };
+    expect(validateMotionClip(value, skeleton).ok).toBe(false);
+  });
+});

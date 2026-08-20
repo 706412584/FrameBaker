@@ -44,6 +44,25 @@ describe("CharacterBinding v1", () => {
     value.attachments[0]!.deform = { axis: "vertical", bend: 1.2, sway: 0, frequency: 2, phase: 0 };
     expect(validateCharacterBinding(value, skeleton).ok).toBeFalse();
   });
+  test("accepts a valid static attachment warp", () => {
+    const value = structuredClone(valid);
+    // 3×3 网格共 18 个位移分量，全零与范围内非零位移都应通过
+    value.attachments[0]!.warp = { grid: [3, 3], points: new Array<number>(18).fill(0) };
+    expect(validateCharacterBinding(value, skeleton).ok).toBeTrue();
+    value.attachments[0]!.warp = { grid: [2, 4], points: new Array<number>(16).fill(-2) };
+    expect(validateCharacterBinding(value, skeleton).ok).toBeTrue();
+  });
+  test.each([
+    ["grid 列数越界", { grid: [9, 3] as [number, number], points: new Array<number>(54).fill(0) }],
+    ["grid 行数越界", { grid: [3, 1] as [number, number], points: new Array<number>(6).fill(0) }],
+    ["points 长度不符", { grid: [3, 3] as [number, number], points: new Array<number>(17).fill(0) }],
+    ["位移超出 [-2, 2]", { grid: [2, 2] as [number, number], points: [2.01, 0, 0, 0, 0, 0, 0, 0] }],
+    ["points 含非有限值", { grid: [2, 2] as [number, number], points: [0, Number.NaN, 0, 0, 0, 0, 0, 0] }],
+  ])("rejects invalid static attachment warp: %s", (_, warp) => {
+    const value = structuredClone(valid);
+    value.attachments[0]!.warp = warp;
+    expect(validateCharacterBinding(value, skeleton).ok).toBeFalse();
+  });
   test.each([
     ["duplicate attachment", (v: CharacterBinding) => v.attachments.push({ ...v.attachments[0]! })],
     ["duplicate slot", (v: CharacterBinding) => v.slots.push({ ...v.slots[0]!, drawOrder: 1 })],

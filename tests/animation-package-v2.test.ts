@@ -63,8 +63,27 @@ describe("fbanim v2 运行时包", () => {
     if (verified.ok) expect(verified.value.actions[0]!.motionClip).toEqual(cubic);
   });
 
-  test("历史包版本 1 同样按资产 schemaVersion 承载 v2 动作", async () => {
-    const v1 = { ...clip, tracks: [{ targetId: "root", property: "translation" as const, interpolation: "linear" as const, keyframes: [{ time: 0, value: [0, 0, 0] as [number, number, number] }, { time: 1, value: [1, 0, 0] as [number, number, number] }] }] } as MotionClipV1;
+  test("静态 warp 与 warp 轨道随包往返逐字段一致", async () => {
+    const staticWarp = { grid: [3, 3] as [number, number], points: new Array<number>(18).fill(0).map((_, index) => index % 2 ? .1 : -.1) };
+    const warpedBinding: CharacterBinding = { ...binding, attachments: [{ ...binding.attachments[0]!, warp: staticWarp }] };
+    const warpClip: MotionClip = {
+      ...clip,
+      tracks: [{ targetId: "att:body-region", property: "warp", interpolation: "linear", keyframes: [
+        { time: 0, value: [3, 3, ...new Array<number>(18).fill(0)] },
+        { time: 1, value: [3, 3, ...new Array<number>(18).fill(.4)] },
+      ] }],
+    };
+    const entries = await buildFbanimV2Entries({ ...source(), characterBinding: warpedBinding, actions: [{ ...source().actions[0]!, motionClip: warpClip }] });
+    const verified = await verifyFbanimV2Entries(entries);
+    expect(verified.ok).toBeTrue();
+    if (verified.ok) {
+      expect(verified.value.characterBinding).toEqual(warpedBinding);
+      expect(verified.value.characterBinding.attachments[0]!.warp).toEqual(staticWarp);
+      expect(verified.value.actions[0]!.motionClip).toEqual(warpClip);
+    }
+  });
+
+  test("历史包版本 1 同样按资产 schemaVersion 承载 v2 动作", async () => {    const v1 = { ...clip, tracks: [{ targetId: "root", property: "translation" as const, interpolation: "linear" as const, keyframes: [{ time: 0, value: [0, 0, 0] as [number, number, number] }, { time: 1, value: [1, 0, 0] as [number, number, number] }] }] } as MotionClipV1;
     const cubic = setMotionSegmentInterpolation(v1, "root", "translation", 0, { type: "cubic-bezier", x1: .2, y1: .1, x2: .8, y2: .9 });
     const entries = await buildFbanimEntries({ createdBy: { name: "FrameBaker", version: "test" }, skeletons: [skeleton], motionClips: [cubic] });
     const verified = await verifyFbanimEntries(entries);
