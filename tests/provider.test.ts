@@ -129,7 +129,7 @@ describe("提示词加强器关联", () => {
     expect(parts).toContain("rectangular multi-cell block");
     expect(parts).toContain("覆盖格内不得再放其他内容");
     expect(parts).toContain("跨出所属格或合并块");
-    expect(parts).toContain("真实关节处分段");
+    expect(parts).toContain("在真实关节处做干净独立截断");
     expect(parts).toContain("mirror-copy");
     expect(parts).toContain("recursive parts sheet");
 
