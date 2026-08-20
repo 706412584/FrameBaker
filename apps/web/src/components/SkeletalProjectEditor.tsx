@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BUILTIN_HUMANOID_SKELETON_ID, stripBuiltinAnimationMarker, verifyFbanimV2Entries, type AnimationAssetSummary, type CharacterBinding, type Material, type MotionClip, type SkeletalProjectAnimation, type Skeleton } from "@framebaker/shared";
 import { ArrowLeft, Bone, Boxes, Camera, Download, Pause, Pencil, Play, Plus, Trash2, Upload, X } from "lucide-react";
 import { api, type Folder, type Project, type SkeletalProjectDocument } from "../api";
+import { wsClient } from "../api/ws";
 import { localizeSkeletonName } from "../builtinAnimationLabels";
 import { useModalEscClose } from "../hooks/useModalEscClose";
 import { useT } from "../i18n";
@@ -211,6 +212,26 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
     }).catch((e) => active && notify(t("skeletal.loadFailed", { msg: (e as Error).message })));
     return () => { active = false; };
   }, [activeAnimation?.id, activeAnimation?.motionClipId, t]);
+
+  // 动作编辑弹窗（或其他页面）保存动画资产后服务端会广播 animation_assets_changed，
+  // 这里按资产 id 精准重拉，保证画板预览、骨骼展示和资产列表同步到最新内容。
+  useEffect(() => {
+    return wsClient.subscribe((msg) => {
+      if (msg.type !== "animation_assets_changed") return;
+      const payload = msg.payload as { id?: string } | undefined;
+      void api.listAnimationAssets().then(setAssets).catch(() => undefined);
+      if (payload?.id && payload.id === binding?.skeletonId) {
+        void api.getAnimationAsset(payload.id)
+          .then(({ asset }) => setSkeleton(asset.kind === "skeleton" ? asset : undefined))
+          .catch(() => setSkeleton(undefined));
+      }
+      if (payload?.id && payload.id === activeAnimation?.motionClipId) {
+        void api.getAnimationAsset(payload.id)
+          .then(({ asset }) => setClip(asset.kind === "motion-clip" ? asset : undefined))
+          .catch(() => setClip(undefined));
+      }
+    });
+  }, [binding?.skeletonId, activeAnimation?.motionClipId]);
 
   useEffect(() => {
     if (!playing || !clip || !activeAnimation) return;
