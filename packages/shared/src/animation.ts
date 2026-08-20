@@ -132,14 +132,21 @@ export interface DeformTrack extends MotionTrackV1Base {
   keyframes: Array<MotionKey<Vec3>>;
 }
 
-export type MotionTrack = TranslationTrack | RotationTrack | ScaleTrack | DeformTrack;
+/** 部件 warp 通道（仅 att: 目标合法）；value 为自描述数组 [列数, 行数, dx0, dy0, …]，长度 2+2·列·行，位移为叠加增量（delta）。 */
+export interface WarpTrack extends MotionTrackV1Base {
+  property: "warp";
+  keyframes: Array<MotionKey<number[]>>;
+}
+
+export type MotionTrack = TranslationTrack | RotationTrack | ScaleTrack | DeformTrack | WarpTrack;
 
 interface MotionTrackV2Base { targetId: string }
 export interface TranslationTrackV2 extends MotionTrackV2Base { property: "translation"; keyframes: Array<MotionKeyV2<Vec3>> }
 export interface RotationTrackV2 extends MotionTrackV2Base { property: "rotation"; keyframes: Array<MotionKeyV2<Quaternion>> }
 export interface ScaleTrackV2 extends MotionTrackV2Base { property: "scale"; keyframes: Array<MotionKeyV2<Vec3>> }
 export interface DeformTrackV2 extends MotionTrackV2Base { property: "deform"; keyframes: Array<MotionKeyV2<Vec3>> }
-export type MotionTrackV2 = TranslationTrackV2 | RotationTrackV2 | ScaleTrackV2 | DeformTrackV2;
+export interface WarpTrackV2 extends MotionTrackV2Base { property: "warp"; keyframes: Array<MotionKeyV2<number[]>> }
+export type MotionTrackV2 = TranslationTrackV2 | RotationTrackV2 | ScaleTrackV2 | DeformTrackV2 | WarpTrackV2;
 export type AnyMotionTrack = MotionTrack | MotionTrackV2;
 
 export interface MotionEvent {
@@ -206,6 +213,17 @@ export interface RegionAttachmentDeform {
   phase: number;
 }
 
+/**
+ * 区域附件的自由变形（warp）网格：grid 为 [列数, 行数]，points 为行优先的归一化节点位移
+ * （dx 相对部件宽度、dy 相对部件高度）。独立于 deform（弯曲），互不牵连。
+ * 与 warp 轨道合成时轨道值是叠加增量（delta）：仅当轨道与静态 warp 的 grid 相同才叠加静态 points，
+ * 否则以轨道为准；全零位移视为无 warp。
+ */
+export interface RegionAttachmentWarp {
+  grid: [number, number];
+  points: number[];
+}
+
 export interface RegionAttachment {
   id: string;
   name: string;
@@ -216,6 +234,8 @@ export interface RegionAttachment {
   pivot: [number, number];
   rest: Transform;
   deform?: RegionAttachmentDeform;
+  /** 静态自由变形网格，独立于 deform（弯曲）。 */
+  warp?: RegionAttachmentWarp;
 }
 
 export interface CharacterBinding extends AnimationAssetBase<"character-binding"> {
@@ -273,6 +293,8 @@ export interface AttachmentOffset {
   scale?: Vec3;
   /** deform 轨道的 bend 增量（value 为 Vec3，仅取 x；y/z 保留备用），叠加在绑定静态 bend 之上。 */
   deformBend?: number;
+  /** warp 轨道采样出的自由变形增量（delta）；有效 warp = 静态 warp + 轨道 delta，仅当两侧 grid 相同才叠加，否则以轨道为准；全零视为无 warp。 */
+  deformWarp?: RegionAttachmentWarp;
 }
 
 export interface EvaluatedPose {
@@ -457,14 +479,15 @@ function validateTrack(track: unknown, index: number, duration: number, skeleton
   rejectUnknown(track, version === 1 ? ["targetId", "property", "interpolation", "keyframes"] : ["targetId", "property", "keyframes"], path, issues);
   if (typeof track.targetId !== "string" || !ID_PATTERN.test(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标 ID 无效" });
   else if (skeletonIds && !skeletonIds.has(track.targetId) && !isAttachmentTargetId(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标骨骼不存在" });
-  if (track.property !== "translation" && track.property !== "rotation" && track.property !== "scale" && track.property !== "deform") issues.push({ path: `${path}.property`, message: "轨道属性无效" });
-  else if (track.property === "deform" && !(typeof track.targetId === "string" && isAttachmentTargetId(track.targetId))) issues.push({ path: `${path}.property`, message: "deform 轨道仅支持部件（att:）目标" });
+  if (track.property !== "translation" && track.property !== "rotation" && track.property !== "scale" && track.property !== "deform" && track.property !== "warp") issues.push({ path: `${path}.property`, message: "轨道属性无效" });
+  else if ((track.property === "deform" || track.property === "warp") && !(typeof track.targetId === "string" && isAttachmentTargetId(track.targetId))) issues.push({ path: `${path}.property`, message: `${track.property} 轨道仅支持部件（att:）目标` });
   if (version === 1 && track.interpolation !== "step" && track.interpolation !== "linear") issues.push({ path: `${path}.interpolation`, message: "插值方式无效" });
   if (!Array.isArray(track.keyframes) || track.keyframes.length === 0 || track.keyframes.length > ANIMATION_V1_LIMITS.maxKeyframesPerTrack) {
     issues.push({ path: `${path}.keyframes`, message: "轨道至少需要一个关键帧" });
     return;
   }
   let previous = -Infinity;
+  let warpValueLength = -1;
   for (const [keyIndex, key] of track.keyframes.entries()) {
     const keyPath = `${path}.keyframes[${keyIndex}]`;
     if (!isRecord(key)) {
@@ -475,9 +498,28 @@ function validateTrack(track: unknown, index: number, duration: number, skeleton
     if (!isFiniteNumber(key.time) || key.time < 0 || key.time > duration) issues.push({ path: `${keyPath}.time`, message: "时间必须位于动作时长内" });
     else if (key.time <= previous) issues.push({ path: `${keyPath}.time`, message: "关键帧时间必须严格递增" });
     else previous = key.time;
-    const expected = track.property === "rotation" ? 4 : 3;
-    if (!isTuple(key.value, expected)) issues.push({ path: `${keyPath}.value`, message: `必须包含 ${expected} 个有限数值` });
-    else if (track.property === "rotation" && Math.abs(Math.hypot(...key.value) - 1) > QUATERNION_NORM_EPSILON) issues.push({ path: `${keyPath}.value`, message: "四元数必须归一化" });
+    if (track.property === "warp") {
+      // warp value 为自描述数组 [列数, 行数, dx0, dy0, …]，校验无需 binding 即可独立进行。
+      const warpPath = `${keyPath}.value`;
+      if (!Array.isArray(key.value) || key.value.length < 2 || !key.value.every(isFiniteNumber)) {
+        issues.push({ path: warpPath, message: "必须是有限数值数组" });
+      } else {
+        const [cols, rows] = key.value as number[];
+        if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols! < 2 || cols! > 8 || rows! < 2 || rows! > 8) {
+          issues.push({ path: warpPath, message: "warp 网格必须是 2 到 8 的整数行列数" });
+        } else if (key.value.length !== 2 + 2 * cols! * rows!) {
+          issues.push({ path: warpPath, message: `warp 数值长度必须是 2+2·${cols}·${rows}` });
+        } else if ((key.value as number[]).slice(2).some((item) => Math.abs(item) > 4)) {
+          issues.push({ path: warpPath, message: "warp 位移必须是 [-4, 4] 内的有限数值" });
+        }
+        if (warpValueLength < 0) warpValueLength = key.value.length;
+        else if (key.value.length !== warpValueLength) issues.push({ path: warpPath, message: "同一 warp 轨道的关键帧数值长度必须一致" });
+      }
+    } else {
+      const expected = track.property === "rotation" ? 4 : 3;
+      if (!isTuple(key.value, expected)) issues.push({ path: `${keyPath}.value`, message: `必须包含 ${expected} 个有限数值` });
+      else if (track.property === "rotation" && Math.abs(Math.hypot(...key.value) - 1) > QUATERNION_NORM_EPSILON) issues.push({ path: `${keyPath}.value`, message: "四元数必须归一化" });
+    }
     if (version === 2) {
       const terminal = keyIndex === track.keyframes.length - 1;
       if (terminal) {
@@ -611,7 +653,7 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
   else for (const [index, attachment] of value.attachments.entries()) {
     const path = `attachments[${index}]`;
     if (!isRecord(attachment)) { issues.push({ path, message: "必须是 Region 附件对象" }); continue; }
-    rejectUnknown(attachment, ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest", "deform"], path, issues);
+    rejectUnknown(attachment, ["id", "name", "type", "materialId", "imageSlot", "size", "pivot", "rest", "deform", "warp"], path, issues);
     if (typeof attachment.id !== "string" || !ID_PATTERN.test(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 无效" });
     else if (attachmentIds.has(attachment.id)) issues.push({ path: `${path}.id`, message: "附件 ID 重复" });
     else attachmentIds.add(attachment.id);
@@ -632,6 +674,21 @@ export function validateCharacterBinding(value: unknown, skeleton?: Skeleton): V
         for (const key of ["bend", "sway"] as const) if (!isFiniteNumber(attachment.deform[key]) || Math.abs(attachment.deform[key]) > 1) issues.push({ path: `${deformPath}.${key}`, message: "弯曲强度必须是 [-1, 1] 内的有限数值" });
         if (!isFiniteNumber(attachment.deform.frequency) || attachment.deform.frequency < 0 || attachment.deform.frequency > 10) issues.push({ path: `${deformPath}.frequency`, message: "摆动频率必须是 [0, 10] 内的有限数值" });
         if (!isFiniteNumber(attachment.deform.phase) || Math.abs(attachment.deform.phase) > Math.PI * 2) issues.push({ path: `${deformPath}.phase`, message: "摆动相位必须是 [-2π, 2π] 内的有限数值" });
+      }
+    }
+    if (attachment.warp !== undefined) {
+      const warpPath = `${path}.warp`;
+      if (!isRecord(attachment.warp)) issues.push({ path: warpPath, message: "自由变形参数必须是对象" });
+      else {
+        rejectUnknown(attachment.warp, ["grid", "points"], warpPath, issues);
+        const grid = attachment.warp.grid;
+        if (!isTuple(grid, 2) || !Number.isInteger(grid[0]) || !Number.isInteger(grid[1]) || grid[0] < 2 || grid[0] > 8 || grid[1] < 2 || grid[1] > 8) {
+          issues.push({ path: `${warpPath}.grid`, message: "网格必须是 2 到 8 的整数行列数" });
+        } else if (!Array.isArray(attachment.warp.points) || attachment.warp.points.length !== 2 * grid[0] * grid[1] || !attachment.warp.points.every(isFiniteNumber)) {
+          issues.push({ path: `${warpPath}.points`, message: `位移点必须包含 ${2 * grid[0] * grid[1]} 个有限数值` });
+        } else if ((attachment.warp.points as number[]).some((item) => Math.abs(item) > 2)) {
+          issues.push({ path: `${warpPath}.points`, message: "位移点必须是 [-2, 2] 内的有限数值" });
+        }
       }
     }
   }
@@ -693,7 +750,7 @@ export function migrateMotionClipV1ToV2(clip: MotionClipV1): MotionClipV2 {
         ...base,
         keyframes: track.keyframes.map((key, index) => ({
           time: key.time,
-          value: [...key.value] as Vec3 | Quaternion,
+          value: [...key.value] as Vec3 | Quaternion | number[],
           outInterpolation: index === track.keyframes.length - 1 ? null : { ...interpolation },
         })),
       } as MotionTrackV2;
@@ -723,11 +780,11 @@ export function upsertMotionKeyframe(
   targetId: string,
   property: MotionTrack["property"],
   time: number,
-  value: Vec3 | Quaternion,
+  value: Vec3 | Quaternion | number[],
   epsilon = MOTION_KEY_TIME_EPSILON,
 ): MotionClip {
   const index = clip.tracks.findIndex((track) => track.targetId === targetId && track.property === property);
-  const normalizedValue = property === "rotation" ? normalizeQuaternion(value as Quaternion) : [...value] as Vec3;
+  const normalizedValue = property === "rotation" ? normalizeQuaternion(value as Quaternion) : [...value] as Vec3 | number[];
   const old = index >= 0 ? clip.tracks[index]! : undefined;
   let track: AnyMotionTrack;
   if (clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION) {
@@ -776,7 +833,7 @@ export function deleteMotionKeyframe(
     const remaining = track.keyframes.filter((key) => Math.abs(key.time - time) > epsilon);
     if (!remaining.length) return [];
     const keyframes = clip.schemaVersion === MOTION_CLIP_SCHEMA_VERSION_V2
-      ? remaining.map((key, keyIndex) => ({ ...key, outInterpolation: keyIndex === remaining.length - 1 ? null : (key as MotionKeyV2<Vec3 | Quaternion>).outInterpolation }))
+      ? remaining.map((key, keyIndex) => ({ ...key, outInterpolation: keyIndex === remaining.length - 1 ? null : (key as MotionKeyV2<Vec3 | Quaternion | number[]>).outInterpolation }))
       : remaining;
     return [{ ...track, keyframes } as AnyMotionTrack];
   });
@@ -857,8 +914,9 @@ export function slerpQuaternions(a: Quaternion, b: Quaternion, amount: number): 
   return normalizeQuaternion([start[0] * from + end[0] * to, start[1] * from + end[1] * to, start[2] * from + end[2] * to, start[3] * from + end[3] * to]);
 }
 
-function lerpVec3(a: Vec3, b: Vec3, amount: number): Vec3 {
-  return [a[0] + (b[0] - a[0]) * amount, a[1] + (b[1] - a[1]) * amount, a[2] + (b[2] - a[2]) * amount];
+/** 等长数值数组逐元素线性插值；translation/scale/deform/warp 等非 rotation 通道共用。 */
+function lerpVector(a: readonly number[], b: readonly number[], amount: number): number[] {
+  return a.map((value, index) => value + (b[index]! - value) * amount);
 }
 
 function cubicBezierCoordinate(t: number, a: number, b: number): number {
@@ -879,19 +937,19 @@ export function sampleCubicBezierMotionAmount(curve: CubicBezierMotionInterpolat
   return cubicBezierCoordinate((low + high) / 2, curve.y1, curve.y2);
 }
 
-function sampleTrack(track: AnyMotionTrack, time: number, version: 1 | 2): Vec3 | Quaternion {
+function sampleTrack(track: AnyMotionTrack, time: number, version: 1 | 2): Vec3 | Quaternion | number[] {
   const keys = track.keyframes;
-  if (keys.length === 1 || time <= keys[0]!.time) return [...keys[0]!.value] as Vec3 | Quaternion;
+  if (keys.length === 1 || time <= keys[0]!.time) return [...keys[0]!.value] as Vec3 | Quaternion | number[];
   const last = keys[keys.length - 1]!;
-  if (time >= last.time) return [...last.value] as Vec3 | Quaternion;
+  if (time >= last.time) return [...last.value] as Vec3 | Quaternion | number[];
   let endIndex = 1;
   while (keys[endIndex]!.time <= time) endIndex += 1;
   const start = keys[endIndex - 1]!, end = keys[endIndex]!;
   const interpolation = version === 1
     ? { type: (track as MotionTrack).interpolation }
-    : (start as MotionKeyV2<Vec3 | Quaternion>).outInterpolation;
+    : (start as MotionKeyV2<Vec3 | Quaternion | number[]>).outInterpolation;
   if (!interpolation) throw new Error("MotionClip v2 非末尾关键帧缺少片段插值");
-  if (interpolation.type === "step") return [...start.value] as Vec3 | Quaternion;
+  if (interpolation.type === "step") return [...start.value] as Vec3 | Quaternion | number[];
   const progress = (time - start.time) / (end.time - start.time);
   let amount: number;
   if (interpolation.type === "linear") amount = progress;
@@ -902,7 +960,7 @@ function sampleTrack(track: AnyMotionTrack, time: number, version: 1 | 2): Vec3 
   } else throw new Error("动作轨道插值方式无效");
   return track.property === "rotation"
     ? slerpQuaternions(start.value as Quaternion, end.value as Quaternion, amount)
-    : lerpVec3(start.value as Vec3, end.value as Vec3, amount);
+    : lerpVector(start.value as number[], end.value as number[], amount);
 }
 
 function cloneTransform(transform: Transform): Transform {
@@ -982,6 +1040,10 @@ export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requested
       if (track.property === "rotation") entry.rotation = normalizeQuaternion(value as Quaternion);
       else if (track.property === "translation") entry.translation = value as Vec3;
       else if (track.property === "scale") entry.scale = value as Vec3;
+      else if (track.property === "warp") {
+        const warpValue = value as number[];
+        entry.deformWarp = { grid: [warpValue[0]!, warpValue[1]!], points: warpValue.slice(2) };
+      }
       else entry.deformBend = (value as Vec3)[0];
       continue;
     }
