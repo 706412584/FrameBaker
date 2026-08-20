@@ -1,7 +1,7 @@
 // 图像处理 worker：解码 / 透明边扫描 / 剪裁编码都在 worker 线程，避免阻塞 UI
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
 
-import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 
 declare function postMessage(message: ImageOpResponse): void;
@@ -53,6 +53,16 @@ function eraseStrokes(ctx: OffscreenCanvasRenderingContext2D, strokes: EraseStro
   ctx.restore();
 }
 
+async function warpFromBitmap(bitmap: ImageBitmap, grid: [number, number], points: number[]) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  const warped = warpImagePixels(imageData.data, imageData.width, imageData.height, grid, points);
+  ctx.putImageData(new ImageData(warped, imageData.width, imageData.height), 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
 async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quarterTurns: number, flipHorizontal: boolean) {
   const source = new OffscreenCanvas(bitmap.width, bitmap.height);
   const sourceCtx = source.getContext("2d")!;
@@ -71,7 +81,7 @@ async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quart
 }
 
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions, warpGrid, warpPoints } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
@@ -83,6 +93,10 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
     } else if (op === "crop") {
       if (!rect) throw new Error("crop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);
+      postMessage({ id, ok: true, blob: out });
+    } else if (op === "warp") {
+      if (!warpGrid || !warpPoints) throw new Error("warp 缺少 warpGrid/warpPoints");
+      const out = await warpFromBitmap(bitmap, warpGrid, warpPoints);
       postMessage({ id, ok: true, blob: out });
     } else if (op === "analyze") {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);

@@ -49,7 +49,7 @@ export interface DetectComponentsOptions {
 export interface ImageOpRequest {
   id: number;
 
-  op: "bounds" | "crop" | "analyze" | "edit" | "components";
+  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp";
 
   blob: Blob;
   rect?: CropRect;
@@ -57,6 +57,10 @@ export interface ImageOpRequest {
   quarterTurns?: number;
   flipHorizontal?: boolean;
   componentOptions?: DetectComponentsOptions;
+  /** 自由变形网格 [列数, 行数]，节点均匀铺满 [0,w]×[0,h]。 */
+  warpGrid?: [number, number];
+  /** 自由变形节点归一化位移（行优先，dx 相对宽、dy 相对高），长度 2·cols·rows。 */
+  warpPoints?: number[];
 }
 
 export interface ImageOpResponse {
@@ -322,6 +326,90 @@ export function findSkeletalPartQualityIssues(analyses: ImageAnalysis[], standar
     }
   }
   return issues;
+}
+
+/**
+ * 自由变形 warp：静止网格节点均匀铺满 [0,w]×[0,h]（grid = [列数, 行数]，行优先），
+ * 变形后节点 = 静止位置 + (dx·w, dy·h)。每个 grid quad 拆两个三角形，对变形后
+ * 三角形做包围盒光栅化，用重心坐标反查静止三角形内对应位置的源像素，
+ * nearest-neighbor（Math.round）取样。输出同尺寸；未被任何三角形覆盖的像素
+ * 保持透明（0），越界源坐标裁剪。纯计算，worker / 主线程降级 / 测试三端共用。
+ */
+export function warpImagePixels(
+  src: Uint8ClampedArray,
+  width: number,
+  height: number,
+  grid: [number, number],
+  points: number[],
+): Uint8ClampedArray<ArrayBuffer> {
+  const out = new Uint8ClampedArray(width * height * 4);
+  const [cols, rows] = grid;
+  if (width <= 0 || height <= 0 || cols < 2 || rows < 2 || points.length < 2 * cols * rows) return out;
+
+  // 静止 / 变形后节点坐标（像素坐标系，[0,w]×[0,h]）
+  const rest = new Float64Array(cols * rows * 2);
+  const moved = new Float64Array(cols * rows * 2);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = (r * cols + c) * 2;
+      const x = c / (cols - 1) * width;
+      const y = r / (rows - 1) * height;
+      rest[i] = x;
+      rest[i + 1] = y;
+      moved[i] = x + points[i]! * width;
+      moved[i + 1] = y + points[i + 1]! * height;
+    }
+  }
+
+  // 光栅化一个三角形：遍历变形后三角形包围盒内的像素中心，
+  // 重心坐标换算回静止三角形位置，nearest-neighbor 取源像素。
+  const rasterize = (a: number, b: number, c: number) => {
+    const ax = moved[a * 2]!, ay = moved[a * 2 + 1]!;
+    const bx = moved[b * 2]!, by = moved[b * 2 + 1]!;
+    const cx = moved[c * 2]!, cy = moved[c * 2 + 1]!;
+    const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (Math.abs(den) < 1e-9) return; // 退化三角形跳过
+    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+    const maxX = Math.min(width - 1, Math.ceil(Math.max(ax, bx, cx)));
+    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
+    const maxY = Math.min(height - 1, Math.ceil(Math.max(ay, by, cy)));
+    const rax = rest[a * 2]!, ray = rest[a * 2 + 1]!;
+    const rbx = rest[b * 2]!, rby = rest[b * 2 + 1]!;
+    const rcx = rest[c * 2]!, rcy = rest[c * 2 + 1]!;
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const px = x + .5;
+        const py = y + .5;
+        const wa = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den;
+        const wb = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den;
+        const wc = 1 - wa - wb;
+        // 少量容差，避免相邻三角形共享边出现裂缝
+        if (wa < -1e-6 || wb < -1e-6 || wc < -1e-6) continue;
+        const sx = Math.round(wa * rax + wb * rbx + wc * rcx - .5);
+        const sy = Math.round(wa * ray + wb * rby + wc * rcy - .5);
+        if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue; // 越界源坐标裁剪
+        const si = (sy * width + sx) * 4;
+        const di = (y * width + x) * 4;
+        out[di] = src[si]!;
+        out[di + 1] = src[si + 1]!;
+        out[di + 2] = src[si + 2]!;
+        out[di + 3] = src[si + 3]!;
+      }
+    }
+  };
+
+  // 每个 grid quad 拆两个三角形
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const tl = r * cols + c;
+      const tr = tl + 1;
+      const bl = tl + cols;
+      const br = bl + 1;
+      rasterize(tl, tr, br);
+      rasterize(tl, br, bl);
+    }
+  }
+  return out;
 }
 
 /** 自定义网格跳过透明余格；标准人形网格只允许明确标记的可选格留空。 */

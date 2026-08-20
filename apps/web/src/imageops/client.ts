@@ -1,6 +1,6 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
 
-import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
 
 
 let worker: Worker | null = null;
@@ -134,6 +134,25 @@ async function mainAnalyze(blob: Blob): Promise<ImageAnalysis> {
   }
 }
 
+async function mainWarp(blob: Blob, grid: [number, number], points: number[]): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const warped = warpImagePixels(imageData.data, imageData.width, imageData.height, grid, points);
+    ctx.putImageData(new ImageData(warped, imageData.width, imageData.height), 0, 0);
+    return await new Promise((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))), "image/png")
+    );
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function mainEdit(blob: Blob, strokes: EraseStroke[], quarterTurns: number, flipHorizontal: boolean): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
   try {
@@ -193,6 +212,17 @@ export async function cropImage(blob: Blob, rect: CropRect): Promise<Blob> {
     return r.blob;
   } catch {
     return mainCrop(blob, rect);
+  }
+}
+
+/** 自由变形 warp（网格节点归一化位移）并编码 PNG；worker 失败自动降级主线程 */
+export async function warpImage(blob: Blob, grid: [number, number], points: number[]): Promise<Blob> {
+  try {
+    const r = await runInWorker({ op: "warp", blob, warpGrid: grid, warpPoints: points });
+    if (!r.ok || !r.blob) throw new Error(r.error ?? "warp 失败");
+    return r.blob;
+  } catch {
+    return mainWarp(blob, grid, points);
   }
 }
 
