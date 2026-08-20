@@ -174,6 +174,8 @@ export const en = {
   "animation.advancedSettings": "Advanced: root motion and events",
   "animation.timeline": "Keyframe timeline",
   "animation.timelineHint": "Click an empty track to scrub; click an orange square to select a keyframe.",
+  "animation.trackGroup.bones": "Bone tracks",
+  "animation.trackGroup.parts": "Part tracks",
   "animation.interpolation.hold": "Hold",
   "animation.interpolation.smooth": "Smooth",
   "animation.interpolation.cubic": "Curve",

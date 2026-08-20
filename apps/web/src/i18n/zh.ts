@@ -122,6 +122,8 @@ export const zh = {
   "animation.advancedSettings": "高级设置：根运动与动作事件",
   "animation.timeline": "关键帧时间线",
   "animation.timelineHint": "点击空白轨道可跳转时间；点击橙色方块可选中已有关键帧。",
+  "animation.trackGroup.bones": "骨骼轨道",
+  "animation.trackGroup.parts": "部件轨道",
   "animation.interpolation.hold": "保持",
   "animation.interpolation.smooth": "平滑",
   "animation.interpolation.cubic": "曲线",

@@ -6,6 +6,8 @@ import {
 
 type Translate = (key: string) => string;
 
+const BUILTIN_HUMANOID_BONE_PREFIX = "builtin-humanoid-";
+
 const BUILTIN_BONE_LABEL_KEYS = new Map<string, string>([
   [BUILTIN_HUMANOID_ROOT_ID, "animation.builtin.bone.root"],
   [BUILTIN_HUMANOID_BONE_IDS.pelvis, "animation.builtin.bone.pelvis"],
@@ -31,7 +33,10 @@ export function localizeSkeletonName(id: string, name: string, t: Translate): st
 }
 
 export function localizeBoneName(skeletonId: string, boneId: string, name: string, t: Translate): string {
-  if (skeletonId !== BUILTIN_HUMANOID_SKELETON_ID) return name;
   const key = BUILTIN_BONE_LABEL_KEYS.get(boneId);
-  return key ? t(key) : name;
+  if (!key) return name;
+  // 内置骨架直接本地化；派生骨架（项目骨架复制内置骨架而来，骨骼 id 不变）
+  // 仅在骨骼仍用默认语义名时本地化，用户改过名的骨骼保留自定义名
+  if (skeletonId === BUILTIN_HUMANOID_SKELETON_ID) return t(key);
+  return name === boneId.slice(BUILTIN_HUMANOID_BONE_PREFIX.length) ? t(key) : name;
 }

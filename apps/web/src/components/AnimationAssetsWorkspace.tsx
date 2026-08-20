@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { addMotionEvent, ATTACHMENT_TARGET_PREFIX, BUILTIN_ANIMATION_ASSET_IDS, closeMotionLoopSeam, DEFAULT_CUBIC_MOTION_INTERPOLATION, deleteMotionEvent, deleteMotionKeyframe, findMotionSegmentIndex, getBoneEndpoint, isAttachmentTargetId, isBuiltinAnimationAssetId, MOTION_KEY_TIME_EPSILON, multiplyMatrices, quaternionFromZRotation, reparentTransform2d, sampleMotionClip, setMotionSegmentInterpolation, transformPoint, transformToMatrix, upsertMotionKeyframe, zRotationFromQuaternion, type AnimationAsset, type AnimationAssetSummary, type AnyMotionTrack, type AttachmentOffset, type CharacterBinding, type CubicBezierMotionInterpolation, type JsonValue, type Mat4, type Material, type MotionClip, type MotionSegmentInterpolation, type MotionTrack, type MotionTrackV2, type RegionAttachmentWarp, type RootMotionPolicy, type Skeleton } from "@framebaker/shared";
-import { Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, Waves, ZoomIn } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Crosshair, Lock, Move, Pause, Pencil, Play, Plus, Redo2, RotateCcw, RotateCw, Save, Trash2, Undo2, Upload, Waves, ZoomIn } from "lucide-react";
 import { api, materialImageUrl, wsClient, type Folder } from "../api";
 import { attachmentLocalBounds, attachmentLocalCorners, attachmentSvgImageY, fitAttachmentSizeToImage } from "../bindingGeometry";
 import { localizeBoneName, localizeSkeletonName } from "../builtinAnimationLabels";
@@ -156,6 +156,7 @@ export function SkeletonEditor({ skeleton, previewBinding, busy, onSave }: { ske
   const t = useT();
   const [draft, setDraft] = useState(() => structuredClone(skeleton));
   const [selectedBone, setSelectedBone] = useState(skeleton.bones[0]?.id ?? "");
+  const boneName = (bone: Skeleton["bones"][number]) => localizeBoneName(draft.id, bone.id, bone.name, t);
   useEffect(() => { setDraft(structuredClone(skeleton)); setSelectedBone(skeleton.bones[0]?.id ?? ""); }, [skeleton]);
   const selected = draft.bones.find((bone) => bone.id === selectedBone);
   const sampled = useMemo(() => sampleMotionClip({ schemaVersion: 1, kind: "motion-clip", id: "skeleton-edit-rest", name: "Rest", skeletonId: draft.id, duration: 0, loop: false, tracks: [], events: [] }, draft, 0), [draft]);
@@ -217,10 +218,16 @@ export function SkeletonEditor({ skeleton, previewBinding, busy, onSave }: { ske
       ? <CharacterPreview binding={previewBinding} skeleton={draft} time={0} selectedBoneId={selectedBone} showSkeleton onSelectBone={setSelectedBone} />
       : <SkeletonPreview skeleton={draft} time={0} selectedBone={selectedBone} disabled={busy} onSelectBone={setSelectedBone} onEditBone={editOnCanvas} />}
     <aside className="skeleton-editor-inspector">
-      <header><div><span>{t("animation.skeletonEditor.selectedBone")}</span><h3>{selected?.name}</h3></div><button className="px-btn" type="button" disabled={!selected || busy} onClick={addBone}><Plus size={13} />{t("animation.skeletonEditor.addChild")}</button></header>
+      <div className="skeleton-bone-tree">{(function renderTree(parentId: string | null, depth: number): ReactNode {
+        return draft.bones.filter((bone) => bone.parentId === parentId).map((bone) => <span key={bone.id} style={{ paddingLeft: depth * 14 }}>
+          <button type="button" className={bone.id === selectedBone ? "on" : ""} onClick={() => setSelectedBone(bone.id)}>{boneName(bone)}</button>
+          {renderTree(bone.id, depth + 1)}
+        </span>);
+      })(null, 0)}</div>
+      <header><div><span>{t("animation.skeletonEditor.selectedBone")}</span><h3>{selected ? boneName(selected) : ""}</h3></div><button className="px-btn" type="button" disabled={!selected || busy} onClick={addBone}><Plus size={13} />{t("animation.skeletonEditor.addChild")}</button></header>
       {selected && <>
         <label>{t("animation.skeletonEditor.boneName")}<input className="px-input" value={selected.name} disabled={busy} onChange={(event) => patchBone(selected.id, { name: event.target.value })} /></label>
-        <label>{t("animation.skeletonEditor.parent")}<PxSelect value={selected.parentId ?? ""} disabled={busy} options={[{ value: "", label: t("animation.skeletonEditor.noParent") }, ...draft.bones.filter((bone) => bone.id !== selected.id && canParentTo(bone.id)).map((bone) => ({ value: bone.id, label: bone.name }))]} onChange={changeParent} /></label>
+        <label>{t("animation.skeletonEditor.parent")}<PxSelect value={selected.parentId ?? ""} disabled={busy} options={[{ value: "", label: t("animation.skeletonEditor.noParent") }, ...draft.bones.filter((bone) => bone.id !== selected.id && canParentTo(bone.id)).map((bone) => ({ value: bone.id, label: boneName(bone) }))]} onChange={changeParent} /></label>
         <div className="skeleton-editor-fields">
           <label>{t("animation.translationX")}<input className="px-input" type="number" step="1" value={selected.rest.translation[0]} onChange={(event) => setRestNumber("tx", +event.target.value)} /></label>
           <label>{t("animation.translationY")}<input className="px-input" type="number" step="1" value={selected.rest.translation[1]} onChange={(event) => setRestNumber("ty", +event.target.value)} /></label>
@@ -860,9 +867,20 @@ export function BindingEditor({ binding, skeleton, materials, materialFolders, b
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [undoDrafts, redoDrafts]);
+  // 部件条按绑定骨骼分组（保持槽位原顺序）
+  const partGroups: { boneId: string; label: string; slots: typeof draft.slots }[] = [];
+  for (const slot of draft.slots) {
+    let group = partGroups.find((item) => item.boneId === slot.boneId);
+    if (!group) {
+      const bone = skeleton.bones.find((item) => item.id === slot.boneId);
+      group = { boneId: slot.boneId, label: bone ? boneName(bone) : slot.boneId, slots: [] };
+      partGroups.push(group);
+    }
+    group.slots.push(slot);
+  }
   return <section className="binding-editor">
     <header className="binding-editor-heading"><div><h3>{t("animation.binding.visualTitle")}</h3><p>{t("animation.binding.visualHint")}</p></div><div className="binding-editor-actions"><button className="px-btn" disabled={!materials.length} onClick={addRow}><Plus size={14} />{t("animation.binding.addRegion")}</button><button className="px-btn accent" disabled={busy} onClick={() => void onSave({ ...draftRef.current, slots: [...draftRef.current.slots].sort((a, b) => a.drawOrder - b.drawOrder).map((slot, drawOrder) => ({ ...slot, drawOrder })) })}><Save size={13} />{t("common.save")}</button></div></header>
-    <section className="binding-part-strip"><header><strong>{t("animation.binding.parts")}</strong></header><div className="binding-part-list">{draft.slots.map((slot) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId), bone = skeleton.bones.find((item) => item.id === slot.boneId), label = bone ? boneName(bone) : slot.boneId; if (!attachment) return null; const slotName = slot.name?.trim() || attachmentName(attachment); return <button type="button" className={selectedAttachmentId === attachment.id ? "selected" : ""} title={`${slotName} · ${attachmentName(attachment)} · ${label}`} key={slot.id} onClick={() => selectAttachment(attachment.id)}><span>{slotName}</span><small>{attachmentName(attachment)} · {label}</small></button>; })}</div></section>
+    <section className="binding-part-strip"><header><strong>{t("animation.binding.parts")}</strong></header><div className="binding-part-list">{partGroups.map((group) => <div className="binding-part-group" key={group.boneId}><strong>{group.label}</strong>{group.slots.map((slot) => { const attachment = draft.attachments.find((item) => item.id === slot.attachmentId); if (!attachment) return null; const slotName = slot.name?.trim() || attachmentName(attachment); return <button type="button" className={selectedAttachmentId === attachment.id ? "selected" : ""} title={`${slotName} · ${attachmentName(attachment)} · ${group.label}`} key={slot.id} onClick={() => selectAttachment(attachment.id)}><span>{slotName}</span><small>{attachmentName(attachment)}</small></button>; })}</div>)}</div></section>
     <div className="binding-calibration-workspace">
       <article className="binding-preview-card">
         <div className="binding-canvas-hud"><span><b>1</b>{t("animation.binding.guidePart")}</span><span><b>2</b>{t("animation.binding.guideBone")}</span><span><b>3</b>{t("animation.binding.guideTune")}</span></div>
@@ -942,6 +960,7 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
   const [stagedAttachmentDrafts, setStagedAttachmentDrafts] = useState<Record<string, AttachmentDraft>>({});
   const [eventDraft, setEventDraft] = useState({ type: "", name: "", payload: "" });
   const [eventPayloadError, setEventPayloadError] = useState("");
+  const [collapsedTrackGroups, setCollapsedTrackGroups] = useState<Record<string, boolean>>({});
   const [undo, setUndo] = useState<MotionClip[]>([]), [redo, setRedo] = useState<MotionClip[]>([]);
   const load = useCallback(async () => { const [a, f] = await Promise.all([api.listAnimationAssets(), api.listFolders("animation")]); setAssets(a); setFolders(f); }, []);
   useEffect(() => { void load().catch((e) => notify(t("animation.loadFailed", { msg: e.message }))); }, [load, t]);
@@ -1331,6 +1350,45 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
     });
   };
   const nudgeRotation = (degrees: number) => { if (builtin) return; setPlaying(false); setDraft((old) => ({ ...old, rz: Math.max(-180, Math.min(180, old.rz + degrees)) })); };
+  const selectTrackTarget = (targetId: string) => {
+    if (isAttachmentTargetId(targetId)) selectAttachment(targetId.slice(ATTACHMENT_TARGET_PREFIX.length));
+    else selectBone(targetId);
+  };
+  const boneTracks = clip?.tracks.filter((track) => !isAttachmentTargetId(track.targetId)) ?? [];
+  const partTracks = clip?.tracks.filter((track) => isAttachmentTargetId(track.targetId)) ?? [];
+  const interpolationLabelKey = (interpolation: MotionSegmentInterpolation) => interpolation.type === "step" ? "animation.interpolation.hold" : interpolation.type === "linear" ? "animation.interpolation.smooth" : "animation.interpolation.cubic";
+  const interpolationHintKey = (interpolation: MotionSegmentInterpolation) => interpolation.type === "step" ? "animation.interpolation.holdHint" : interpolation.type === "linear" ? "animation.interpolation.smoothHint" : "animation.interpolation.cubicHint";
+  const renderTrack = (track: AnyMotionTrack) => {
+    if (!clip) return null;
+    const interpolation = segmentInterpolationAt(track);
+    const cubic = interpolation?.type === "cubic-bezier" ? interpolation : null;
+    const expanded = track.targetId === selectedTrackTargetId;
+    return <div className={`animation-track${expanded ? " selected" : ""}`} key={`${track.targetId}-${track.property}`}>
+      <span>{trackTargetLabel(track.targetId)} · {t(`animation.channel.${track.property}`)}</span>
+      <div className="animation-track-lane" onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); setPlaying(false); setTime(Math.max(0, Math.min(clip.duration, (event.clientX - bounds.left) / bounds.width * clip.duration))); }}>
+        {track.keyframes.map((key, k) => <button className="animation-key-dot" aria-label={`${key.time}s`} key={k} onClick={(event) => { event.stopPropagation(); setTime(key.time); selectTrackTarget(track.targetId); }} style={{ left: `${clip.duration ? key.time / clip.duration * 100 : 0}%` }} />)}
+        <b className="animation-playhead" style={{ left: `${clip.duration ? time / clip.duration * 100 : 0}%` }} />
+      </div>
+      {expanded
+        ? <div className="animation-track-interpolation"><button className={interpolation?.type === "step" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.holdHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "step" })}>{t("animation.interpolation.hold")}</button><button className={interpolation?.type === "linear" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.smoothHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "linear" })}>{t("animation.interpolation.smooth")}</button><button className={cubic ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.cubicHint")} onClick={() => void setInterpolation(track.targetId, track.property, cubic ?? DEFAULT_CUBIC_MOTION_INTERPOLATION)}>{t("animation.interpolation.cubic")}</button></div>
+        : interpolation ? <button type="button" className="animation-interp-chip" disabled={busy} title={t(interpolationHintKey(interpolation))} onClick={() => selectTrackTarget(track.targetId)}>{t(interpolationLabelKey(interpolation))}</button> : <span />}
+      {expanded && cubic && <span className="animation-cubic-controls">{(["x1", "y1", "x2", "y2"] as const).map((key) => <label key={key}>{key}<input className="px-input" type="number" min="0" max="1" step="0.01" value={cubic[key]} disabled={busy || builtin} onChange={(event) => { const value = Math.max(0, Math.min(1, Number(event.target.value))); if (Number.isFinite(value)) void setInterpolation(track.targetId, track.property, { ...cubic, [key]: value } as CubicBezierMotionInterpolation); }} /></label>)}</span>}
+    </div>;
+  };
+  // 骨骼选择器选项：按骨架层级 DFS 排序，子骨骼缩进显示
+  const bonePickerOptions = useMemo(() => {
+    if (!skeleton) return [];
+    const options: { value: string; label: string }[] = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const bone of skeleton.bones.filter((item) => item.parentId === parentId)) {
+        const name = localizeBoneName(skeleton.id, bone.id, bone.name, t);
+        options.push({ value: bone.id, label: depth ? `${"　".repeat(depth - 1)}└ ${name}` : name });
+        walk(bone.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return options;
+  }, [skeleton, t]);
   return <>{createActionOpen && <div className="modal-mask" onMouseDown={(event) => event.target === event.currentTarget && !busy && setCreateActionOpen(false)}>
     <form className="modal pixel-panel animation-create-action-modal" role="dialog" aria-modal="true" aria-labelledby="animation-create-action-title" onSubmit={(event) => { event.preventDefault(); void createAction(); }}>
       <h2 id="animation-create-action-title">{t("animation.createAction")}</h2>
@@ -1398,7 +1456,7 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
               <button className="px-btn" type="button" onClick={() => selectBone(selectedBone)}>{t("animation.backToBone")}</button>
             </div>
           </> : <>
-          <label className="animation-bone-picker">{t("animation.bone")}<PxSelect value={selectedBone} disabled={busy} options={skeleton.bones.map((bone) => ({ value: bone.id, label: localizeBoneName(skeleton.id, bone.id, bone.name, t) }))} onChange={selectBone} /></label>
+          <label className="animation-bone-picker">{t("animation.bone")}<PxSelect value={selectedBone} disabled={busy} options={bonePickerOptions} onChange={selectBone} /></label>
           <p className="animation-bone-hint">{t(isRootBone ? "animation.rootHint" : "animation.jointHint")}</p>
           {isRootBone && <div className="animation-root-fields">{numberField("tx", t("animation.translationX"))}{numberField("ty", t("animation.translationY"))}</div>}
           <div className="animation-rotation-editor">
@@ -1433,14 +1491,16 @@ export default function AnimationAssetsWorkspace({ onOpenProjects, initialAssetI
         <section className="animation-timeline">
           <header><div><h3>{t("animation.timeline")}</h3><p>{t("animation.timelineHint")}</p></div><button className="px-btn" disabled={busy || builtin || !clip.tracks.some((track) => clip.schemaVersion === 1 ? (track as MotionTrack).interpolation === "step" : (track as MotionTrackV2).keyframes.some((key) => key.outInterpolation?.type === "step"))} onClick={() => void smoothAllTracks()}>{t("animation.interpolation.smoothAll")}</button></header>
           <div className="animation-timeline-ruler"><span /><div><i style={{ left: "0%" }}>0s</i><i style={{ left: "50%" }}>{(clip.duration / 2).toFixed(2)}s</i><i style={{ left: "100%" }}>{clip.duration.toFixed(2)}s</i></div><span /></div>
-          <div className="animation-tracks">{clip.tracks.map((track) => <div className={`animation-track${track.targetId === selectedTrackTargetId ? " selected" : ""}`} key={`${track.targetId}-${track.property}`}>
-            <span>{trackTargetLabel(track.targetId)} · {t(`animation.channel.${track.property}`)}</span>
-            <div className="animation-track-lane" onClick={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); setPlaying(false); setTime(Math.max(0, Math.min(clip.duration, (event.clientX - bounds.left) / bounds.width * clip.duration))); }}>
-              {track.keyframes.map((key, k) => <button className="animation-key-dot" aria-label={`${key.time}s`} key={k} onClick={(event) => { event.stopPropagation(); setTime(key.time); if (isAttachmentTargetId(track.targetId)) selectAttachment(track.targetId.slice(ATTACHMENT_TARGET_PREFIX.length)); else selectBone(track.targetId); }} style={{ left: `${clip.duration ? key.time / clip.duration * 100 : 0}%` }} />)}
-              <b className="animation-playhead" style={{ left: `${clip.duration ? time / clip.duration * 100 : 0}%` }} />
-            </div>
-            {(() => { const interpolation = segmentInterpolationAt(track); const cubic = interpolation?.type === "cubic-bezier" ? interpolation : null; return <div className="animation-track-interpolation"><button className={interpolation?.type === "step" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.holdHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "step" })}>{t("animation.interpolation.hold")}</button><button className={interpolation?.type === "linear" ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.smoothHint")} onClick={() => void setInterpolation(track.targetId, track.property, { type: "linear" })}>{t("animation.interpolation.smooth")}</button><button className={cubic ? "on" : ""} disabled={busy || builtin || !interpolation} title={t("animation.interpolation.cubicHint")} onClick={() => void setInterpolation(track.targetId, track.property, cubic ?? DEFAULT_CUBIC_MOTION_INTERPOLATION)}>{t("animation.interpolation.cubic")}</button>{cubic && <span className="animation-cubic-controls">{(["x1", "y1", "x2", "y2"] as const).map((key) => <label key={key}>{key}<input className="px-input" type="number" min="0" max="1" step="0.01" value={cubic[key]} disabled={busy || builtin} onChange={(event) => { const value = Math.max(0, Math.min(1, Number(event.target.value))); if (Number.isFinite(value)) void setInterpolation(track.targetId, track.property, { ...cubic, [key]: value } as CubicBezierMotionInterpolation); }} /></label>)}</span>}</div>; })()}
-          </div>)}</div>
+          <div className="animation-tracks">{([
+            { id: "bones", label: t("animation.trackGroup.bones"), tracks: boneTracks },
+            { id: "parts", label: t("animation.trackGroup.parts"), tracks: partTracks },
+          ]).filter((group) => group.tracks.length > 0).map((group) => {
+            const collapsed = !!collapsedTrackGroups[group.id];
+            return <div className="animation-track-group" key={group.id}>
+              <button type="button" className="animation-track-group-header" aria-expanded={!collapsed} onClick={() => setCollapsedTrackGroups((old) => ({ ...old, [group.id]: !collapsed }))}>{collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{group.label}<span>{group.tracks.length}</span></button>
+              {!collapsed && group.tracks.map(renderTrack)}
+            </div>;
+          })}</div>
         </section>
       </>}
     </> : <p>{t("animation.selectHint")}</p>}</main>
