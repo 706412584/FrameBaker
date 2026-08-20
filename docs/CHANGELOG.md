@@ -4,6 +4,10 @@ This document records features, changes, and bug fixes by release. Main releases
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the target-skeleton selector from reference decomposition: it only influenced the generation prompt and grid rows/columns, downstream split, naming, and binding never consumed it, and `targetSkeletonId` was never accepted by the server; the split grid is back to manual rows/columns plus the humanoid default.
+
 ## [0.4.0] - 2026-08-20
 
 ### Added
@@ -12,8 +16,7 @@ This document records features, changes, and bug fixes by release. Main releases
 - Added deterministic flexible attachment deformation with canvas Warp dragging, rest bend, playback sway, axis, frequency, and phase controls for capes and other soft parts.
 - Added a full skeletal-parts sheet workflow with flexible per-cell crops, direct divider resizing, rectangular merges, right-click horizontal/vertical subdivision, quality-gated previews, and per-part erase editing before registration.
 - Added connected-component auto-detection to the skeletal split modal: opaque parts are detected as individual cells (in reading order) so a uniform grid no longer cuts through a part, and each detected cell stays editable, splittable, mergeable, and renamable.
-- Added an optional target-skeleton selector to reference decomposition: parts are generated to match the selected skeleton's bone-segment count and semantics, and the grid is fitted automatically.
-- Added a skeleton semantics diagnosis that warns in the character editor when a bound skeleton is missing or inconsistently naming required humanoid bone segments (which silently disabled auto-assembly), listing every unmatched segment.
+- Added shared-layer capabilities and tests for humanoid skeleton semantics diagnosis and auto-assembly (not yet wired into the UI).
 - Added material-folder filtering to the skeletal binding image picker, including hierarchical folder paths plus All and Ungrouped views.
 - Added material renaming from the library context menu, REST API, and MCP tool, with immediate open-view synchronization.
 - Completed image-material context menus with direct crop, frame/skeletal split, character decomposition, multi-action/eight-direction generation, matting restore, import, layering, trim, export, and delete actions.
