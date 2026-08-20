@@ -938,7 +938,7 @@ export const en = {
   "skeletal.animations.events": "Action events",
   "skeletal.animations.editOnCharacter": "Edit action on this character",
   "skeletal.animations.editOnCharacterHint": "The canvas shows the bound character parts using the same skeleton and coordinates.",
-  "skeletal.export.runtime": "Export skeletal runtime",
+  "skeletal.export.runtime": "Export skeletal package",
   "skeletal.export.done": "Skeletal runtime package exported",
   "skeletal.export.failed": "Could not export skeletal runtime package: {msg}",
   "skeletal.thumbnail.set": "Set as thumbnail",

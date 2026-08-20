@@ -938,7 +938,7 @@ export const zh = {
   "skeletal.animations.events": "动作事件",
   "skeletal.animations.editOnCharacter": "在当前角色上编辑动作",
   "skeletal.animations.editOnCharacterHint": "当前画布显示已绑定的角色部件；骨架、绑定和动作使用同一套坐标。",
-  "skeletal.export.runtime": "导出骨骼运行时包",
+  "skeletal.export.runtime": "导出骨骼包",
   "skeletal.export.done": "骨骼运行时包已导出",
   "skeletal.export.failed": "骨骼运行时包导出失败：{msg}",
   "skeletal.thumbnail.set": "设为缩略图",

@@ -393,8 +393,10 @@ export default function SkeletalProjectEditor({ project, onBack }: { project: Pr
         <button type="button" className={`${tab === "character" ? "active " : ""}${binding ? "done" : ""}`} onClick={() => setTab("character")}><Boxes size={17} /> 1. {t("skeletal.tab.character")}</button>
         <button type="button" title={!binding ? t("skeletal.step.requiresCharacter") : undefined} className={`${tab === "animations" ? "active " : ""}${document.animations.length ? "done" : ""}`} onClick={() => binding ? setTab("animations") : undefined}><Play size={17} /> 2. {t("skeletal.tab.animations")} <span>{document.animations.length}</span></button>
         <input ref={importInputRef} hidden type="file" accept=".zip,.fbanim,application/zip" onChange={(event) => { void importPackage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-        <button type="button" className="px-btn" disabled={busy} onClick={() => importInputRef.current?.click()}><Upload size={15} /> {t("skeletal.import.runtime")}</button>
-        <button type="button" className="skeletal-export-button" disabled={busy || !binding || !document.animations.length} onClick={() => void exportPackage()}><Download size={17} /> {t("skeletal.export.runtime")}</button>
+        <div className="skeletal-project-actions">
+          <button type="button" className="skeletal-tab-action" disabled={busy} onClick={() => importInputRef.current?.click()}><Upload size={17} /> {t("skeletal.import.runtime")}</button>
+          <button type="button" className="skeletal-tab-action" disabled={busy || !binding || !document.animations.length} onClick={() => void exportPackage()}><Download size={17} /> {t("skeletal.export.runtime")}</button>
+        </div>
       </nav>
 
       {tab === "character" && <main className="skeletal-character-workspace">

@@ -647,7 +647,8 @@ input[type="range"] {
 .skeletal-project-tabs button:hover:not(:disabled), .skeletal-project-tabs button.active { color: var(--text); border-bottom-color: var(--accent); background: var(--selected); }
 .skeletal-project-tabs button:disabled { opacity: .45; cursor: not-allowed; }
 .skeletal-project-tabs button span { min-width: 20px; padding: 1px 5px; border: 1px solid var(--border); background: var(--elevated); font-size: 11px; }
-.skeletal-project-tabs .skeletal-export-button { margin-left: auto; color: var(--accent); }
+.skeletal-project-tabs .skeletal-project-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.skeletal-project-tabs .skeletal-tab-action { color: var(--accent); }
 .skeletal-character-workspace, .skeletal-animation-workspace { width: 100%; display: grid; grid-template-columns: clamp(238px, 17vw, 300px) minmax(0, 1fr); gap: 10px; align-items: start; }
 .skeletal-setup-panel, .skeletal-action-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
@@ -722,9 +723,11 @@ input[type="range"] {
   .skeletal-project-header { flex-direction: column; }
   .skeletal-project-title { width: 100%; display: flex; flex-wrap: wrap; }
   .skeletal-project-header p { width: 100%; white-space: normal; }
-  .skeletal-project-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; border-bottom: 0; }
+  .skeletal-project-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; border-bottom: 0; }
   .skeletal-project-tabs button { min-width: 0; justify-content: center; padding: 9px 6px; transform: none; border: 1px solid var(--border); border-bottom: 3px solid transparent; white-space: nowrap; }
-  .skeletal-project-tabs .skeletal-export-button { grid-column: 1 / -1; margin-left: 0; border-color: var(--accent); }
+  .skeletal-project-tabs .skeletal-project-actions { grid-column: 1 / -1; margin-left: 0; gap: 6px; }
+  .skeletal-project-tabs .skeletal-project-actions button { flex: 1; }
+  .skeletal-project-tabs .skeletal-tab-action { border-color: var(--accent); }
   .skeletal-project-welcome { padding: 24px 16px; }
   .skeletal-character-workspace, .skeletal-animation-workspace { grid-template-columns: 1fr; }
   .skeletal-setup-panel, .skeletal-action-list { position: static; max-height: none; }
