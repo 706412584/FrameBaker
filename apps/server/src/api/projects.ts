@@ -1,14 +1,27 @@
 import { Elysia, t } from "elysia";
 import { PROJECT_KINDS, type ProjectKind } from "@framebaker/shared";
-import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
+import { serveMediaFile } from "../media";
 import { broadcast } from "../ws";
 import { ensureDefaultTimeline } from "../timeline";
 import { invalidateProjectUndo } from "../undo";
 
 function isProjectKind(value: string): value is ProjectKind {
   return (PROJECT_KINDS as readonly string[]).includes(value);
+}
+
+// 项目缩略图（前端渲染好的 PNG 直接存取，不走 media.ts 的生成式缩略图管线）
+const PROJECT_THUMBNAIL_MAX = 2 * 1024 * 1024;
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function projectThumbnailPath(projectId: string): string {
+  return join(STORAGE_ROOT, "thumbnails", "projects", `${projectId}.png`);
+}
+
+function hasProjectThumbnail(projectId: string): boolean {
+  return existsSync(projectThumbnailPath(projectId));
 }
 
 export const projectsApi = new Elysia({ prefix: "/api" })
@@ -24,8 +37,8 @@ export const projectsApi = new Elysia({ prefix: "/api" })
           ) AS first_frame_id
          FROM projects p ORDER BY p.created_at DESC`
       )
-      .all();
-    return { projects: rows };
+      .all() as Array<Record<string, unknown>>;
+    return { projects: rows.map((row) => ({ ...row, has_thumbnail: hasProjectThumbnail(String(row.id)) })) };
   })
   .post(
     "/projects",
@@ -67,9 +80,9 @@ export const projectsApi = new Elysia({ prefix: "/api" })
         `SELECT p.*, (SELECT COUNT(*) FROM frames f WHERE f.project_id = p.id) AS frame_count
          FROM projects p WHERE p.id = ?`
       )
-      .get(params.id);
+      .get(params.id) as Record<string, unknown> | null;
     if (!row) return status(404, "项目不存在");
-    return { project: row };
+    return { project: { ...row, has_thumbnail: hasProjectThumbnail(params.id) } };
   })
   .patch(
     "/projects/:id",
@@ -107,6 +120,28 @@ export const projectsApi = new Elysia({ prefix: "/api" })
     db.query("DELETE FROM skeletal_projects WHERE project_id = ?").run(params.id);
     db.query("DELETE FROM projects WHERE id = ?").run(params.id);
     rmSync(join(STORAGE_ROOT, "projects", params.id), { recursive: true, force: true });
+    rmSync(projectThumbnailPath(params.id), { force: true });
     broadcast("project_deleted", { id: params.id });
     return { ok: true };
+  })
+  // 项目缩略图：body 为 PNG 二进制（不做 undo 快照；不解构 body，直接读原始请求流）
+  .put("/projects/:id/thumbnail", async ({ params, request, status }) => {
+    const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
+    if (!row) return status(404, "项目不存在");
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("image/png")) return status(400, "仅支持 PNG 图片");
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!bytes.length || bytes.length > PROJECT_THUMBNAIL_MAX) return status(400, "缩略图大小需在 2MB 以内");
+    if (PNG_MAGIC.some((byte, index) => bytes[index] !== byte)) return status(400, "文件不是有效的 PNG");
+    const file = projectThumbnailPath(params.id);
+    mkdirSync(dirname(file), { recursive: true });
+    await Bun.write(file, bytes);
+    return { ok: true };
+  })
+  .get("/projects/:id/thumbnail", ({ params, request, status }) => {
+    const row = db.query("SELECT id FROM projects WHERE id = ?").get(params.id);
+    if (!row) return status(404, "项目不存在");
+    const file = projectThumbnailPath(params.id);
+    if (!existsSync(file)) return status(404, "项目还没有缩略图");
+    return serveMediaFile(file, request, "image/png");
   });

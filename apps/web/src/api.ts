@@ -52,7 +52,7 @@ import type {
 } from "@framebaker/shared";
 
 export type { AttackEffect, AttackEffectCell, Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
-export { frameImageUrl, materialFileUrl, materialImageUrl } from "./api/mediaUrls";
+export { frameImageUrl, materialFileUrl, materialImageUrl, projectThumbnailUrl } from "./api/mediaUrls";
 export { wsClient } from "./api/ws";
 
 // ---- fetch 封装 ----
@@ -122,6 +122,13 @@ export const api = {
   deleteProject: (id: string) => req<OkResponse>(`/api/projects/${id}`, { method: "DELETE" }),
   patchProject: (id: string, body: { name?: string; folderId?: string | null }) =>
     req<OkResponse>(`/api/projects/${id}`, { method: "PATCH", ...json(body) }),
+  /** 上传项目缩略图（PNG 二进制，≤2MB） */
+  uploadProjectThumbnail: (id: string, blob: Blob) =>
+    req<OkResponse>(`/api/projects/${id}/thumbnail`, {
+      method: "PUT",
+      headers: { "Content-Type": "image/png" },
+      body: blob,
+    }),
 
   undoProject: (id: string) => req<OkResponse>(`/api/projects/${id}/undo`, { method: "POST" }),
   getSkeletalProjectDocument: (id: string) => req<SkeletalProjectDocumentResponse>(`/api/projects/${id}/skeletal-document`).then((r) => r.document),

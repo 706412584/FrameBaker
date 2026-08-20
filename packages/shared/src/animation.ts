@@ -126,13 +126,20 @@ export interface ScaleTrack extends MotionTrackV1Base {
   keyframes: Array<MotionKey<Vec3>>;
 }
 
-export type MotionTrack = TranslationTrack | RotationTrack | ScaleTrack;
+/** 部件 deform 通道（仅 att: 目标合法）；value 为 Vec3，x=bend 增量，y/z 保留为 0 备用。 */
+export interface DeformTrack extends MotionTrackV1Base {
+  property: "deform";
+  keyframes: Array<MotionKey<Vec3>>;
+}
+
+export type MotionTrack = TranslationTrack | RotationTrack | ScaleTrack | DeformTrack;
 
 interface MotionTrackV2Base { targetId: string }
 export interface TranslationTrackV2 extends MotionTrackV2Base { property: "translation"; keyframes: Array<MotionKeyV2<Vec3>> }
 export interface RotationTrackV2 extends MotionTrackV2Base { property: "rotation"; keyframes: Array<MotionKeyV2<Quaternion>> }
 export interface ScaleTrackV2 extends MotionTrackV2Base { property: "scale"; keyframes: Array<MotionKeyV2<Vec3>> }
-export type MotionTrackV2 = TranslationTrackV2 | RotationTrackV2 | ScaleTrackV2;
+export interface DeformTrackV2 extends MotionTrackV2Base { property: "deform"; keyframes: Array<MotionKeyV2<Vec3>> }
+export type MotionTrackV2 = TranslationTrackV2 | RotationTrackV2 | ScaleTrackV2 | DeformTrackV2;
 export type AnyMotionTrack = MotionTrack | MotionTrackV2;
 
 export interface MotionEvent {
@@ -258,12 +265,28 @@ export type ValidationResult<T> =
   | { ok: true; value: T; issues: [] }
   | { ok: false; issues: ValidationIssue[] };
 
+/** 部件偏移轨道（att: 前缀）的采样值，key 为去掉前缀的 attachmentId；无轨道时为空对象，部件按 rest 渲染。 */
+export interface AttachmentOffset {
+  translation?: Vec3;
+  rotation?: Quaternion;
+  /** 叠加缩放，默认 [1,1,1]。 */
+  scale?: Vec3;
+  /** deform 轨道的 bend 增量（value 为 Vec3，仅取 x；y/z 保留备用），叠加在绑定静态 bend 之上。 */
+  deformBend?: number;
+}
+
 export interface EvaluatedPose {
   time: number;
   local: Record<string, Transform>;
   /** 权威世界变换；完整矩阵可正确保留层级非均匀缩放产生的剪切。 */
   worldMatrices: Record<string, Mat4>;
+  /** 部件偏移轨道（att: 前缀）的采样值，key 为去掉前缀的 attachmentId；无轨道时为空对象，部件按 rest 渲染。 */
+  attachmentOffsets: Record<string, AttachmentOffset>;
 }
+
+/** 部件偏移轨道的 targetId 前缀：`att:<attachmentId>`；偏移矩阵在「骨骼世界 × 部件 rest」之后叠加。 */
+export const ATTACHMENT_TARGET_PREFIX = "att:";
+export const isAttachmentTargetId = (targetId: string) => targetId.startsWith(ATTACHMENT_TARGET_PREFIX);
 
 const EPSILON = 1e-8;
 const QUATERNION_NORM_EPSILON = 1e-4;
@@ -433,8 +456,9 @@ function validateTrack(track: unknown, index: number, duration: number, skeleton
   }
   rejectUnknown(track, version === 1 ? ["targetId", "property", "interpolation", "keyframes"] : ["targetId", "property", "keyframes"], path, issues);
   if (typeof track.targetId !== "string" || !ID_PATTERN.test(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标 ID 无效" });
-  else if (skeletonIds && !skeletonIds.has(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标骨骼不存在" });
-  if (track.property !== "translation" && track.property !== "rotation" && track.property !== "scale") issues.push({ path: `${path}.property`, message: "轨道属性无效" });
+  else if (skeletonIds && !skeletonIds.has(track.targetId) && !isAttachmentTargetId(track.targetId)) issues.push({ path: `${path}.targetId`, message: "目标骨骼不存在" });
+  if (track.property !== "translation" && track.property !== "rotation" && track.property !== "scale" && track.property !== "deform") issues.push({ path: `${path}.property`, message: "轨道属性无效" });
+  else if (track.property === "deform" && !(typeof track.targetId === "string" && isAttachmentTargetId(track.targetId))) issues.push({ path: `${path}.property`, message: "deform 轨道仅支持部件（att:）目标" });
   if (version === 1 && track.interpolation !== "step" && track.interpolation !== "linear") issues.push({ path: `${path}.interpolation`, message: "插值方式无效" });
   if (!Array.isArray(track.keyframes) || track.keyframes.length === 0 || track.keyframes.length > ANIMATION_V1_LIMITS.maxKeyframesPerTrack) {
     issues.push({ path: `${path}.keyframes`, message: "轨道至少需要一个关键帧" });
@@ -949,7 +973,18 @@ export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requested
     ? ((requestedTime % clip.duration) + clip.duration) % clip.duration
     : Math.max(0, Math.min(requestedTime, clip.duration));
   const local = Object.fromEntries(skeleton.bones.map((bone) => [bone.id, cloneTransform(bone.rest)]));
+  const attachmentOffsets: EvaluatedPose["attachmentOffsets"] = {};
   for (const track of clip.tracks) {
+    if (isAttachmentTargetId(track.targetId)) {
+      const attachmentId = track.targetId.slice(ATTACHMENT_TARGET_PREFIX.length);
+      const entry = attachmentOffsets[attachmentId] ?? (attachmentOffsets[attachmentId] = {});
+      const value = sampleTrack(track, time, clip.schemaVersion);
+      if (track.property === "rotation") entry.rotation = normalizeQuaternion(value as Quaternion);
+      else if (track.property === "translation") entry.translation = value as Vec3;
+      else if (track.property === "scale") entry.scale = value as Vec3;
+      else entry.deformBend = (value as Vec3)[0];
+      continue;
+    }
     const transform = local[track.targetId];
     if (!transform) continue;
     const value = sampleTrack(track, time, clip.schemaVersion);
@@ -981,7 +1016,7 @@ export function sampleMotionClip(clip: MotionClip, skeleton: Skeleton, requested
     }
     if (!progressed) throw new Error("骨架层级无效，无法完成 FK 求值");
   }
-  return { time, local, worldMatrices };
+  return { time, local, worldMatrices, attachmentOffsets };
 }
 
 export function getBoneEndpoint(pose: EvaluatedPose, skeleton: Skeleton, boneId: string): Vec3 | null {

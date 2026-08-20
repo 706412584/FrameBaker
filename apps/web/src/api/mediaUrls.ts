@@ -15,3 +15,7 @@ export const materialImageUrl = (
 /** 素材文件 URL（视频勿用 .png 后缀，避免部分浏览器误判） */
 export const materialFileUrl = (id: string, v?: number, type: "raw" | "processed" = "raw") =>
   `/api/materials/${id}/image?type=${type}${v ? `&v=${v}` : ""}`;
+
+/** 项目缩略图 URL（前端渲染上传的 PNG；v 用于更新后破缓存） */
+export const projectThumbnailUrl = (id: string, v?: number) =>
+  `/api/projects/${id}/thumbnail${v ? `?v=${v}` : ""}`;

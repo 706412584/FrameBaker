@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, ScanSearch, X } from "lucide-react";
+import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, ScanSearch, Trash2, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
 import { analyzeImage, cropImage, detectComponents, findOpaqueBounds } from "../imageops/client";
@@ -89,6 +89,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [mergedCellGroups, setMergedCellGroups] = useState<number[][]>([]);
   const [cellSplits, setCellSplits] = useState<CellSplit[]>([]);
   const [manualMergedCells, setManualMergedCells] = useState<ManualMergedCell[]>([]);
+  const [deletedCellGroupIds, setDeletedCellGroupIds] = useState<number[]>([]);
   // 连通域自动检测得到的部件单元（合成 id 单格组）；非空时取代均匀网格作为基础布局。
   const [detectedGroups, setDetectedGroups] = useState<number[][] | null>(null);
   const [splitCellRects, setSplitCellRects] = useState<Record<number, CropRect>>({});
@@ -143,13 +144,16 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       emitted.add(merged.id);
       return [[merged.id]];
     });
-    return mergedGroups.flatMap(expand);
-  }, [cellSplits, cols, detectedGroups, manualMergedCells, mergedCellGroups, rows, splitLine]);
+    const deleted = new Set(deletedCellGroupIds);
+    return mergedGroups.flatMap(expand).filter((group) => !deleted.has(group[0]));
+  }, [cellSplits, cols, deletedCellGroupIds, detectedGroups, manualMergedCells, mergedCellGroups, rows, splitLine]);
   const cellGroupsKey = cellGroups.map((group) => group.join(",")).join("|");
   const cellGroupLabel = (group: number[]) => detectedGroups || cellSplits.length
     ? String(cellGroups.findIndex((candidate) => candidate[0] === group[0]) + 1)
     : group.map((index) => index + 1).join("+");
   const standardSemanticLayout = standardHumanoidGrid && mergedCellGroups.length === 0 && cellSplits.length === 0;
+  const standardOptionalReviewIndex = standardSemanticLayout ? cellGroups.findIndex((group) => group.includes(3)) : -1;
+  const allowTightSkeletalBounds = deletedCellGroupIds.length > 0 || detectedGroups != null;
   const activeGroupIndexes = skeletalReview?.activeGroupIndexes ?? cellGroups.map((_, index) => index);
   const total = splitLine === "skeletal" ? activeGroupIndexes.length : rows * cols - (skipCenter ? 1 : 0);
   const activeCellGroup = activeCellIndex == null ? null : cellGroups.find((group) => group.includes(activeCellIndex)) ?? null;
@@ -167,6 +171,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setMergedCellGroups([]);
     setCellSplits([]);
     setManualMergedCells([]);
+    setDeletedCellGroupIds([]);
     setSplitCellRects({});
     setSelectedCells([]);
     setCellContextMenu(null);
@@ -252,6 +257,26 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
 
   const baseCellRect = (index: number): CropRect | null => {
     if (!region) return null;
+    const canReflow = splitLine === "skeletal" && !detectedGroups && !mergedCellGroups.length && !cellSplits.length && deletedCellGroupIds.some((id) => id < rows * cols);
+    if (canReflow && !deletedCellGroupIds.includes(index)) {
+      const row = Math.floor(index / cols);
+      const rowStart = row * cols;
+      const rowCells = Array.from({ length: cols }, (_, offset) => rowStart + offset);
+      const visible = rowCells.filter((cellIndex) => !deletedCellGroupIds.includes(cellIndex));
+      const position = visible.indexOf(index);
+      if (position >= 0) {
+        const col = position;
+        const cellsInRow = visible.length;
+        const cellWidth = Math.floor(region.w / cellsInRow);
+        const cellHeight = Math.floor(region.h / rows);
+        return {
+          x: region.x + cellWidth * col,
+          y: region.y + cellHeight * row,
+          w: col === cellsInRow - 1 ? region.w - cellWidth * col : cellWidth,
+          h: row === rows - 1 ? region.h - cellHeight * row : cellHeight,
+        };
+      }
+    }
     const row = Math.floor(index / cols);
     const col = index % cols;
     const cellWidth = Math.floor(region.w / cols);
@@ -364,6 +389,16 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     setSplitCellRects((rects) => ({ ...rects, [firstId]: relative(firstRect), [secondId]: relative(secondRect) }));
     setSelectedCells([]);
     setActiveCellIndex(firstId);
+    setSkeletalReview(null);
+    setReviewConfirmed(false);
+  };
+
+  const deleteCellGroup = (group: number[]) => {
+    if (busy) return;
+    setDeletedCellGroupIds((ids) => ids.includes(group[0]) ? ids : [...ids, group[0]]);
+    setSelectedCells((cells) => cells.filter((index) => !group.includes(index)));
+    setActiveCellIndex((index) => index != null && group.includes(index) ? null : index);
+    setCellContextMenu(null);
     setSkeletalReview(null);
     setReviewConfirmed(false);
   };
@@ -743,7 +778,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
         if (rect) cells.push(await cropImage(blob, rect));
       }
       const analyses = await Promise.all(cells.map(analyzeImage));
-      const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : [], detectedGroups != null);
+      const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardOptionalReviewIndex >= 0 ? [standardOptionalReviewIndex] : [], allowTightSkeletalBounds);
       setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews: cells.map((cell) => URL.createObjectURL(cell)) });
       setReviewConfirmed(false);
       if (issues.length > 0) notify(t("skeletal.split.qualityBlocked", { count: issues.length }));
@@ -761,7 +796,7 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     const cells = [...current.cells];
     cells[groupIndex] = editedCell;
     const analyses = await Promise.all(cells.map(analyzeImage));
-    const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardSemanticLayout ? [3] : [], detectedGroups != null);
+    const { activeIndexes, issues } = reviewSkeletalGrid(analyses, standardSemanticLayout, standardOptionalReviewIndex >= 0 ? [standardOptionalReviewIndex] : [], allowTightSkeletalBounds);
     const previews = cells.map((cell) => URL.createObjectURL(cell));
     current.previews.forEach((url) => URL.revokeObjectURL(url));
     setSkeletalReview({ cells, issues, activeGroupIndexes: activeIndexes, previews });
@@ -933,6 +968,12 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     : null;
   const contextCellRect = contextCellGroup ? cellGroupRect(contextCellGroup, false) : null;
   const cellContextItems: CtxMenuItem[] = contextCellGroup ? [
+    {
+      label: t("skeletal.split.deleteCell"),
+      icon: <Trash2 size={14} />,
+      disabled: busy,
+      onClick: () => deleteCellGroup(contextCellGroup),
+    },
     {
       label: t("skeletal.split.splitLeftRight"),
       icon: <Columns2 size={14} />,

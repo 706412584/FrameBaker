@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Clapperboard, Package, PersonStanding, Settings } from "lucide-react";
+import { Clapperboard, Package, Settings } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import LangToggle from "./LangToggle";
 import NoticeHistory from "./NoticeHistory";
@@ -10,13 +10,12 @@ interface Props {
   onNav: (page: "home" | "materials" | "motions" | "settings") => void;
 }
 
-/** 顶部一级导航：项目 / 素材库 / 动作 / 设置；动作制作与骨架绑定解耦，项目内仍提供快捷入口。 */
+/** 顶部一级导航：项目 / 素材库 / 设置；骨骼绑定与动作制作统一在骨骼项目内完成。 */
 export default function TopNav({ current, onNav }: Props) {
   const t = useT();
   const tabs = [
     { id: "home" as const, icon: Clapperboard, label: t("msg.projects") },
     { id: "materials" as const, icon: Package, label: t("msg.materials") },
-    { id: "motions" as const, icon: PersonStanding, label: t("msg.motions") },
     { id: "settings" as const, icon: Settings, label: t("msg.settings") },
   ];
 

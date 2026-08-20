@@ -150,16 +150,16 @@ export function deriveSkeletonPartDescriptors(skeleton: Skeleton): string[] {
   if (isHumanoidSkeleton(skeleton)) {
     return [
       "head including helmet or hair",
-      "torso from neck to belt without shoulder armor",
-      "pelvis or hip skirt",
-      "left upper arm with shoulder cover, ends at the elbow, no hand",
+      "torso from neck to waist, excluding shoulders, sleeves and upper arms",
+      "pelvis from waist to hip sockets, excluding thighs and trouser legs",
+      "left upper arm including shoulder clothing, ending at the elbow, no hand",
       "left forearm including the hand",
-      "right upper arm with shoulder cover, ends at the elbow, no hand",
+      "right upper arm including shoulder clothing, ending at the elbow, no hand",
       "right forearm including the hand",
-      "left thigh ending at the knee",
-      "left shin including the foot",
-      "right thigh ending at the knee",
-      "right shin including the foot",
+      "left thigh including upper trouser leg, ending at the knee",
+      "left shin including lower trouser leg and foot",
+      "right thigh including upper trouser leg, ending at the knee",
+      "right shin including lower trouser leg and foot",
     ];
   }
   return skeleton.bones.filter((bone) => bone.tipOffset).map((bone) => bone.name);

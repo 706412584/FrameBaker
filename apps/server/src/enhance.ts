@@ -23,6 +23,7 @@ function buildSkeletalGuidance(intent?: EnhancePromptIntent): string {
       return `${shared}
 - 只生成 exactly one full-body character，正面或近正面 neutral T-pose，头到脚完整可见，角色四周留空
 - 双手空置；如有武器，将它作为 separate prop 放在角色一侧并与身体至少相隔一个头宽；双臂、双腿、肘和膝必须完整清晰、彼此分开且无遮挡
+- 在不改变用户服装设计的前提下让后续分件边界清楚：torso 不包含 shoulder cap、sleeve 或 upper arm，pelvis 不包含 thigh 或 trouser leg；肩部服装跟随上臂，裤腿在髋和膝处边界清楚
 - 禁止披风、裙摆、长发或武器跨过关节
 - 明确排除 parts sheet、multiple characters、multiple poses、cropped body、held weapon 和复杂背景`;
     case "skeletal-parts":
@@ -34,7 +35,12 @@ function buildSkeletalGuidance(intent?: EnhancePromptIntent): string {
 - 每个 occupied slot 放 exactly one isolated complete part；若部件按统一比例无法放入单格，允许它独占横向或纵向连续的 rectangular multi-cell block，块边界必须严格对齐基础网格，覆盖格内不得再放其他内容
 - 单格部件对准 cell center，跨格部件对准整块 center；四周至少保留基础格宽高 10% 的统一安全边距，任何可见像素不得跨出所属格或合并块；部件不得接触、重叠、重复或缺失
 - 整张表只允许 one global scale factor，所有部件保持彼此相对尺寸；禁止单独缩放某一部件、挤压格距或让跨格部件侵入相邻未占用格
-- 在真实关节处分段并保留少量连接重叠；左右肢体必须分开，禁止重复肢体或用同一部件 mirror-copy 冒充左右侧
+- 先根据参考图、用户描述和目标骨骼语义判断每块服装或配饰应随哪根骨骼运动，再决定边界：torso 不得带 shoulder/sleeve/upper-arm pixels，pelvis 不得带 thigh/trouser-leg pixels；肩甲与袖子归对应上臂，裤腿在膝处分给 thigh/shin；披风、裙片、长发和配饰仅在目标列表或用户要求单独槽位时独立拆分
+- 先做 pixel ownership pass：每个可见像素只能出现一次。短袖和肩帽整体归 upper-arm cell，torso 只保留中央胸腹；膝上结束的短裤/短裙整体归 pelvis cell，thigh cells 只保留裸腿；只有服装确实跨过关节时才在关节处分割，禁止把同一件衣服的下摆复制到 pelvis 和 thigh
+- 对默认 4×3 槽位执行硬边界：torso cell 必须是无袖的中央胸腹核心，两侧是平直 armhole 切口，禁止任何 shoulder cap、sleeve pixel、圆肩凸起或 upper-arm pixel；upper-arm cells 才拥有完整肩帽和袖子。pelvis 是中央腰胯，thigh 从髋关节开始。不要只在文字里说“肩膀归上臂”，必须让 torso 的轮廓实际没有肩膀
+- 对默认 4×3 的腿执行同样硬边界：每个 thigh cell 只能是同侧 hip-to-knee 上腿，在膝盖处做干净水平截断，禁止 calf、shin、ankle、foot 或整条连续腿；每个 shin cell 只能是同侧 knee-to-ankle 下腿，可带脚，禁止 thigh。膝盖只能作为两格之间的连接边界，不能把完整腿重复到任一格
+- 手臂也必须按单骨段输出：upper-arm cell 只能是 shoulder-to-elbow，包含肩袖和上臂皮肤但禁止 forearm、wrist、hand；forearm cell 只能是 elbow-to-wrist 加手，禁止 upper arm。每个肢体格只能有一个骨段长度，不能跨格重建整条手臂或腿
+- 在真实关节处做干净独立截断；所有部件必须零共享像素、零重叠、零连接桥，膝盖处留透明断口；左右肢体必须分开，禁止重复肢体或用同一部件 mirror-copy 冒充左右侧
 - 若用户采用默认人形 4×3 布局，则必须使用标准顺序：row 1 head, torso, pelvis, weapon-if-present；row 2 upper-arm-left, forearm-left, upper-arm-right, forearm-right；row 3 thigh-left, shin-left, thigh-right, shin-right；参考角色没有武器时第 4 格保持透明，禁止虚构武器填格
 - 严格保持参考角色的 identity, body proportions, outfit, palette, pixel density, lighting and facing；禁止重新设计、文字、标签、网格装饰或完整人物
 ${intent === "skeletal-decompose" ? "- 参考图即使已经像分件表，也只提取所选网格数量的目标部件，禁止 recursive parts sheet 或在单格内再次生成小型分件表" : "- 这是单层分件表，禁止在任意单格内再次生成小型分件表"}`;
@@ -42,7 +48,7 @@ ${intent === "skeletal-decompose" ? "- 参考图即使已经像分件表，也�
       return `${shared}
 - 只输出用户指定的 one missing or incorrect body part；禁止完整人物、完整分件表或任何其他部件
 - 严格保持参考图的 pixel density, lighting, silhouette, proportions and facing
-- 关节端保留少量可重叠连接区，但不得附带相邻肢体；部件完整可见、孤立且四周留空`;
+- 关节端必须干净独立截断，零共享像素、零重叠、零连接桥；部件完整可见、孤立且四周留空`;
     case "motion-clip":
       return `${shared}
 - 结果开头先用紧凑短语写齐动作与生产约束，再写风格细节；不要逐帧展开四肢角度或冗长镜头描述

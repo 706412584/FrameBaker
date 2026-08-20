@@ -448,3 +448,15 @@ type AnimationCapability =
 - provider 运行在一次性 CLI、常驻 sidecar 还是远程服务。
 
 这些选择必须服从已冻结边界：可迁移、可替换、可复现、无静默数据损失。
+
+## 15. 部件偏移轨道（att: 目标）
+
+MotionClip 除骨骼轨道外，允许 `targetId` 以 `att:` 为前缀（`att:<attachmentId>`）的**部件偏移轨道**，用于在不改动 CharacterBinding 静止位形的前提下，让某个动作单独调整部件位置/角度（例如修正垂腕、持物手）。
+
+约定：
+
+- `property` 支持 `translation`（Vec3，z 固定 0，单位为 rest 后局部像素）、`rotation`（归一化四元数，仅 Z 轴旋转）、`scale`（Vec3，z 固定 1）与 `deform`（Vec3，x 为 bend 弯曲增量，y/z 保留为 0 备用）；`deform` 仅对 `att:` 目标合法，骨骼目标会被校验拒绝；
+- 轨道值是**叠加偏移**而非替换：最终部件矩阵为 `boneWorld × transformToMatrix(attachment.rest) × offsetMatrix(t)`（offsetMatrix 为 T×R×S 组合），无轨道时偏移为单位变换，渲染与既有行为完全一致；deform 的有效 bend = 绑定静态 bend + 轨道增量，axis/sway/frequency/phase 仍取绑定静态参数（无 deform 绑定的部件按纵向轴默认参数渲染）；
+- 校验上 `att:` 目标跳过「目标骨骼必须存在」检查（attachment 属于项目侧绑定，动作库不持有），其余关键帧/插值校验与骨骼轨道一致；
+- `sampleMotionClip` 返回的 `EvaluatedPose.attachmentOffsets` 以去掉前缀的 attachmentId 为 key 给出当前时刻的偏移采样值（translation/rotation/scale/deformBend）；
+- 动作编辑器在角色预览模式下点击部件即可选中，拖动平移、拖动圆柄旋转、拖动角柄缩放、检查器滑杆调弯曲，写入/删除关键帧作用于 `att:<id>` 的 translation/rotation/scale/deform 轨道；时间线轨道行显示部件名。

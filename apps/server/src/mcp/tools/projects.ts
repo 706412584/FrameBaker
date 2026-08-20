@@ -138,6 +138,7 @@ export function register(server: McpServer) {
       db.query("DELETE FROM jobs WHERE project_id = ?").run(projectId);
       db.query("DELETE FROM projects WHERE id = ?").run(projectId);
       rmSync(join(STORAGE_ROOT, "projects", projectId), { recursive: true, force: true });
+      rmSync(join(STORAGE_ROOT, "thumbnails", "projects", `${projectId}.png`), { force: true });
       broadcast("project_deleted", { id: projectId });
       return ok({ ok: true });
     }

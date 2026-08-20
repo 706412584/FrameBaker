@@ -32,7 +32,7 @@ function viewFromLocation(): View {
 }
 
 
-function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary }: { projectId: string; onBack: () => void; onEditActionLibrary: () => void }) {
+function ProjectEditorRoute({ projectId, onBack }: { projectId: string; onBack: () => void }) {
   const t = useT();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
@@ -63,7 +63,7 @@ function ProjectEditorRoute({ projectId, onBack, onEditActionLibrary }: { projec
 
   if (error) return <div className="project-route-state"><p>{t("project.loadFailed", { msg: error })}</p><button type="button" className="px-btn" onClick={onBack}>{t("msg.back_to_projects")}</button></div>;
   if (!project) return <div className="project-route-state">{t("project.loading")}</div>;
-  if (project.kind === "skeletal") return <SkeletalProjectEditor project={project} onBack={onBack} onEditActionLibrary={onEditActionLibrary} />;
+  if (project.kind === "skeletal") return <SkeletalProjectEditor project={project} onBack={onBack} />;
   if (failed) return <div className="page-loading">{t("msg.editor_engine_load_failed")}</div>;
   if (!ready) return <div className="page-loading">{t("msg.loading_editor")}</div>;
   return (
@@ -151,7 +151,7 @@ export default function App() {
         {view.page === "materials" && <MaterialsPage />}
         {view.page === "motions" && <MotionsRoute onOpenProjects={() => nav({ page: "home" })} />}
         {view.page === "settings" && <SettingsPage />}
-        {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} onEditActionLibrary={() => nav({ page: "motions" })} />}
+        {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
         {/* 右侧常驻任务队列面板（有任务时才显示） */}
         <JobPanel syncOnEnter={view.page === "materials"} />
         {/* 全局通知条 + 确认弹窗（notice.ts） */}

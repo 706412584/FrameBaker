@@ -653,13 +653,6 @@ input[type="range"] {
 .skeletal-setup-panel, .skeletal-action-list { position: sticky; top: 0; max-height: calc(100dvh - 186px); overflow-y: auto; }
 .skeletal-setup-panel > p, .skeletal-action-list p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .skeletal-setup-panel label { display: grid; gap: 6px; color: var(--text-muted); }
-.skeletal-auto-assemble { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed var(--border); }
-.skeletal-auto-assemble h3 { font-size: 13px; }
-.skeletal-auto-assemble p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
-.skeletal-semantic-warning { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--warning); color: var(--warning); }
-.skeletal-semantic-warning h3 { font-size: 13px; }
-.skeletal-semantic-warning p { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
-.skeletal-semantic-warning ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 12px; }
 .skeletal-character-editor, .skeletal-sequence-editor { min-height: calc(100dvh - 186px); padding: 12px; }
 .skeletal-binding-overview { min-height: calc(100dvh - 212px); display: grid; align-content: start; gap: 10px; }
 .skeletal-binding-overview > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
@@ -671,10 +664,14 @@ input[type="range"] {
 .skeletal-binding-summary strong { color: var(--accent); font-size: 17px; }
 .skeletal-material-source-hint { margin: 0; padding: 9px; border-left: 3px solid var(--accent); background: var(--selected); }
 .skeletal-binding-editor-mask { padding: 0; align-items: stretch; justify-content: stretch; }
+.skeletal-action-editor-mask { padding: 0; align-items: stretch; justify-content: stretch; }
 .modal.skeletal-binding-editor-modal { box-sizing: border-box; width: 100vw; height: 100dvh; max-height: none; padding: 14px; gap: 10px; overflow: hidden; border: 0; box-shadow: none; }
+.modal.skeletal-action-editor-modal { box-sizing: border-box; width: 100vw; height: 100dvh; max-height: none; padding: 14px; gap: 10px; overflow: hidden; border: 0; box-shadow: none; }
+.skeletal-action-editor-modal > .animation-workspace { min-height: 0; height: auto; overflow: auto; }
 .skeletal-binding-editor-titlebar { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .skeletal-binding-editor-titlebar p { margin-top: 4px; color: var(--text-muted); line-height: 1.45; }
 .skeletal-binding-editor-titlebar > div:last-child { display: flex; gap: 7px; }
+.skeletal-binding-tool-tabs { display: flex; gap: 7px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .skeletal-binding-editor-modal > .binding-editor { min-height: 0; overflow-y: auto; border-top: 0; padding-top: 0; scrollbar-gutter: stable; }
 .skeletal-binding-editor-modal .binding-calibration-workspace { grid-template-columns: minmax(0, 1fr) minmax(370px, 420px); }
 .skeletal-binding-editor-modal .binding-preview { height: clamp(560px, calc(100dvh - 355px), 820px); min-height: 0; }
@@ -4555,6 +4552,8 @@ body.resizing-row * {
 .motion-heading-side p { margin: 0; }
 .animation-workspace { width: 100%; max-width: 100%; height: calc(100dvh - 148px); min-width: 0; min-height: 560px; display: grid; grid-template-columns: clamp(190px, 14vw, 230px) clamp(300px, 23vw, 400px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px 10px; }
 .animation-workspace > * { min-width: 0; max-width: 100%; }
+.animation-workspace.embedded { display: block; height: auto; min-height: 0; }
+.animation-workspace.embedded .animation-preview { width: 100%; min-height: 0; overflow: visible; }
 .animation-filter-rail { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .animation-filter-rail button { border: 1px solid var(--border); background: var(--elevated); color: var(--text-muted); padding: 6px 9px; }
 .animation-filter-rail button.on { border-color: var(--accent); color: var(--text); background: var(--selected); }
@@ -4614,9 +4613,10 @@ body.resizing-row * {
 .animation-motion-compose .animation-controls > button:last-child { grid-column: 2 / -1; justify-self: end; }
 .animation-motion-compose .animation-rotation-editor { grid-template-columns: minmax(100px, 1fr) auto 68px auto; }
 .binding-editor { display: grid; gap: 10px; border-top: 2px solid var(--border); padding-top: 10px; }
-.binding-editor-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.binding-editor-heading { position: sticky; top: 0; z-index: 20; display: flex; align-items: start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; background: var(--bg); border-bottom: 1px solid var(--border); }
 .binding-editor-heading > div { min-width: 240px; flex: 1; }
-.binding-editor-heading > .px-btn { flex: 0 0 auto; }
+.binding-editor-heading > .binding-editor-actions { min-width: 0; display: flex; flex: 0 0 auto; gap: 7px; }
+.binding-editor-heading .binding-editor-actions .px-btn { flex: 0 0 auto; }
 .binding-editor-heading p { margin-top: 4px; color: var(--text-muted); line-height: 1.55; }
 .binding-part-strip { display: grid; gap: 8px; padding: 8px; border: 1px solid var(--border); background: var(--bg); }
 .binding-part-strip > header { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
@@ -4638,6 +4638,9 @@ body.resizing-row * {
 .binding-preview.interactive[data-tool="scale"] image { cursor: nwse-resize; }
 .binding-preview.interactive[data-tool="pivot"] image { cursor: cell; }
 .binding-preview.interactive[data-tool="warp"] image { cursor: ew-resize; }
+.binding-preview.interactive image:not(.selected) { pointer-events: none; cursor: default; }
+/* 动作编辑的部件偏移模式：允许直接点击画布上的部件进行选中（选中后再拖拽）。 */
+.binding-preview.interactive[data-offset-mode] image:not(.selected) { pointer-events: all; cursor: pointer; }
 .binding-preview.interactive image.selected:not(.deformed) { filter: drop-shadow(0 0 3px var(--accent)); }
 .binding-preview.interactive image.selected.deformed { opacity: .92; }
 .binding-pivot { fill: var(--accent); stroke: var(--bg); stroke-width: .025; pointer-events: none; }
@@ -4698,6 +4701,7 @@ body.resizing-row * {
 .animation-library-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .skeleton-editor { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); gap: 10px; margin-top: 10px; align-items: start; }
 .skeleton-editor .animation-rig-stage > .motion-clip-skeleton { height: clamp(430px, 55dvh, 650px); }
+.skeleton-editor > .binding-preview { width: 100%; height: clamp(430px, 55dvh, 650px); border: 2px solid var(--border); background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 0 0 / 18px 18px; }
 .skeleton-editor-inspector { display: grid; gap: 10px; padding: 12px; border: 2px solid var(--accent); background: var(--surface); box-shadow: 3px 3px 0 var(--elevated); }
 .skeleton-editor-inspector > header, .skeleton-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .skeleton-editor-inspector h3 { margin: 3px 0 0; }

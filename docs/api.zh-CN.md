@@ -13,12 +13,12 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 
 ### GET /api/projects
 
-项目列表，按创建时间倒序。
+项目列表，按创建时间倒序。`has_thumbnail` 表示是否存在项目缩略图 PNG（见下文）。
 
 ```json
 {
   "projects": [
-    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
+    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…", "has_thumbnail": false }
   ]
 }
 ```
@@ -35,8 +35,16 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 ### GET /api/projects/:id
 
 ```json
-{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8 } }
+{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8, "has_thumbnail": false } }
 ```
+
+### PUT /api/projects/:id/thumbnail
+
+上传前端渲染好的项目缩略图。body 为 PNG 二进制（`Content-Type: image/png`，最大 2MB，校验 PNG 魔数），存到 `storage/thumbnails/projects/<id>.png`。项目不存在返回 404 → `{ "ok": true }`。
+
+### GET /api/projects/:id/thumbnail
+
+返回已存的 PNG（`Content-Type: image/png`，支持 ETag/Last-Modified）；项目或缩略图不存在返回 404。更新后可追加 `?v=<时间戳>` 破缓存。
 
 ### PATCH /api/projects/:id
 
@@ -44,7 +52,7 @@ Base URL：`http://localhost:3000`，除标注外均为 `/api` 前缀。请求/�
 
 ### DELETE /api/projects/:id
 
-删除项目及其全部帧、任务与磁盘文件 → `{ "ok": true }`，广播 `project_deleted`。
+删除项目及其全部帧、任务与磁盘文件（含项目缩略图） → `{ "ok": true }`，广播 `project_deleted`。
 
 ## 帧
 

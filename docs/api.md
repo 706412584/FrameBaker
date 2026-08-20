@@ -13,12 +13,12 @@ Conventions:
 
 ### GET /api/projects
 
-Project list, sorted by creation time descending.
+Project list, sorted by creation time descending. `has_thumbnail` reflects whether a project thumbnail PNG exists (see below).
 
 ```json
 {
   "projects": [
-    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…" }
+    { "id": "…", "name": "走路循环", "created_at": 1785912000000, "frame_count": 8, "first_frame_id": "…", "has_thumbnail": false }
   ]
 }
 ```
@@ -35,8 +35,16 @@ Project list, sorted by creation time descending.
 ### GET /api/projects/:id
 
 ```json
-{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8 } }
+{ "project": { "id": "…", "name": "…", "created_at": 1785912000000, "frame_count": 8, "has_thumbnail": false } }
 ```
+
+### PUT /api/projects/:id/thumbnail
+
+Uploads a project thumbnail rendered by the frontend. Body is the raw PNG binary (`Content-Type: image/png`, max 2 MB; PNG magic bytes are validated). Stored at `storage/thumbnails/projects/<id>.png`. 404 if the project does not exist → `{ "ok": true }`.
+
+### GET /api/projects/:id/thumbnail
+
+Returns the stored PNG (`Content-Type: image/png`, ETag/Last-Modified supported); 404 when the project or its thumbnail does not exist. Append `?v=<timestamp>` to bust caches after an update.
 
 ### PATCH /api/projects/:id
 
@@ -44,7 +52,7 @@ Project list, sorted by creation time descending.
 
 ### DELETE /api/projects/:id
 
-Deletes the project and all its frames, jobs, and disk files → `{ "ok": true }`, broadcasts `project_deleted`.
+Deletes the project and all its frames, jobs, and disk files (including the project thumbnail) → `{ "ok": true }`, broadcasts `project_deleted`.
 
 ## Frames
 

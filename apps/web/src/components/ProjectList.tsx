@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Bone, Clapperboard, Film, Plus, Sparkles, Trash2 } from "lucide-react";
-import { api, frameImageUrl, wsClient, type Folder, type Project, type ProjectKind } from "../api";
+import { api, frameImageUrl, projectThumbnailUrl, wsClient, type Folder, type Project, type ProjectKind } from "../api";
 import { getLocale, useT } from "../i18n";
 import { askConfirm, notify } from "../notice";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -17,6 +17,8 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ProjectKind>("frame");
   const [zoom, setZoom] = useFileZoom();
+  // 每次列表刷新时递增，给项目缩略图 URL 破缓存
+  const [thumbVersion, setThumbVersion] = useState(0);
   useModalEscClose(() => setShowModal(false), showModal);
 
   const loadFolders = useCallback(async () => {
@@ -30,6 +32,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
   const load = useCallback(async () => {
     try {
       setProjects(await api.listProjects());
+      setThumbVersion(Date.now());
     } catch (e) {
       console.error(e);
     }
@@ -166,7 +169,7 @@ export default function ProjectList({ onOpen }: { onOpen: (id: string) => void }
                 >
                   <div className="thumb">
 
-                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id, undefined, 320)} alt="" draggable={false} loading="lazy" decoding="async" /> : <Film size={40} />}
+                    {p.first_frame_id ? <img src={frameImageUrl(p.first_frame_id, undefined, 320)} alt="" draggable={false} loading="lazy" decoding="async" /> : p.has_thumbnail ? <img src={projectThumbnailUrl(p.id, thumbVersion)} alt="" draggable={false} loading="lazy" decoding="async" /> : <Film size={40} />}
 
                   </div>
                   <div className="info">

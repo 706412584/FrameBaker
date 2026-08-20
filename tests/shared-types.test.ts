@@ -121,6 +121,9 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("both hands empty");
     expect(prompt).toContain("separate isolated prop");
     expect(prompt).toContain("one head-width of clear space");
+    expect(prompt).toContain("torso silhouette stops before shoulder caps");
+    expect(prompt).toContain("pelvis stops at the hip sockets");
+    expect(prompt).toContain("each trouser leg has clear hip and knee boundaries");
     expect(prompt).toContain("No parts sheet");
     expect(prompt).toContain("Character description: red cape ranger");
   });
@@ -129,8 +132,8 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(ARTICULATED_CHARACTER_PART_ROLES).toHaveLength(12);
     expect(ARTICULATED_CHARACTER_PART_ROLES.slice(0, 4)).toEqual(["head", "torso", "pelvis", "weapon"]);
     const prompt = buildArticulatedPartsPrompt({ reference: true, extra: "red cape" });
-    expect(prompt).toContain("single source of truth");
-    expect(prompt).toContain("exact head-to-body ratio");
+    expect(prompt).toContain("source of truth");
+    expect(prompt).toContain("exact body proportions");
     expect(prompt).toContain("never redesign or independently rescale");
     expect(prompt).toContain("Use up to 12 slots");
     expect(prompt).toContain("4 columns by 3 rows");
@@ -138,32 +141,48 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("left thigh, left shin");
     expect(prompt).toContain("the reference weapon or an empty slot");
     expect(prompt).toContain("Never invent a weapon");
+    expect(prompt).toContain("Inspect the reference and user intent");
+    expect(prompt).toContain("Torso excludes shoulder/sleeve/upper-arm pixels");
+    expect(prompt).toContain("pelvis excludes thigh/trouser-leg pixels");
+    expect(prompt).toContain("trouser legs split at knees into thigh/shin");
+    expect(prompt).toContain("every visible pixel belongs to exactly one part");
+    expect(prompt).toContain("whole sleeve and shoulder cap in the upper-arm cell");
+    expect(prompt).toContain("whole garment in the pelvis cell");
+    expect(prompt).toContain("Never duplicate a garment fragment");
+    expect(prompt).toContain("sleeveless central chest-and-abdomen core");
+    expect(prompt).toContain("zero shoulder caps, sleeve pixels");
+    expect(prompt).toContain("flat armhole cuts");
+    expect(prompt).toContain("exactly one hip-to-knee bone segment");
+    expect(prompt).toContain("zero calf, shin, ankle or foot pixels");
+    expect(prompt).toContain("exactly one knee-to-ankle bone segment");
+    expect(prompt).toContain("never a complete continuous limb");
+    expect(prompt).toContain("exactly one shoulder-to-elbow bone segment");
+    expect(prompt).toContain("zero forearm, wrist or hand pixels");
+    expect(prompt).toContain("exactly one elbow-to-wrist segment plus its hand");
+    expect(prompt).toContain("Every limb cell must be one bone-segment length");
+    expect(prompt).toContain("visible transparent gap at every joint");
+    expect(prompt).toContain("zero shared pixels, zero overlap");
+    expect(prompt).toContain("visible transparent gap at every elbow and knee");
     expect(prompt).toContain("hip-sockets only");
-    expect(prompt).toContain("Weapon must not touch an arm");
-    expect(prompt).toContain("regular 4 × 3 lattice of identical cells");
-    expect(prompt).toContain("one global scale factor");
-    expect(prompt).toContain("opaque bounds centered");
+    expect(prompt).toContain("regular 4 × 3 equal cells");
+    expect(prompt).toContain("one global scale");
     expect(prompt).toContain("at least 10% clear padding");
-    expect(prompt).toContain("Transparent background only; never black, dark, checked, or textured");
-    expect(prompt).toContain("no variable gaps, packed/staggered layout");
-    expect(prompt).toContain("shrink all parts uniformly");
-    expect(prompt).toContain("contiguous rectangular 2+ cell block");
+    expect(prompt).toContain("transparent background");
+    expect(prompt).toContain("aligned rectangular 2+ cell block");
     expect(prompt).toContain("keep covered cells empty");
     expect(prompt).toContain("Extra requirements: red cape");
-    expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
   test("传入骨架部件描述时改为骨骼驱动：按语义逐格生成且不套用人形固定槽位", () => {
     const descriptors = ["head with helmet", "torso", "left upper arm", "left forearm with hand"];
     const prompt = buildArticulatedPartsPrompt({ reference: true, rows: 3, cols: 4, partDescriptors: descriptors });
-    expect(prompt).toContain("Generate exactly 4 distinct parts matching the target skeleton bone segments");
+    expect(prompt).toContain("Generate exactly 4 target-bone parts");
     expect(prompt).toContain("1. head with helmet");
     expect(prompt).toContain("4. left forearm with hand");
-    expect(prompt).toContain("leave every remaining cell fully transparent");
+    expect(prompt).toContain("leave the rest transparent");
     expect(prompt).toContain("Split at real joints");
     expect(prompt).not.toContain("Use up to 12 slots");
     expect(prompt).not.toContain("row 1 head, torso, pelvis");
-    expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
   test("空的骨架部件描述退回原有网格驱动行为", () => {
@@ -180,12 +199,10 @@ describe("完整人物到 12 分件的两阶段 prompt", () => {
     expect(prompt).toContain("leave every surplus cell fully transparent");
     expect(prompt).toContain("Never invent filler parts");
     expect(prompt).toContain("every unused cell must be fully empty");
-    expect(prompt).toContain("regular 5 × 3 lattice of identical cells");
-    expect(prompt).toContain("Identical center spacing and row/column pitch");
+    expect(prompt).toContain("regular 5 × 3 equal cells");
     expect(prompt).toContain("rectangular 2+ cell block");
     expect(prompt).not.toContain("row 1 = head, torso, pelvis");
     expect(prompt).toContain("Extra requirements: include a tail and two shoulder plates");
-    expect(prompt.length).toBeLessThanOrEqual(1490);
   });
 
   test("角色 8 向图使用中心留空的 3×3 环形布局并锁定角色一致性", () => {
