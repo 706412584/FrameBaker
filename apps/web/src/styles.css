@@ -5024,3 +5024,5 @@ body.resizing-row * {
 .graph-artifacts-size { color: var(--text-muted); flex: none; }
 .graph-artifacts-dir { color: var(--text-muted); font-size: 10px; }
 .graph-artifacts-empty, .graph-artifacts-loading { color: var(--text-muted); font-size: 10px; }
+
+.graph-import-input { display: none; }

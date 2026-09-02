@@ -322,6 +322,12 @@ export const api = {
   /** 资源管理器打开产物目录 */
   openGraphFolder: (path: string) =>
     req<OkResponse>("/api/graph/open-folder", { method: "POST", ...json({ path }) }),
+  /** 导入工作流 JSON（导出格式）→ 新图 */
+  importGraph: (body: {
+    name?: string;
+    nodes: Array<{ type: string; params?: Record<string, unknown>; x?: number; y?: number }>;
+    edges?: Array<{ from: number; fromPort: string; to: number; toPort: string }>;
+  }) => req<{ id: string }>("/api/graphs/import", { method: "POST", ...json(body) }),
   runGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/run`, { method: "POST" }),
   cancelGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/cancel`, { method: "POST" }),
   graphRunning: (id: string) => req<{ running: boolean }>(`/api/graphs/${id}/running`).then((r) => r.running),

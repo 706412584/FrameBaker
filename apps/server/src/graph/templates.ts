@@ -33,7 +33,7 @@ export const GRAPH_TEMPLATES: GraphTemplate[] = [
     nodes: [
       { key: "src", type: "material.video", params: { materialId: "" }, x: 0, y: 0 },
       { key: "extract", type: "extract.frames", params: { fps: 8 }, x: 230, y: 0 },
-      { key: "matte", type: "matte.pipeline", params: { useChroma: true, threshold: 80, softness: 32, despillStrength: 0.85, haloPixels: 1, decontaminate: true }, x: 460, y: 0 },
+      { key: "matte", type: "matte.pipeline", params: { useChroma: false, useSpriteflow: true, sfTolerance: 15, threshold: 80, softness: 32, despillStrength: 0.85, haloPixels: 1, decontaminate: true }, x: 460, y: 0 },
       { key: "canvas", type: "frame.canvas", params: { targetSize: 512, reducePx: 20, canvasMode: "auto", trim: true }, x: 690, y: 0 },
       { key: "select", type: "frames.smart-select", params: { targetCount: 12 }, x: 920, y: 0 },
       { key: "pkg", type: "export.package", params: { columns: 4, sheetFormat: "png", includeZip: true, includeManifest: true, durationMs: 100, manifestFormats: "phaser_hash,phaser_array,sparrow_xml,cocos_plist,godot_tres,sprite2d_xml" }, x: 1200, y: -140 },

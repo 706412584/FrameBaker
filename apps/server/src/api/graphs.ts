@@ -211,6 +211,74 @@ export const graphsApi = new Elysia({ prefix: "/api" })
     },
     { body: t.Object({ nodeId: t.String(), sampleTime: t.Optional(t.Number()) }) }
   )
+  // 导入工作流：JSON（导出格式）→ 新图（节点按数组序重建，边按索引映射新 id）
+  .post(
+    "/graphs/import",
+    ({ body, status }) => {
+      const nodes = Array.isArray(body.nodes) ? body.nodes : [];
+      const edges = Array.isArray(body.edges) ? body.edges : [];
+      if (nodes.length === 0) return status(400, "导入内容没有节点");
+      // 类型与参数校验：未知类型整体拒绝（避免半成品图）
+      for (const n of nodes) {
+        if (!getNodeSchema(String(n.type))) return status(400, `未知节点类型: ${n.type}`);
+      }
+      const name = String(body.name ?? "").trim() || "导入的工作流";
+      const graphId = uid();
+      const newIds: string[] = [];
+      db.transaction(() => {
+        db.query("INSERT INTO graphs (id, name, folder_id, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)").run(
+          graphId, name, Date.now(), Date.now()
+        );
+        for (const n of nodes) {
+          const id = uid();
+          newIds.push(id);
+          const params = n.params && typeof n.params === "object" ? n.params : {};
+          db.query("INSERT INTO graph_nodes (id, graph_id, type, params, x, y) VALUES (?, ?, ?, ?, ?, ?)").run(
+            id, graphId, String(n.type), JSON.stringify(structuredClone(params)),
+            Number(n.x ?? 0) || 0, Number(n.y ?? 0) || 0
+          );
+        }
+        for (const e of edges) {
+          const fromIdx = Number(e.from);
+          const toIdx = Number(e.to);
+          if (!Number.isInteger(fromIdx) || !Number.isInteger(toIdx)) continue;
+          if (fromIdx < 0 || fromIdx >= newIds.length || toIdx < 0 || toIdx >= newIds.length) continue;
+          if (!portsCompatible(
+            { type: String(nodes[fromIdx]!.type), port: String(e.fromPort) },
+            { type: String(nodes[toIdx]!.type), port: String(e.toPort) }
+          )) continue; // 端口不兼容的边丢弃（导入容错）
+          db.query(
+            "INSERT INTO graph_edges (id, graph_id, from_node, from_port, to_node, to_port) VALUES (?, ?, ?, ?, ?, ?)"
+          ).run(uid(), graphId, newIds[fromIdx]!, String(e.fromPort), newIds[toIdx]!, String(e.toPort));
+        }
+      })();
+      broadcast("graphs_changed", { id: graphId });
+      return { id: graphId };
+    },
+    {
+      body: t.Object({
+        name: t.Optional(t.String()),
+        nodes: t.Array(
+          t.Object({
+            type: t.String(),
+            params: t.Optional(t.Record(t.String(), t.Unknown())),
+            x: t.Optional(t.Number()),
+            y: t.Optional(t.Number()),
+          })
+        ),
+        edges: t.Optional(
+          t.Array(
+            t.Object({
+              from: t.Number(), // 源节点在 nodes 数组中的索引
+              fromPort: t.String(),
+              to: t.Number(), // 目标节点索引
+              toPort: t.String(),
+            })
+          )
+        ),
+      }),
+    }
+  )
   // 执行记录（任务面板）：最近 20 条 + 当前运行中标记
   .get("/graph/runs", () => {
     const rows = db

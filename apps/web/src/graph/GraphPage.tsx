@@ -976,6 +976,31 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
     api.cancelGraph(graphId).catch(() => {});
   }, [graphId]);
 
+  // 导出工作流 JSON：图名 + 节点（类型/参数/位置）+ 连线（索引式，导入按数组序还原）
+  const exportGraph = useCallback(() => {
+    api.getGraph(graphId).then((doc) => {
+      const idx = new Map(doc.nodes.map((n, i) => [n.id, i]));
+      const payload = {
+        name: doc.graph.name,
+        nodes: doc.nodes.map((n) => ({ type: n.type, params: n.params, x: n.x, y: n.y })),
+        edges: doc.edges
+          .filter((e) => idx.has(e.from_node) && idx.has(e.to_node))
+          .map((e) => ({
+            from: idx.get(e.from_node)!,
+            fromPort: e.from_port,
+            to: idx.get(e.to_node)!,
+            toPort: e.to_port,
+          })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `workflow-${doc.graph.name.replace(/[\/:*?"<>|]/g, "_")}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }).catch((e) => notify(String((e as Error).message)));
+  }, [graphId]);
+
   // 从工具栏下拉加节点
   const addNodeFromSchema = useCallback(
     (type: string) => {
@@ -1235,6 +1260,14 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
           ))}
         </select>
         <span className="spacer" />
+        <button
+          type="button"
+          className="px-btn"
+          onClick={exportGraph}
+          title={t("graph.export_hint")}
+        >
+          {t("graph.export")}
+        </button>
         {running ? (
           <button type="button" className="px-btn danger" onClick={onCancel}>
             <Square size={14} />
@@ -1352,6 +1385,29 @@ export default function GraphPage() {
       .catch((e) => notify(String((e as Error).message)));
   };
 
+  // 导入工作流 JSON（导出格式）：文件选择 → 创建图 → 打开
+  const importRef = useRef<HTMLInputElement>(null);
+  const onImportFile = (file: File) => {
+    file
+      .text()
+      .then((text) => {
+        const parsed = JSON.parse(text) as {
+          name?: string;
+          nodes: Array<{ type: string; params?: Record<string, unknown>; x?: number; y?: number }>;
+          edges?: Array<{ from: number; fromPort: string; to: number; toPort: string }>;
+        };
+        if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
+          throw new Error(t("graph.import_invalid"));
+        }
+        return api.importGraph({ name: parsed.name, nodes: parsed.nodes, edges: parsed.edges });
+      })
+      .then((r) => {
+        refresh();
+        setSelected(r.id);
+      })
+      .catch((e) => notify(String((e as Error).message)));
+  };
+
   const remove = (id: string) => {
     api.deleteGraph(id).then(() => {
       if (selected === id) setSelected(null);
@@ -1385,10 +1441,29 @@ export default function GraphPage() {
               ))}
             </select>
           )}
+          <button
+            type="button"
+            className="px-btn"
+            onClick={() => importRef.current?.click()}
+            title={t("graph.import_hint")}
+          >
+            {t("graph.import")}
+          </button>
           <button type="button" className="px-btn" onClick={create}>
             {t("graph.new")}
           </button>
         </div>
+        <input
+          ref={importRef}
+          type="file"
+          accept="application/json,.json"
+          className="graph-import-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImportFile(f);
+            e.target.value = "";
+          }}
+        />
         {graphs.map((g) => (
           <div key={g.id} className={`graph-list-item ${selected === g.id ? "active" : ""}`}>
             <button type="button" className="graph-list-btn" onClick={() => setSelected(g.id)}>
