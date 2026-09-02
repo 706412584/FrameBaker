@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { GraphEdge, GraphNode, GraphNodeRow } from "@framebaker/shared";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { runCmd } from "../jobs/run";
@@ -49,11 +49,13 @@ export function serializeGraph(id: string) {
       if (!row) return n;
       const payload = safeParse(row.payload);
       const paths = Array.isArray(payload.paths) ? (payload.paths as string[]) : [];
+      const nodeOutputDir = typeof payload.outputDir === "string" ? payload.outputDir : undefined;
       if (paths.length) {
         return {
           ...n,
           previewUrl: `/api/graph/media?path=${encodeURIComponent(paths[0]!)}`,
           previewKind: "image" as const,
+          ...(nodeOutputDir ? { outputDir: nodeOutputDir } : {}),
           ...(paths.length > 1
             ? { frameUrls: paths.map((p) => `/api/graph/media?path=${encodeURIComponent(p)}`) }
             : {}),
@@ -63,11 +65,13 @@ export function serializeGraph(id: string) {
         };
       }
       if (typeof payload.path === "string" && /\.(png|webp)$/i.test(payload.path)) {
-        return { ...n, previewUrl: `/api/graph/media?path=${encodeURIComponent(payload.path)}`, previewKind: "image" as const };
+        return { ...n, previewUrl: `/api/graph/media?path=${encodeURIComponent(payload.path)}`, previewKind: "image" as const, ...(nodeOutputDir ? { outputDir: nodeOutputDir } : {}) };
       }
       if (typeof payload.path === "string" && /\.(mov|mp4)$/i.test(payload.path)) {
-        return { ...n, previewUrl: `/api/graph/media?path=${encodeURIComponent(payload.path)}`, previewKind: "video" as const };
+        return { ...n, previewUrl: `/api/graph/media?path=${encodeURIComponent(payload.path)}`, previewKind: "video" as const, ...(nodeOutputDir ? { outputDir: nodeOutputDir } : {}) };
       }
+      // 无预览但有产物目录（export.package 的 sheet payload 等）→ 仍带 outputDir 供产物面板
+      if (nodeOutputDir) return { ...n, outputDir: nodeOutputDir };
       return n;
     });
   } catch {
@@ -473,9 +477,60 @@ export const graphsApi = new Elysia({ prefix: "/api" })
     ];
     if (!allowed.some((root) => normalized.startsWith(root))) return status(403, "路径不在允许范围内");
     if (!existsSync(path)) return status(404, "文件不存在");
-    const contentType = /\.(mov|mp4)$/i.test(path) ? "video/quicktime" : "image/png";
+    const contentType = /\.(mov|mp4)$/i.test(path)
+      ? "video/quicktime"
+      : /\.webp$/i.test(path)
+        ? "image/webp"
+        : /\.(zip|json|xml|plist|tres)$/i.test(path)
+          ? "application/octet-stream"
+          : "image/png";
+    if (query.download) {
+      // 下载：attachment + 文件名（导出产物的「另存为」）
+      const name = path.split(/[\/]/).pop() ?? "download";
+      const file = Bun.file(path);
+      return new Response(file, {
+        headers: {
+          "Content-Type": contentType,
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(name)}"`,
+        },
+      });
+    }
     return serveMediaFile(path, request, contentType);
   })
+  // 列出产物目录内容（导出节点的产物清单 UI）
+  .get("/graph/list-dir", ({ query, status }) => {
+    const dir = String(query.path ?? "").replaceAll("\\", "/");
+    const allowedRoot = join(STORAGE_ROOT, "graph", "outputs").replaceAll("\\", "/");
+    if (!dir.startsWith(allowedRoot)) return status(403, "只能列导出产物目录");
+    if (!existsSync(dir)) return status(404, "目录不存在");
+    const entries = readdirSync(dir)
+      .filter((f) => f !== "inputs.txt")
+      .map((f) => {
+        const full = join(dir, f);
+        const isDir = statSync(full).isDirectory();
+        return { name: f, isDir, size: isDir ? 0 : statSync(full).size };
+      })
+      .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
+    return { entries };
+  })
+  // 打开产物文件夹（资源管理器直达；对齐 sprite open_path_in_file_browser）
+  .post(
+    "/graph/open-folder",
+    async ({ body, status }) => {
+      const dir = String(body.path ?? "").replaceAll("\\", "/");
+      const allowedRoot = join(STORAGE_ROOT, "graph", "outputs").replaceAll("\\", "/");
+      if (!dir.startsWith(allowedRoot)) return status(403, "只能打开导出产物目录");
+      if (!existsSync(dir)) return status(404, "目录不存在");
+      const proc = Bun.spawn({
+        cmd: ["explorer", dir],
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await proc.exited;
+      return { ok: true };
+    },
+    { body: t.Object({ path: t.String() }) }
+  )
   // 客户端节点产物上传（PNG 二进制 body）；文件名由 query 指定（quant_0000.png 等）
   .post(
     "/graphs/:id/client-result/:taskId",

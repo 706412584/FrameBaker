@@ -97,6 +97,8 @@ type GraphNodeData = {
   previewMeta?: { sampleTime: number; duration: number };
   /** 立即预览沿链应用过的节点类型（显示"已过 N 个处理"） */
   appliedNodes?: string[];
+  /** 导出产物目录（export.* 节点；产物清单/打开文件夹/下载用） */
+  outputDir?: string;
   /** 参数已改、下次执行将重算（含下游）——黄色描边提示 */
   dirty?: boolean;
   [key: string]: unknown;
@@ -380,6 +382,64 @@ function WorkflowNode({ id, data, selected }: NodeProps) {
         </button>
       )}
       {d.runStatus === "running" && d.runProgress && <div className="graph-node-progress">{d.runProgress}</div>}
+      {d.outputDir && <ArtifactPanel outputDir={d.outputDir} />}
+    </div>
+  );
+}
+
+/** 导出产物面板：目录清单（点开加载）+ 打开文件夹 + 逐文件下载 */
+function ArtifactPanel({ outputDir }: { outputDir: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<Array<{ name: string; isDir: boolean; size: number }> | null>(null);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !entries) {
+      api.listGraphDir(outputDir).then(setEntries).catch(() => setEntries([]));
+    }
+  };
+  const openFolder = () => {
+    api.openGraphFolder(outputDir).catch((e) => notify(String((e as Error).message)));
+  };
+  const fmtSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(0)} KB` : `${n} B`);
+  return (
+    <div className="graph-artifacts nodrag nopan">
+      <div className="graph-artifacts-bar">
+        <button type="button" className="graph-artifacts-toggle" onClick={toggle}>
+          {open ? "▾" : "▸"} {t("graph.artifacts")}
+        </button>
+        <button type="button" className="graph-artifacts-open" onClick={openFolder} title={t("graph.open_folder_hint")}>
+          {t("graph.open_folder")}
+        </button>
+      </div>
+      {open && (
+        <div className="graph-artifacts-list">
+          {entries === null ? (
+            <span className="graph-artifacts-loading">…</span>
+          ) : entries.length === 0 ? (
+            <span className="graph-artifacts-empty">{t("graph.no_artifacts")}</span>
+          ) : (
+            entries.map((e) =>
+              e.isDir ? (
+                <span key={e.name} className="graph-artifacts-dir">
+                  📁 {e.name}/
+                </span>
+              ) : (
+                <a
+                  key={e.name}
+                  className="graph-artifacts-file"
+                  href={`/api/graph/media?path=${encodeURIComponent(outputDir.replaceAll("\\", "/") + "/" + e.name)}&download=1`}
+                  download={e.name}
+                  title={fmtSize(e.size)}
+                >
+                  {e.name} <span className="graph-artifacts-size">{fmtSize(e.size)}</span>
+                </a>
+              )
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -537,6 +597,7 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
             ...(n.previewUrl ? { previewUrl: n.previewUrl, previewKind: n.previewKind } : {}),
             ...(n.frameUrls ? { frameUrls: n.frameUrls } : {}),
             ...(n.previewMeta ? { previewMeta: n.previewMeta } : {}),
+            ...(n.outputDir ? { outputDir: n.outputDir } : {}),
           } as GraphNodeData,
         }))
       );
@@ -564,7 +625,7 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
   useEffect(() => {
     const onMsg = (msg: WSMessage) => {
       if (msg.type === "graph_node_status") {
-        const p = msg.payload as { graphId?: string; nodeId?: string; status?: string; progress?: string; previewUrl?: string; previewKind?: "image" | "video"; frameUrls?: string[]; previewMeta?: { sampleTime: number; duration: number } };
+        const p = msg.payload as { graphId?: string; nodeId?: string; status?: string; progress?: string; previewUrl?: string; previewKind?: "image" | "video"; frameUrls?: string[]; previewMeta?: { sampleTime: number; duration: number }; outputDir?: string };
         if (p.graphId !== graphId || !p.nodeId) return;
         if (p.status === "running") setRunning(true);
         setNodes((ns) =>
@@ -579,6 +640,7 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
                     ...(p.previewUrl ? { previewUrl: p.previewUrl, previewKind: p.previewKind } : {}),
                     ...(p.frameUrls ? { frameUrls: p.frameUrls } : {}),
                     ...(p.previewMeta ? { previewMeta: p.previewMeta } : {}),
+                    ...(p.outputDir ? { outputDir: p.outputDir } : {}),
                   },
                 }
               : n

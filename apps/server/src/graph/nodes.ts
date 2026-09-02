@@ -281,7 +281,7 @@ async function exportSpritesheet(
   const { existsSync } = await import("node:fs");
   if (!existsSync(outFile)) throw new Error("精灵表生成失败");
   return {
-    sheet: { path: outFile, columns, rows, frameCount: count, framePaths: images.paths },
+    sheet: { path: outFile, columns, rows, frameCount: count, framePaths: images.paths, outputDir: ctx.outputDir },
   };
 }
 
@@ -461,7 +461,7 @@ async function exportVideo(
   }
   const { existsSync } = await import("node:fs");
   if (!existsSync(outFile)) throw new Error("视频编码失败");
-  return { video: { path: outFile, frameCount: images.paths.length, durationMs, framePaths: images.paths } };
+  return { video: { path: outFile, frameCount: images.paths.length, durationMs, framePaths: images.paths, outputDir: ctx.outputDir } };
 }
 
 /** frame.crop：ffmpeg crop 滤镜（对齐 ProcessSettings.crop_*） */

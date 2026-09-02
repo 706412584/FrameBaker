@@ -314,6 +314,14 @@ export const api = {
       `/api/graphs/${graphId}/preview-frame`,
       { method: "POST", ...json(body) }
     ),
+  /** 产物目录清单（导出节点 UI） */
+  listGraphDir: (path: string) =>
+    req<{ entries: Array<{ name: string; isDir: boolean; size: number }> }>(
+      `/api/graph/list-dir?path=${encodeURIComponent(path)}`
+    ).then((r) => r.entries),
+  /** 资源管理器打开产物目录 */
+  openGraphFolder: (path: string) =>
+    req<OkResponse>("/api/graph/open-folder", { method: "POST", ...json({ path }) }),
   runGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/run`, { method: "POST" }),
   cancelGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/cancel`, { method: "POST" }),
   graphRunning: (id: string) => req<{ running: boolean }>(`/api/graphs/${id}/running`).then((r) => r.running),

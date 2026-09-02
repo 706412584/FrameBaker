@@ -5010,3 +5010,17 @@ body.resizing-row * {
 .graph-lightbox-bar select { background: var(--bg); border: 2px solid var(--border); color: var(--text); font-family: inherit; font-size: 12px; padding: 2px 6px; }
 .graph-lightbox-bar input[type="color"] { width: 30px; height: 24px; padding: 0; border: 2px solid var(--border); background: var(--bg); cursor: pointer; }
 .graph-lightbox-bar input[type="color"]:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 导出产物面板（export.* 节点卡片内） */
+.graph-artifacts { border-top: 2px solid var(--border); margin-top: 4px; padding-top: 3px; }
+.graph-artifacts-bar { display: flex; align-items: center; gap: 6px; }
+.graph-artifacts-toggle { background: none; border: none; color: var(--text-muted); font-size: 10px; cursor: pointer; font-family: inherit; padding: 0; }
+.graph-artifacts-toggle:hover { color: var(--text); }
+.graph-artifacts-open { flex: none; background: var(--surface); color: var(--text); border: 2px solid var(--border); font-size: 10px; padding: 0 6px; cursor: pointer; font-family: inherit; }
+.graph-artifacts-open:hover { border-color: var(--border-focused); }
+.graph-artifacts-list { display: flex; flex-direction: column; gap: 1px; max-height: 130px; overflow-y: auto; margin-top: 3px; }
+.graph-artifacts-file { color: var(--accent); font-size: 10px; text-decoration: none; display: flex; justify-content: space-between; gap: 8px; }
+.graph-artifacts-file:hover { text-decoration: underline; }
+.graph-artifacts-size { color: var(--text-muted); flex: none; }
+.graph-artifacts-dir { color: var(--text-muted); font-size: 10px; }
+.graph-artifacts-empty, .graph-artifacts-loading { color: var(--text-muted); font-size: 10px; }

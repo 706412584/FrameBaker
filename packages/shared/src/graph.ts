@@ -61,6 +61,8 @@ export interface GraphNode {
   frameUrls?: string[];
   /** preview.frame 产物元信息（时间轴拖动用） */
   previewMeta?: { sampleTime: number; duration: number };
+  /** 导出产物目录（export.* 节点；「打开文件夹」用） */
+  outputDir?: string;
 }
 
 /** graph_nodes DB 行形态（params 为 JSON 字符串） */

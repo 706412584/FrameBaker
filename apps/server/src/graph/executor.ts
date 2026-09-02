@@ -329,7 +329,9 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
         // 多帧序列 → 全部帧 URL（lightbox 播放器用）
         let frameUrls: string[] | undefined;
         let previewMeta: { sampleTime: number; duration: number } | undefined;
+        let outputDir: string | undefined;
         for (const payload of Object.values(outputs)) {
+          if (typeof payload.outputDir === "string") outputDir = payload.outputDir;
           if (Array.isArray(payload.paths) && payload.paths.length) {
             previewUrl = `/api/graph/media?path=${encodeURIComponent(payload.paths[0] as string)}`;
             previewKind = "image";
@@ -352,7 +354,7 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
             break;
           }
         }
-        broadcast("graph_node_status", { graphId, nodeId, status: "done", previewUrl, previewKind, frameUrls, previewMeta });
+        broadcast("graph_node_status", { graphId, nodeId, status: "done", previewUrl, previewKind, frameUrls, previewMeta, outputDir });
       } catch (err) {
         if (ac.signal.aborted) {
           states.push({ nodeId, status: "cancelled" });
