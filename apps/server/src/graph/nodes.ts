@@ -525,29 +525,34 @@ async function frameCanvas(
     return { images: { paths: outPaths } satisfies ImageSequencePayload };
   }
 
-  // 走 sprite stable_resize_frames（alpha bbox trim + 预乘 alpha LANCZOS + 画布模式）。
+  // 整批一次调用 sprite stable_resize_frames（resize-batch）：stable_box = 全帧 alpha bbox 并集，
+  // 全帧共用同一裁剪区/画布/贴位置。逐帧调用会导致画布宽度忽宽忽窄（auto）、内容左右跳（square）。
   // 不能用 ffmpeg scale：非预乘插值会把透明像素的黑色 RGB 混进半透明边缘 → 黑边/水墨感。
   const settings = requireSpriteCli();
-  const outPaths: string[] = [];
-  for (let i = 0; i < images.paths.length; i++) {
-    if (ctx.signal.aborted) throw new JobCancelledError();
-    ctx.report(`画布归一 ${i + 1}/${images.paths.length}`);
-    const dst = join(ctx.outputDir, `canvas_${String(i).padStart(4, "0")}.png`);
-    await runCmd(
-      [
-        settings.pythonBin, settings.cliPath,
-        "--op", "resize",
-        "--input", images.paths[i]!,
-        "--output", dst,
-        "--resize-target", String(targetSize),
-        "--resize-reduce", String(reducePx),
-        "--resize-canvas-mode", canvasMode,
-        "--resize-trim", trim ? "true" : "false",
-      ],
-      undefined,
-      ctx.signal
-    );
-    outPaths.push(dst);
+  const outDir = join(ctx.outputDir, "canvas");
+  ctx.report(`画布归一（批处理 ${images.paths.length} 帧）`);
+  await runCmd(
+    [
+      settings.pythonBin, settings.cliPath,
+      "--op", "resize-batch",
+      "--input", images.paths[0]!, // argparse required 占位
+      "--batch-list", JSON.stringify(images.paths),
+      "--batch-out-dir", outDir,
+      "--resize-target", String(targetSize),
+      "--resize-reduce", String(reducePx),
+      "--resize-canvas-mode", canvasMode,
+      "--resize-trim", trim ? "true" : "false",
+    ],
+    undefined,
+    ctx.signal
+  );
+  const { readdirSync } = await import("node:fs");
+  const outPaths = readdirSync(outDir)
+    .filter((f) => /^frame_\d+\.png$/.test(f))
+    .sort()
+    .map((f) => join(outDir, f));
+  if (outPaths.length !== images.paths.length) {
+    throw new Error(`画布归一输出帧数不符：${outPaths.length}/${images.paths.length}`);
   }
   return { images: { paths: outPaths } satisfies ImageSequencePayload };
 }
