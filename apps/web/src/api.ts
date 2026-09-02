@@ -49,9 +49,18 @@ import type {
   CharacterPartSetSource,
   CharacterPartSetMember,
   GenerationIntent,
+  GraphDocument,
+  GraphEdge,
+  GraphNode,
+  GraphOutput,
+  NodeSchema,
+  NodeRunStatus,
 } from "@framebaker/shared";
 
-export type { AttackEffect, AttackEffectCell, Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent } from "@framebaker/shared";
+export type { AttackEffect, AttackEffectCell, Frame, FramePatch, Job, Material, Project, ProjectKind, Folder, FolderKind, SkeletalProjectDocument, WSMessage, AnimationAxis, AnimationTrack, TimelineStep, TimelineResponse, CharacterPartSet, CharacterPartSetMember, CharacterPartSetSource, GenerationIntent, GraphDocument, GraphEdge, GraphNode, GraphOutput, NodeSchema, NodeRunStatus } from "@framebaker/shared";
+
+/** 图列表项（graphs 表行） */
+export type GraphSummary = GraphDocument["graph"];
 export { frameImageUrl, materialFileUrl, materialImageUrl, projectThumbnailUrl } from "./api/mediaUrls";
 export { wsClient } from "./api/ws";
 
@@ -264,4 +273,48 @@ export const api = {
   copyAnimationAsset: (id: string, name?: string, folderId?: string | null) =>
     req<AnimationAssetResponse>(`/api/animation-assets/${id}/copy`, { method: "POST", ...json({ ...(name ? { name } : {}), ...(folderId !== undefined ? { folderId } : {}) }) }).then((r) => r.animationAsset),
   deleteAnimationAsset: (id: string) => req<OkResponse>(`/api/animation-assets/${id}`, { method: "DELETE" }),
+
+  // ---- 工作流图（无限画布节点编辑） ----
+  listGraphNodeSchemas: () =>
+    req<{ nodeSchemas: NodeSchema[] }>("/api/graph/node-schemas").then((r) => r.nodeSchemas),
+  listGraphRuns: () =>
+    req<{
+      runs: Array<{
+        id: string; graphId: string; graphName: string; startedAt: number;
+        finishedAt: number | null; status: string;
+        nodeStats: { total: number; done: number; cached: number; error: number };
+      }>;
+    }>("/api/graph/runs").then((r) => r.runs),
+  listGraphTemplates: () =>
+    req<{ templates: Array<{ id: string; name: string; description: string }> }>("/api/graph/templates").then(
+      (r) => r.templates
+    ),
+  createGraphFromTemplate: (templateId: string) =>
+    req<{ id: string }>(`/api/graph/templates/${templateId}/graphs`, { method: "POST", ...json({}) }),
+  listGraphs: () => req<{ graphs: GraphSummary[] }>("/api/graphs").then((r) => r.graphs),
+  createGraph: (name: string) =>
+    req<{ id: string }>("/api/graphs", { method: "POST", ...json({ name }) }),
+  getGraph: (id: string) => req<GraphDocument>(`/api/graphs/${id}`),
+  patchGraph: (id: string, body: { name?: string }) =>
+    req<OkResponse>(`/api/graphs/${id}`, { method: "PATCH", ...json(body) }),
+  deleteGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}`, { method: "DELETE" }),
+  addGraphNode: (graphId: string, body: { type: string; params?: Record<string, unknown>; x?: number; y?: number }) =>
+    req<{ nodeId: string }>(`/api/graphs/${graphId}/nodes`, { method: "POST", ...json(body) }),
+  patchGraphNode: (graphId: string, nodeId: string, body: { params?: Record<string, unknown>; x?: number; y?: number }) =>
+    req<OkResponse>(`/api/graphs/${graphId}/nodes/${nodeId}`, { method: "PATCH", ...json(body) }),
+  deleteGraphNode: (graphId: string, nodeId: string) =>
+    req<OkResponse>(`/api/graphs/${graphId}/nodes/${nodeId}`, { method: "DELETE" }),
+  addGraphEdge: (graphId: string, body: { fromNode: string; fromPort: string; toNode: string; toPort: string }) =>
+    req<{ edgeId: string }>(`/api/graphs/${graphId}/edges`, { method: "POST", ...json(body) }),
+  deleteGraphEdge: (graphId: string, edgeId: string) =>
+    req<OkResponse>(`/api/graphs/${graphId}/edges/${edgeId}`, { method: "DELETE" }),
+  /** 即时取帧（preview.frame 专用，沿下游链计算，不执行全图不落缓存） */
+  instantPreviewFrame: (graphId: string, body: { nodeId: string; sampleTime?: number }) =>
+    req<{ previewUrl: string; sampleTime: number; duration: number; appliedNodes?: string[] }>(
+      `/api/graphs/${graphId}/preview-frame`,
+      { method: "POST", ...json(body) }
+    ),
+  runGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/run`, { method: "POST" }),
+  cancelGraph: (id: string) => req<OkResponse>(`/api/graphs/${id}/cancel`, { method: "POST" }),
+  graphRunning: (id: string) => req<{ running: boolean }>(`/api/graphs/${id}/running`).then((r) => r.running),
 };

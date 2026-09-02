@@ -93,6 +93,7 @@
 - **导入工作流**（`apps/web/src/hooks/useImportWorkflow.ts`）：项目导入与素材导入共用文件状态转换、顺序上传、任务轮询、部分失败、计时器清理与完成汇总；两个 modal 仅提供各自的 FormData/API adapter，剪裁阶段继续由 `useCropQueue` 负责。
 - **前端客户端边界**：`apps/web/src/api.ts` 保留为类型化 HTTP API 方法与共享响应类型的兼容门面；素材/帧图片 URL 构造位于 `api/mediaUrls.ts`，带重连的应用级 WebSocket 客户端位于 `api/ws.ts`。新增传输职责应放回所属模块，不再继续膨胀门面文件。
 - **生成 provider adapter 与产物提交**：`providerAdapter.ts` 每次任务实时解析 provider，封装配置/模型/能力校验、CLI argv、API/CLI 产出分发及 doctor 的模型探测；`jobs/generatedArtifacts.ts` 拥有产物 allocation、媒体分类、帧/素材/视频入库、暂存清理、广播与自动抠图收尾。`jobs/extract.ts` 只协调“产出 → 提交”，API 厂商协议仍位于 `jobs/generateApi.ts`。
+- **工作流图（无限画布节点编辑）**（`apps/server/src/graph/` + `apps/web/src/graph/` + `packages/shared/src/graph.ts`）：图 = `graphs`/`graph_nodes`/`graph_edges`/`graph_outputs` 四表；节点类型在 `graph/registry.ts` 注册（端口类型校验 `portsCompatible`，不匹配拒绝连线，单输入端口由 `UNIQUE(to_node,to_port)` 兜底）。执行器 `graph/executor.ts` 做拓扑排序 → 逐节点执行 → **内容寻址缓存**：`content_hash = sha256(node_type + canonical_json(params) + 上游各输入端口 hash 按端口名排序拼接)`，源节点用素材文件 size+mtime；命中 `graph_outputs` 即跳过，产物文件落 `storage/graph/outputs/<hash>/`（幂等覆盖）。与全局队列不同，图执行的 payload 全部持久化在 `graph_outputs`（queue 的内存负载重启即失，图的不会），重启后已完成节点直接缓存命中。节点实现 `graph/nodes.ts` 复用 `jobs/*` 底层函数（ffmpeg 抽帧、`runMatting`），依赖方向仍单向 graph/ → jobs/。执行状态经 WS `graph_node_status` 回填前端节点（running/done/skipped-cache/error/cancelled），`POST /api/graphs/:id/run|cancel` 控制，`/running` 轮询兜底。前端 `apps/web/src/graph/GraphPage.tsx` 用 `@xyflow/react`（React Flow）：左侧图列表，右侧无限画布，节点拖动位置防抖 400ms 持久化。实施计划与阶段划分见 `docs/graph-workflow-plan.zh-CN.md`。
 
 ## 数据流
 
@@ -170,7 +171,7 @@ AI 客户端 → POST /mcp { jsonrpc, method: "initialize" }
 
 ```
 storage/
-  framebaker.db            # SQLite（WAL）：projects / frames / jobs / materials
+  framebaker.db            # SQLite（WAL）：projects / frames / jobs / materials / graphs / graph_nodes / graph_edges / graph_outputs
   projects/<projectId>/
     raw/frame_0000.png ... # 拆帧/生成的原图（dup_<uuid>.png 复制帧、mat_<uuid>.png 素材导入帧）
     processed/<frameId>.png        # 抠图或替换后的图
@@ -181,6 +182,7 @@ storage/
   models/u2net.onnx 等     # rembg 模型缓存（U2NET_HOME，首次抠图自动下载）
   staging/<jobId>/         # 上传暂存（job 完成后清理）
   staging/extract_<uuid>/  # 拆帧暂存（完成后清理）
+  graph/outputs/<hash>/    # 工作流节点产物（content_hash 命名，幂等覆盖；命中缓存复用）
 ```
 
 数据库表（`apps/server/src/db.ts`，启动时 CREATE TABLE IF NOT EXISTS）：
@@ -193,11 +195,13 @@ storage/
 - `materials(id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at)`
 - `folders(id, kind, parent_id, name, sort, created_at)`：素材/项目多级目录（kind=`material`|`project`）
 - `settings(key, value, updated_at)`：界面偏好（layout / theme / lang）与运行配置（genProvider / matting），服务端权威持久化；主题与语言前端 localStorage 仅作首屏即时缓存，加载顺序为「本地立即渲染 → 服务端值覆盖」，写入双写（布局 PUT 防抖 ~500ms），离线静默降级
+- 工作流图四表：`graphs(id, name, folder_id, created_at, updated_at)`、`graph_nodes(id, graph_id, type, params, x, y)`、`graph_edges(id, graph_id, from_node, from_port, to_node, to_port, UNIQUE(to_node,to_port))`、`graph_outputs(content_hash, port, node_type, payload, created_at, PRIMARY KEY(content_hash,port))` —— 产物缓存以内容哈希为主键，跨图共享，删图不失效
 
 ## 前端页面与组件
 
-- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/settings` 设置页（history.pushState + popstate）；全局屏蔽浏览器原生右键菜单（输入框/文本域保留用于粘贴，帧项走自定义 ContextMenu）
-- `TopNav`：一级导航（项目 / 素材库 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）+ 界面语言切换（zh/en，`LangToggle`）；编辑器页有自己的顶栏不显示
+- `App.tsx`：`/` 项目列表 ↔ `/project/:id` 编辑器 ↔ `/materials` 素材库 ↔ `/graphs` 工作流画布 ↔ `/settings` 设置页（history.pushState + popstate）；全局屏蔽浏览器原生右键菜单（输入框/文本域保留用于粘贴，帧项走自定义 ContextMenu）
+- `TopNav`：一级导航（项目 / 素材库 / 工作流 / 设置）+ 主题切换（三态：跟随系统/浅色/深色）+ 界面语言切换（zh/en，`LangToggle`）；编辑器页有自己的顶栏不显示
+- `graph/GraphPage`：工作流页——左侧图列表（新建/删除，WS `graphs_changed` 刷新），右侧 React Flow 无限画布（节点下拉添加、拖动连线、断线、执行/取消按钮、节点状态描边：运行=accent / 完成=绿 / 缓存命中=青 / 错误=红）；节点位置防抖 400ms PATCH 持久化，执行进度经 WS `graph_node_status` 回填；双击节点（或右键→编辑参数）弹出参数面板（按 paramsSchema 渲染数字/文本/布尔字段，materialId 为素材下拉，保存 PATCH 后卡片摘要刷新）；连线为端口类型着色的贝塞尔（shared `PORT_COLORS`：video 红 / image 绿 / rect 青 / sheet 橙 / palette 黄，悬停加粗、点击删除），连接锚点是节点内真实 React Flow `<Handle>`（缺 Handle 会导致连线静默不渲染）；右键节点出上下文菜单（编辑参数 / 删除）
 - `SettingsPage`：生成 provider 列表管理（CLI / API 多个共存，增删改 + 保存 + API 测试连接）、抠图配置（CLI 模板 / 默认模型 datalist + 缓存状态）、体检（doctor 结果列表）
 - `ProjectList`：像素卡片网格（motion stagger 入场、hover 上浮）、新建/删除弹窗
 - `MaterialsPage`：素材库页——左目录树（`FolderTree`）+ 右卡片网格（来源彩色徽标按 provider、左下角「已抠图」徽标、复选框 + Cmd/Shift 多选、拖拽入文件夹）、批量条（删除/导入项目/批量抠图仅 raw/取消）

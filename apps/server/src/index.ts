@@ -3,7 +3,7 @@ import index from "../../web/index.html";
 import { app } from "./app";
 import { wsHandlers } from "./ws";
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 5842);
 
 serve({
   port,
@@ -12,6 +12,7 @@ serve({
     "/project/:id": index, // 编辑器页复用同一 HTML，前端读 location.pathname
     "/materials": index, // 素材库页同
     "/motions": index, // 动作工作台同
+    "/graphs": index, // 工作流画布页同
     "/settings": index, // 设置页同
   },
   fetch(req, server) {

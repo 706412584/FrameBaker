@@ -1,6 +1,8 @@
 // 图像处理客户端：优先 Web Worker（OffscreenCanvas），不可用/出错时降级主线程 canvas
 
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { quantizeImageData, type PaletteColor, type QuantizeOptions } from "./quantize";
+import { analyzeUiSmartSlicesData, type UiSmartSliceOptions, type UiSmartSliceResult } from "../graph/uiSlice";
 
 
 let worker: Worker | null = null;
@@ -247,4 +249,75 @@ export async function analyzeImage(blob: Blob): Promise<ImageAnalysis> {
   } catch {
     return mainAnalyze(blob);
   }
+}
+
+// ---- 像素量化（quantize.ts 算法，worker 优先）----
+
+async function mainQuantize(blob: Blob, options: QuantizeOptions): Promise<{ blob: Blob; palette: PaletteColor[] }> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    const result = quantizeImageData(imageData, options);
+    const out = document.createElement("canvas");
+    out.width = result.imageData.width;
+    out.height = result.imageData.height;
+    out.getContext("2d")!.putImageData(result.imageData, 0, 0);
+    const png = await new Promise<Blob>((resolve, reject) =>
+      out.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))), "image/png")
+    );
+    return { blob: png, palette: result.palette };
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** 像素量化 + 可选像素化下采样；worker 失败自动降级主线程。 */
+export async function quantizeImage(blob: Blob, options: QuantizeOptions): Promise<{ blob: Blob; palette: PaletteColor[] }> {
+  try {
+    const r = await runInWorker({ op: "quantize", blob, quantizeOptions: options });
+    if (!r.ok || !r.blob) throw new Error(r.error ?? "quantize 失败");
+    return { blob: r.blob, palette: r.palette ?? [] };
+  } catch {
+    return mainQuantize(blob, options);
+  }
+}
+
+export type { QuantizeOptions, QuantizeMethod, DitheringMethod, PaletteColor } from "./quantize";
+
+// ---- UI 智能切片（graph/uiSlice.ts 算法，worker 优先）----
+
+async function mainSliceAnalyze(blob: Blob, options: Partial<UiSmartSliceOptions>): Promise<UiSmartSliceResult> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return analyzeUiSmartSlicesData(imageData.data, bitmap.width, bitmap.height, options);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** UI 切片候选框检测；worker 失败自动降级主线程。 */
+export async function sliceAnalyze(blob: Blob, options: Partial<UiSmartSliceOptions>): Promise<UiSmartSliceResult> {
+  try {
+    const r = await runInWorker({ op: "sliceAnalyze", blob, sliceOptions: options });
+    if (!r.ok || !r.sliceResult) throw new Error(r.error ?? "sliceAnalyze 失败");
+    return r.sliceResult;
+  } catch {
+    return mainSliceAnalyze(blob, options);
+  }
+}
+
+/** 按框裁剪切片 PNG；worker 失败自动降级主线程（复用 cropImage 语义）。 */
+export async function sliceCrop(blob: Blob, rect: { x: number; y: number; w: number; h: number }): Promise<Blob> {
+  return cropImage(blob, rect);
 }

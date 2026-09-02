@@ -370,6 +370,20 @@ export interface MattingSettings {
   model: string;
 }
 
+/** 设置页「sprite 抠图管线」配置（存 settings 表 key=spriteMatting）；指向 sprite 工坊的 matte_cli.py */
+export interface SpriteMattingSettings {
+  /** Python 解释器绝对路径（如 sprite 工坊 work/models/venv/Scripts/python.exe） */
+  pythonBin: string;
+  /** matte_cli.py 绝对路径 */
+  cliPath: string;
+}
+/** GET /api/config 下发的 sprite 抠图摘要（总是下发，configured = 两个字段非空且文件存在由服务端判定） */
+export interface SpriteMattingInfo {
+  configured: boolean;
+  pythonBin: string;
+  cliPath: string;
+}
+
 /** GET /api/config 响应 */
 export interface ServerConfig {
   matting: {
@@ -380,6 +394,8 @@ export interface ServerConfig {
     /** 当前模型是否已缓存到 storage/models（未缓存则首次抠图会自动下载） */
     modelCached: boolean;
   };
+  /** sprite 抠图管线（图节点 matte.* 用；未配置时节点执行报错提示去设置页） */
+  spriteMatting: SpriteMattingInfo;
   imageLayers: {
     configured: boolean;
     model: string;
@@ -624,6 +640,10 @@ export const WS_EVENTS = [
   "animation_assets_changed",
   "folders_changed",
   "settings_changed",
+  "graphs_changed",
+  "graph_node_status",
+  "graph_client_task",
+  "graph_runs_changed",
 ] as const;
 export type WSEventType = (typeof WS_EVENTS)[number];
 
@@ -634,6 +654,7 @@ export const SETTING_KEYS = [
   "lang",
   "genProviders",
   "matting",
+  "spriteMatting",
   "imageLayers",
   "promptEnhancers",
   "queueConcurrency",

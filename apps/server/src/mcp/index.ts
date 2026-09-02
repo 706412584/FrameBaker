@@ -14,6 +14,7 @@ import { register as registerGenerationTools } from "./tools/generation";
 import { register as registerMaterialTools } from "./tools/materials";
 import { register as registerFolderTools } from "./tools/folders";
 import { register as registerJobTools } from "./tools/jobs";
+import { register as registerGraphTools } from "./tools/graphs";
 import { register as registerSystemTools } from "./tools/system";
 import { register as registerTimelineTools } from "./tools/timeline";
 
@@ -26,6 +27,7 @@ export const mcpHandler = createMcpHandler(() => {
   registerMaterialTools(server);
   registerFolderTools(server);
   registerJobTools(server);
+  registerGraphTools(server);
   registerSystemTools(server);
   return server;
 });

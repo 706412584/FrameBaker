@@ -311,6 +311,112 @@ Moves subtree resources up to parent, then deletes the entire folder subtree.
 
 `{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }` (`folderId: null` = ungrouped).
 
+## Workflow Graphs /api/graphs
+
+Infinite-canvas node workflow: graphs → nodes (graph_nodes) → edges (graph_edges). Type definitions in `packages/shared/src/graph.ts`; implementation plan in `docs/graph-workflow-plan.zh-CN.md` (zh).
+
+### GET /api/graph/node-schemas
+
+Node type registry (for the canvas node palette): `{ "nodeSchemas": [ { "type": "material.video", "label": "…", "inputs": [], "outputs": [{ "name": "video", "type": "video" }], "paramsSchema": {...}, "execution": "server" } ] }`.
+
+### GET /api/graph/templates
+
+Workflow template list: `{ "templates": [ { "id": "sprite-pipeline", "name": "…", "description": "…" } ] }`.
+
+### POST /api/graph/templates/:templateId/graphs
+
+Instantiate a graph from a template (nodes + edges + preset params in one transaction) → `{ "id": "…" }`. Optional body `{ "name": "…" }` overrides the default name.
+
+### GET /api/graph/runs
+
+Execution records (last 20): `{ "runs": [ { "id": "…", "graphId": "…", "graphName": "…", "startedAt": …, "finishedAt": …, "status": "done|running|error|cancelled", "nodeStats": { "total": n, "done": n, "cached": n, "error": n } } ] }`. WS `graph_runs_changed` broadcasts at each run start/finish.
+
+### GET /api/graphs
+
+List graphs, newest first: `{ "graphs": [ { "id": "…", "name": "…", "created_at": …, "updated_at": … } ] }`.
+
+### POST /api/graphs
+
+`{ "name": "Character keying pipeline" }` → `{ "id": "…" }`.
+
+### GET /api/graphs/:id
+
+Full graph document (params parsed as JSON objects):
+
+```json
+{
+  "graph": { "id": "…", "name": "…", "created_at": …, "updated_at": … },
+  "nodes": [ { "id": "…", "graph_id": "…", "type": "extract.frames", "params": { "fps": 12 }, "x": 250, "y": 0 } ],
+  "edges": [ { "id": "…", "graph_id": "…", "from_node": "…", "from_port": "video", "to_node": "…", "to_port": "video" } ]
+}
+```
+
+### PATCH /api/graphs/:id
+
+`{ "name": "New name" }` → `{ "ok": true }`.
+
+### DELETE /api/graphs/:id
+
+Cascade-deletes all nodes and edges in the graph → `{ "ok": true }`.
+
+### POST /api/graphs/:id/nodes
+
+```json
+// request
+{ "type": "extract.frames", "params": { "fps": 12 }, "x": 250, "y": 0 }
+// response
+{ "nodeId": "…" }
+```
+
+Unknown `type` returns 400. `params` is optional.
+
+### PATCH /api/graphs/:id/nodes/:nodeId
+
+`{ "params": { "fps": 24 } }` or `{ "x": 300, "y": 120 }` (x and y must be sent together) → `{ "ok": true }`.
+
+### DELETE /api/graphs/:id/nodes/:nodeId
+
+Cascade-deletes all edges touching the node → `{ "ok": true }`.
+
+### POST /api/graphs/:id/edges
+
+```json
+// request
+{ "fromNode": "…", "fromPort": "video", "toNode": "…", "toPort": "video" }
+// response
+{ "edgeId": "…" }
+```
+
+Validation: port type mismatch → 400; target input port already connected → 409; self-loop → 400. One-edge-per-input is additionally enforced by `UNIQUE(to_node, to_port)` on the graph_edges table.
+
+### DELETE /api/graphs/:id/edges/:edgeId
+
+→ `{ "ok": true }`.
+
+### POST /api/graphs/:id/run
+
+Asynchronously runs the whole graph (topological sort → per node: skip on cache hit → execute → write artifacts to `graph_outputs`). Progress broadcasts via WS `graph_node_status`; poll `GET /api/graphs/:id/running` → `{ "ok": true }`. Empty graph 400; already running 409.
+
+### POST /api/graphs/:id/cancel
+
+Cancels a running execution (AbortSignal kills the current node's subprocess) → `{ "ok": true }`; nothing running 409.
+
+### GET /api/graphs/:id/running
+
+→ `{ "running": boolean }`.
+
+### GET /api/graph/media?path=…
+
+Restricted media serving: only files under `storage/graph` and `storage/materials` (client nodes fetch input images; path-traversal guarded). ETag supported.
+
+### POST /api/graphs/:id/client-result/:taskId?name=xx.png
+
+Client-node artifact upload (PNG binary body ≤32MB, filename allow-list `\w.-+.png`), stored into that task's output dir → `{ "ok": true }`.
+
+### POST /api/graphs/:id/client-result/:taskId/complete
+
+Client-node completion marker: artifact nodes send `{ "fileNames": [...] }`; analysis nodes (e.g. slice.ui.analyze) send `{ "outputs": { "<port>": {...} } }`; failure sends `{ "error": "..." }` → `{ "ok": true }`. Task missing/finished 404.
+
 ## WebSocket /ws
 
 Server → client one-way broadcast, JSON:
@@ -330,6 +436,7 @@ Server → client one-way broadcast, JSON:
 | `materials_changed` | Material upload / generate / batch delete / move folder |
 | `folders_changed` | Folder add/remove/update / move |
 | `settings_changed` | Setting written (layout / theme / lang / genProvider / matting) |
+| `graphs_changed` | Graph / node / edge create-update-delete |
 
 Frontend recommendation: on receiving `frame_updated` / `frames_reordered` / `frames_changed` / `job_done`, re-fetch frame list; on `material_updated` / `materials_changed`, re-fetch material list; reconnect 3s after disconnect.
 
@@ -550,6 +657,13 @@ After handshake, send `notifications/initialized` notification (no response need
 | `get_settings` | Get all settings |
 | `update_setting` | Update a single setting |
 | `enhance_prompt` | Enhance prompt |
+| `list_graph_node_schemas` | List workflow node types |
+| `list_graphs` | List workflow graphs |
+| `create_graph` | Create a workflow graph |
+| `get_graph` | Get graph document (nodes + edges) |
+| `add_graph_node` | Add a node |
+| `connect_graph_nodes` | Connect nodes (with port type validation) |
+| `delete_graph` | Delete a graph |
 
 ### Tool Call Examples
 

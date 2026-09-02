@@ -139,6 +139,51 @@ CREATE TABLE IF NOT EXISTS skeletal_projects (
   document TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS graphs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  folder_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS graph_nodes (
+  id TEXT PRIMARY KEY,
+  graph_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '{}',
+  x REAL NOT NULL DEFAULT 0,
+  y REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_graph ON graph_nodes(graph_id);
+CREATE TABLE IF NOT EXISTS graph_edges (
+  id TEXT PRIMARY KEY,
+  graph_id TEXT NOT NULL,
+  from_node TEXT NOT NULL,
+  from_port TEXT NOT NULL,
+  to_node TEXT NOT NULL,
+  to_port TEXT NOT NULL,
+  UNIQUE(to_node, to_port)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_graph ON graph_edges(graph_id);
+CREATE TABLE IF NOT EXISTS graph_runs (
+  id TEXT PRIMARY KEY,
+  graph_id TEXT NOT NULL,
+  graph_name TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  status TEXT NOT NULL DEFAULT 'running',
+  node_states TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_graph_runs_started ON graph_runs(started_at);
+CREATE TABLE IF NOT EXISTS graph_outputs (
+  content_hash TEXT NOT NULL,
+  port TEXT NOT NULL,
+  node_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (content_hash, port)
+);
 `);
 
 // SQLite 无法原地修改 CHECK；扩充为 12 分件角色时保留旧六分件集合。

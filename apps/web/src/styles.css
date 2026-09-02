@@ -4840,3 +4840,173 @@ body.resizing-row * {
 .binding-warp-grid { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
 .binding-warp-point { fill: var(--surface); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
 .binding-warp-point:hover { fill: var(--accent); stroke: var(--text); }
+
+/* ===== 工作流图（无限画布节点编辑）===== */
+.graph-page { display: flex; height: 100%; padding-top: 60px; box-sizing: border-box; overflow: hidden; }
+.graph-list { width: 200px; flex: none; display: flex; flex-direction: column; border-right: 4px solid var(--border); background: var(--surface); }
+.graph-list-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-weight: 700; color: var(--text-muted); }
+.graph-list-item { display: flex; align-items: center; }
+.graph-list-item.active .graph-list-btn { color: var(--accent); border-color: var(--border-focused); }
+.graph-list-btn { flex: 1; min-width: 0; text-align: left; background: none; border: none; color: var(--text); padding: 7px 10px 7px 26px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.graph-list-btn:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.graph-list-del { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 8px; }
+.graph-list-del:hover { color: var(--accent); }
+.graph-list-empty { padding: 16px 12px; color: var(--text-muted); font-size: 12px; }
+.graph-placeholder { flex: 1; display: grid; place-items: center; color: var(--text-muted); }
+.graph-canvas-wrap { flex: 1; position: relative; display: flex; flex-direction: column; }
+.graph-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 4px solid var(--border); background: var(--surface); z-index: 5; }
+.graph-add-select { font-size: 12px; }
+
+/* React Flow 容器铺满剩余高度 */
+.graph-canvas-wrap .react-flow { flex: 1; }
+.react-flow__background { background: var(--bg); }
+
+/* 节点卡片：像素风阶梯边框 */
+.graph-node { background: var(--surface); border: 4px solid var(--border); box-shadow: 0 4px 0 0 color-mix(in srgb, var(--bg) 60%, #000); min-width: 130px; font-size: 12px; }
+.graph-node-title { padding: 5px 8px; font-weight: 700; border-bottom: 2px solid var(--border); color: var(--text); }
+.graph-node-ports { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; position: relative; }
+.graph-node-in, .graph-node-out { display: flex; flex-direction: column; gap: 4px; }
+.graph-port { padding: 1px 6px; font-size: 10px; color: var(--text-muted); position: relative; }
+.graph-port-in { text-align: left; }
+.graph-port-out { text-align: right; }
+/* 端口连线锚点 */
+.react-flow__handle { width: 9px; height: 9px; background: var(--accent); border: 2px solid var(--bg); }
+.graph-node-params { padding: 0 8px 6px; color: var(--text-muted); font-size: 10px; display: flex; flex-direction: column; gap: 1px; }
+.graph-node-progress { padding: 2px 8px 6px; color: var(--accent); font-size: 10px; }
+
+/* 执行状态描边 */
+.graph-node.gn-status-running { border-color: var(--accent); }
+.graph-node.gn-status-done { border-color: #50fa7b; }
+.graph-node.gn-status-cache { border-color: #8be9fd; }
+.graph-node.gn-status-error { border-color: #ff5555; }
+.graph-node.gn-status-cancelled { border-color: var(--text-muted); }
+
+/* 人在环：候选框确认面板（画布右上角浮层） */
+.graph-confirm-panel { position: absolute; top: 52px; right: 12px; z-index: 20; width: 320px; background: var(--surface); border: 4px solid var(--border); box-shadow: 0 6px 0 0 color-mix(in srgb, var(--bg) 60%, #000); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.graph-confirm-head { font-weight: 700; color: var(--text); display: flex; justify-content: space-between; align-items: center; }
+.graph-confirm-meta { color: var(--text-muted); font-size: 11px; }
+.graph-confirm-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.graph-confirm-row { display: flex; align-items: center; gap: 4px; }
+.graph-confirm-name { flex: none; width: 70px; color: var(--text); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.graph-confirm-row label { display: flex; align-items: center; gap: 2px; color: var(--text-muted); font-size: 10px; }
+.graph-confirm-row input { width: 44px; background: var(--bg); border: 2px solid var(--border); color: var(--text); font-size: 11px; padding: 2px 4px; font-family: inherit; }
+.graph-confirm-row input:focus { border-color: var(--border-focused); outline: none; }
+.graph-confirm-del { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; }
+.graph-confirm-del:hover { color: var(--accent); }
+.graph-confirm-actions { display: flex; justify-content: flex-end; }
+
+/* 节点参数编辑面板（双击节点弹出，复用 confirm 浮层布局） */
+.graph-params-panel .graph-param-row { display: flex; align-items: center; gap: 8px; }
+.graph-param-label { flex: none; width: 96px; color: var(--text); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-param-input { flex: 1; min-width: 0; background: var(--bg); border: 2px solid var(--border); color: var(--text); font-size: 12px; padding: 3px 6px; font-family: inherit; }
+.graph-param-input:focus { border-color: var(--border-focused); outline: none; }
+.graph-param-check { accent-color: var(--accent); width: 15px; height: 15px; }
+
+/* ComfyUI 风格连线与端口着色 */
+.graph-port { position: relative; display: flex; align-items: center; gap: 4px; }
+.graph-port-in { justify-content: flex-start; }
+.graph-port-out { justify-content: flex-end; }
+.graph-port-label { color: var(--port-color, var(--text-muted)); font-size: 10px; }
+.graph-port-label::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 4px; background: var(--port-color, var(--text-muted)); border-radius: 50%; vertical-align: middle; }
+.graph-port-out .graph-port-label::before { display: none; }
+.graph-port-out .graph-port-label::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 4px; background: var(--port-color, var(--text-muted)); border-radius: 50%; vertical-align: middle; }
+/* Handle 锚点贴端口行外侧（左进右出），与标签圆点同心 */
+.graph-port .react-flow__handle { position: absolute; top: 50%; width: 9px; height: 9px; background: var(--port-color, var(--accent)); border: 2px solid var(--bg); transform: translateY(-50%); transition: transform .1s; min-width: 0; min-height: 0; }
+.graph-port .react-flow__handle-left { left: -6px; }
+.graph-port .react-flow__handle-right { right: -6px; }
+.graph-port .react-flow__handle:hover { transform: translateY(-50%) scale(1.5); }
+/* 连接拖拽预览线（React Flow 内置 connection line）加粗 */
+.react-flow__connectionline path { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 6 4; }
+.graph-edge { cursor: pointer; }
+
+/* 右键节点菜单（fixed 定位跟随鼠标） */
+.graph-context-menu { position: fixed; z-index: 40; min-width: 150px; background: var(--surface); border: 4px solid var(--border); box-shadow: 0 6px 0 0 color-mix(in srgb, var(--bg) 60%, #000); display: flex; flex-direction: column; padding: 4px; }
+.graph-context-item { background: none; border: none; color: var(--text); text-align: left; padding: 6px 10px; font-size: 13px; font-family: inherit; cursor: pointer; }
+.graph-context-item:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.graph-context-item.danger:hover { background: color-mix(in srgb, #ff5555 18%, transparent); color: #ff5555; }
+
+/* 节点产物预览缩略图 + lightbox */
+.graph-node-preview { display: block; width: 100%; padding: 0 4px 4px; background: none; border: none; cursor: zoom-in; }
+/* 预览背景（对齐 sprite PreviewPanel 的背景模式）：深色棋盘格是默认 ——
+   白色半透明纹理（发丝/冰纹）在浅底上会炸成"蛛网"，深底才看得出真实观感 */
+.preview-bg-checker { background: repeating-conic-gradient(#2b2b33 0% 25%, #23232b 0% 50%) 0 0/12px 12px; }
+.preview-bg-dark { background: #1a1a20; }
+.preview-bg-light { background: #f2f2f4; }
+.preview-bg-custom { background: var(--preview-bg-color, #1a1a20); }
+.graph-node-preview-media { display: block; width: 100%; max-height: 120px; object-fit: contain; image-rendering: auto; border: 2px solid var(--border); }
+.graph-node-preview:hover .graph-node-preview-media { border-color: var(--border-focused); }
+.graph-lightbox { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--bg) 88%, transparent); display: grid; place-items: center; cursor: zoom-out; }
+.graph-lightbox-media { max-width: 86vw; max-height: 84vh; image-rendering: auto; border: 4px solid var(--border); }
+.graph-lightbox-close { position: fixed; top: 16px; right: 20px; background: var(--surface); border: 4px solid var(--border); color: var(--text); font-size: 16px; padding: 4px 12px; cursor: pointer; }
+
+/* 帧序列播放器（lightbox 内） */
+.graph-frame-player { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.graph-frame-controls { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 4px solid var(--border); padding: 8px 12px; flex-wrap: wrap; justify-content: center; }
+.graph-frame-counter { color: var(--text); font-size: 13px; min-width: 44px; text-align: center; }
+.graph-frame-fps { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
+.graph-frame-fps input[type="range"] { width: 90px; accent-color: var(--accent); }
+.graph-frame-strip { display: flex; gap: 3px; max-width: 70vw; overflow-x: auto; padding: 2px; }
+.graph-frame-thumb { background: none; border: 2px solid var(--border); padding: 0; cursor: pointer; line-height: 0; }
+.graph-frame-thumb.active { border-color: var(--accent); }
+.graph-frame-thumb img { width: 34px; height: 34px; object-fit: contain; image-rendering: pixelated; }
+.graph-node-preview { position: relative; }
+.graph-node-preview-badge { position: absolute; right: 6px; bottom: 6px; background: var(--accent); color: var(--accent-contrast); font-size: 10px; font-weight: 700; padding: 0 5px; border: 2px solid var(--bg); }
+
+/* 节点内联参数（ComfyUI 风格：卡片上直接编辑） */
+.graph-node { min-width: 200px; }
+.graph-node-selected { border-color: var(--border-focused) !important; }
+.graph-node-fields { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 4px; border-bottom: 2px solid var(--border); margin-bottom: 4px; }
+.graph-field { display: flex; align-items: center; gap: 5px; }
+.graph-field-label { flex: none; width: 88px; color: var(--text-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.graph-field-input { flex: 1; min-width: 0; width: 100px; background: var(--bg); border: 2px solid var(--border); color: var(--text); font-size: 11px; padding: 2px 4px; font-family: inherit; }
+.graph-field-input:focus { border-color: var(--border-focused); outline: none; }
+.graph-field-bool { cursor: pointer; }
+.graph-field-check { accent-color: var(--accent); width: 13px; height: 13px; flex: none; margin-left: auto; }
+/* 节点内输入不打断画布拖拽：文本/数字输入上停掉指针传播 */
+.graph-node-fields input, .graph-node-fields select { cursor: text; }
+
+/* preview.frame 时间轴 */
+.graph-timeline { display: flex; align-items: center; gap: 6px; padding: 2px 0 4px; border-bottom: 2px solid var(--border); margin-bottom: 4px; }
+.graph-timeline-range { flex: 1; min-width: 60px; accent-color: var(--accent); height: 14px; }
+.graph-timeline-time { flex: none; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.graph-timeline-run { flex: none; background: var(--accent); color: var(--accent-contrast); border: 2px solid var(--bg); font-size: 10px; padding: 1px 8px; cursor: pointer; font-family: inherit; }
+.graph-timeline-run { background: color-mix(in srgb, #ff5555 18%, var(--surface)); color: var(--text); border-color: color-mix(in srgb, #ff5555 45%, var(--border)); }
+.graph-timeline-run:hover { filter: brightness(1.1); }
+
+/* 参数已改待重算（dirty）：黄色描边 */
+.graph-node.gn-status-dirty { border-color: #ffb86c; }
+
+/* 任务悬浮面板（ComfyUI 式右上角） */
+.graph-task-fab { position: fixed; top: 70px; right: 16px; z-index: 50; }
+.graph-task-btn { position: relative; width: 38px; height: 38px; display: grid; place-items: center; background: var(--surface); border: 4px solid var(--border); color: var(--text); cursor: pointer; box-shadow: 0 3px 0 0 color-mix(in srgb, var(--bg) 60%, #000); }
+.graph-task-btn:hover { border-color: var(--border-focused); }
+.graph-task-badge { position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; display: grid; place-items: center; background: var(--accent); color: var(--accent-contrast); font-size: 11px; font-weight: 700; border: 2px solid var(--bg); padding: 0 3px; }
+.graph-task-panel { position: absolute; top: 46px; right: 0; width: 320px; max-height: 60vh; overflow-y: auto; background: var(--surface); border: 4px solid var(--border); box-shadow: 0 6px 0 0 color-mix(in srgb, var(--bg) 60%, #000); }
+.graph-task-head { padding: 8px 12px; border-bottom: 4px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
+.graph-task-live { padding: 6px 10px; border-bottom: 2px solid var(--border); }
+.graph-task-live-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; }
+.graph-task-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: graph-task-pulse 1s infinite alternate; }
+@keyframes graph-task-pulse { from { opacity: 0.4; } to { opacity: 1; } }
+.graph-task-name { color: var(--text); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-task-progress { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: right; }
+.graph-task-empty { padding: 10px 12px; color: var(--text-muted); font-size: 12px; }
+.graph-task-history { display: flex; flex-direction: column; }
+.graph-task-run { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: none; border: none; border-bottom: 2px solid var(--border); cursor: pointer; font-family: inherit; text-align: left; }
+.graph-task-run:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.graph-task-run-name { flex: 1; color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-task-run-meta { flex: none; font-size: 11px; color: var(--text-muted); }
+.graph-task-run.running .graph-task-run-meta { color: var(--accent); }
+.graph-task-run.error .graph-task-run-meta { color: #ff5555; }
+.graph-task-run.done .graph-task-run-meta { color: #50fa7b; }
+.graph-task-run-time { flex: none; font-size: 10px; color: var(--text-muted); }
+
+.graph-timeline-instant { flex: none; background: var(--surface); color: var(--text); border: 2px solid var(--border); font-size: 10px; padding: 1px 6px; cursor: pointer; font-family: inherit; }
+.graph-timeline-instant:hover { border-color: var(--border-focused); }
+
+.graph-node-preview-chain { position: absolute; left: 6px; bottom: 6px; background: var(--surface); color: var(--text-muted); font-size: 9px; padding: 0 4px; border: 1px solid var(--border); }
+
+/* Lightbox 背景切换条 */
+.graph-lightbox-bar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 61; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 4px solid var(--border); padding: 6px 10px; }
+.graph-lightbox-bar select { background: var(--bg); border: 2px solid var(--border); color: var(--text); font-family: inherit; font-size: 12px; padding: 2px 6px; }
+.graph-lightbox-bar input[type="color"] { width: 30px; height: 24px; padding: 0; border: 2px solid var(--border); background: var(--bg); cursor: pointer; }
+.graph-lightbox-bar input[type="color"]:disabled { opacity: .4; cursor: not-allowed; }

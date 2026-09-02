@@ -1,5 +1,6 @@
-import type { GenProvider, GenProviderType, ImageLayerSettings, MattingSettings, PromptEnhancer } from "@framebaker/shared";
+import type { GenProvider, GenProviderType, ImageLayerSettings, MattingSettings, PromptEnhancer, SpriteMattingSettings } from "@framebaker/shared";
 import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
+import { existsSync } from "node:fs";
 import { db } from "./db";
 
 // 生成 / 抠图 / 提示词加强的运行配置：设置页（settings 表）优先，环境变量兜底
@@ -145,6 +146,23 @@ export function getMattingSettings(): MattingSettings & { envTemplate: string } 
         : process.env.FRAMEBAKER_MATTING_MODEL?.trim() || "u2net",
     envTemplate: process.env.FRAMEBAKER_MATTING_CLI?.trim() ?? "",
   };
+}
+
+/**
+ * sprite 抠图管线配置（settings 表 spriteMatting）：指向 sprite 工坊的 matte_cli.py。
+ * 供图节点 matte.chroma / matte.spriteflow / matte.birefnet / matte.corridorkey /
+ * matte.luma / matte.additive 使用；与全局 rembg matting 互不影响。
+ */
+export function getSpriteMattingSettings(): SpriteMattingSettings {
+  const saved = getSettingJson<Partial<SpriteMattingSettings>>("spriteMatting");
+  return {
+    pythonBin: str(saved?.pythonBin).trim(),
+    cliPath: str(saved?.cliPath).trim(),
+  };
+}
+
+export function spriteMattingConfigured(s: SpriteMattingSettings): boolean {
+  return !!(s.pythonBin && s.cliPath && existsSync(s.pythonBin) && existsSync(s.cliPath));
 }
 
 /** 归一化一个加强模型条目 */

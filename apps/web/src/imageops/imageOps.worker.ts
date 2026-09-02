@@ -2,6 +2,8 @@
 // 注：工程 lib 只有 DOM（无 webworker），这里用模块级 declare 收窄 postMessage 签名
 
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
+import { quantizeImageData, type QuantizeOptions } from "./quantize";
+import { analyzeUiSmartSlicesData } from "../graph/uiSlice";
 
 
 declare function postMessage(message: ImageOpResponse): void;
@@ -80,8 +82,20 @@ async function editFromBitmap(bitmap: ImageBitmap, strokes: EraseStroke[], quart
   return output.convertToBlob({ type: "image/png" });
 }
 
+async function quantizeFromBitmap(bitmap: ImageBitmap, options: QuantizeOptions) {
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0);
+  const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+  const result = quantizeImageData(imageData, options);
+  const out = new OffscreenCanvas(result.imageData.width, result.imageData.height);
+  out.getContext("2d")!.putImageData(result.imageData, 0, 0);
+  const blob = await out.convertToBlob({ type: "image/png" });
+  return { blob, palette: result.palette };
+}
+
 self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
-  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions, warpGrid, warpPoints } = e.data;
+  const { id, op, blob, rect, strokes, quarterTurns, flipHorizontal, componentOptions, warpGrid, warpPoints, quantizeOptions, sliceOptions } = e.data;
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
@@ -104,6 +118,21 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
       ctx.drawImage(bitmap, 0, 0);
       const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
       postMessage({ id, ok: true, analysis: computeImageAnalysis(imageData.data, imageData.width, imageData.height) });
+    } else if (op === "quantize") {
+      if (!quantizeOptions) throw new Error("quantize 缺少 quantizeOptions");
+      const { blob: out, palette } = await quantizeFromBitmap(bitmap, quantizeOptions);
+      postMessage({ id, ok: true, blob: out, palette });
+    } else if (op === "sliceAnalyze") {
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      const result = analyzeUiSmartSlicesData(imageData.data, bitmap.width, bitmap.height, sliceOptions ?? {});
+      postMessage({ id, ok: true, sliceResult: result });
+    } else if (op === "sliceCrop") {
+      if (!rect) throw new Error("sliceCrop 缺少 rect");
+      const out = await cropFromBitmap(bitmap, rect);
+      postMessage({ id, ok: true, blob: out });
     } else {
 
       const out = await editFromBitmap(bitmap, strokes ?? [], quarterTurns ?? 0, flipHorizontal ?? false);

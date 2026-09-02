@@ -311,6 +311,112 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 
 `{ "kind": "material", "ids": ["…"], "folderId": null }` → `{ "ok": true, "moved": n }`（`folderId: null` = 未分组）。
 
+## 工作流图 /api/graphs
+
+无限画布节点工作流：图（graphs）→ 节点（graph_nodes）→ 连线（graph_edges）。类型定义见 `packages/shared/src/graph.ts`，实施计划见 `docs/graph-workflow-plan.zh-CN.md`。
+
+### GET /api/graph/node-schemas
+
+节点类型清单（画布左侧节点面板用）：`{ "nodeSchemas": [ { "type": "material.video", "label": "视频素材", "inputs": [], "outputs": [{ "name": "video", "type": "video" }], "paramsSchema": {...}, "execution": "server" } ] }`。
+
+### GET /api/graph/templates
+
+工作流模板清单：`{ "templates": [ { "id": "sprite-pipeline", "name": "视频抽帧流水线", "description": "…" } ] }`。
+
+### POST /api/graph/templates/:templateId/graphs
+
+从模板一键建图（节点 + 连线 + 预设参数，单事务）→ `{ "id": "…" }`。body 可选 `{ "name": "…" }` 覆盖默认名。
+
+### GET /api/graph/runs
+
+执行记录（最近 20 条）：`{ "runs": [ { "id": "…", "graphId": "…", "graphName": "…", "startedAt": …, "finishedAt": …, "status": "done|running|error|cancelled", "nodeStats": { "total": n, "done": n, "cached": n, "error": n } } ] }`。WS `graph_runs_changed` 在每次执行开始/结束时广播。
+
+### GET /api/graphs
+
+图列表，按创建时间倒序：`{ "graphs": [ { "id": "…", "name": "…", "created_at": 1785912000000, "updated_at": … } ] }`。
+
+### POST /api/graphs
+
+`{ "name": "角色去底流水线" }` → `{ "id": "…" }`。
+
+### GET /api/graphs/:id
+
+完整图文档（params 已解析为 JSON 对象）：
+
+```json
+{
+  "graph": { "id": "…", "name": "…", "created_at": …, "updated_at": … },
+  "nodes": [ { "id": "…", "graph_id": "…", "type": "extract.frames", "params": { "fps": 12 }, "x": 250, "y": 0 } ],
+  "edges": [ { "id": "…", "graph_id": "…", "from_node": "…", "from_port": "video", "to_node": "…", "to_port": "video" } ]
+}
+```
+
+### PATCH /api/graphs/:id
+
+`{ "name": "新名字" }` → `{ "ok": true }`。
+
+### DELETE /api/graphs/:id
+
+级联删除图内全部节点与连线 → `{ "ok": true }`。
+
+### POST /api/graphs/:id/nodes
+
+```json
+// 请求
+{ "type": "extract.frames", "params": { "fps": 12 }, "x": 250, "y": 0 }
+// 响应
+{ "nodeId": "…" }
+```
+
+`type` 不在注册表返回 400。`params` 可省略。
+
+### PATCH /api/graphs/:id/nodes/:nodeId
+
+`{ "params": { "fps": 24 } }` 或 `{ "x": 300, "y": 120 }`（x/y 需同时传）→ `{ "ok": true }`。
+
+### DELETE /api/graphs/:id/nodes/:nodeId
+
+级联删除与该节点相连的所有连线 → `{ "ok": true }`。
+
+### POST /api/graphs/:id/edges
+
+```json
+// 请求
+{ "fromNode": "…", "fromPort": "video", "toNode": "…", "toPort": "video" }
+// 响应
+{ "edgeId": "…" }
+```
+
+校验：端口类型不匹配 → 400；目标输入端口已有连线 → 409；自环 → 400。单输入端口唯一性由 `graph_edges` 表的 `UNIQUE(to_node, to_port)` 兜底。
+
+### DELETE /api/graphs/:id/edges/:edgeId
+
+→ `{ "ok": true }`。
+
+### POST /api/graphs/:id/run
+
+异步执行整张图（拓扑排序 → 逐节点：缓存命中跳过 → 执行 → 产物写 `graph_outputs`）。进度经 WS `graph_node_status` 广播；运行状态轮询 `GET /api/graphs/:id/running` → `{ "ok": true }`。空图 400；已在执行 409。
+
+### POST /api/graphs/:id/cancel
+
+取消进行中的执行（AbortSignal 杀当前节点子进程）→ `{ "ok": true }`；无进行中执行 409。
+
+### GET /api/graphs/:id/running
+
+→ `{ "running": boolean }`。
+
+### GET /api/graph/media?path=…
+
+受限媒体服务：仅允许 `storage/graph` 与 `storage/materials` 下的文件（客户端节点拉取输入图用；路径穿越防护）。支持 ETag。
+
+### POST /api/graphs/:id/client-result/:taskId?name=xx.png
+
+客户端节点产物上传（PNG 二进制 body ≤32MB，文件名白名单 `\w.-+.png`），落盘到该任务产物目录 → `{ "ok": true }`。
+
+### POST /api/graphs/:id/client-result/:taskId/complete
+
+客户端节点完成标记：产物型传 `{ "fileNames": [...] }`；分析型（如 slice.ui.analyze）传 `{ "outputs": { "<port>": {...} } }`；失败传 `{ "error": "..." }` → `{ "ok": true }`。任务不存在/已完成 404。
+
 ## WebSocket /ws
 
 服务端 → 客户端单向广播，JSON：
@@ -330,6 +436,7 @@ multipart/form-data：`file`（PNG）+ `slot`（`"raw"` | `"processed"`）。剪
 | `materials_changed` | 素材上传 / 生成 / 批量删除 / 移动文件夹 |
 | `folders_changed` | 文件夹增删改 / 移动 |
 | `settings_changed` | 设置写入（layout / theme / lang / genProvider / matting） |
+| `graphs_changed` | 工作流图 / 节点 / 连线增删改 |
 
 前端建议：收到 `frame_updated` / `frames_reordered` / `frames_changed` / `job_done` 后重拉帧列表，收到 `material_updated` / `materials_changed` 后重拉素材列表；断线 3s 重连。
 
@@ -550,6 +657,13 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `get_settings` | 获取全部设置 |
 | `update_setting` | 更新单个设置项 |
 | `enhance_prompt` | 提示词加强 |
+| `list_graph_node_schemas` | 列出工作流节点类型 |
+| `list_graphs` | 列出工作流图 |
+| `create_graph` | 创建工作流图 |
+| `get_graph` | 查询图文档（节点+连线） |
+| `add_graph_node` | 添加节点 |
+| `connect_graph_nodes` | 连线（含端口类型校验） |
+| `delete_graph` | 删除图 |
 
 ### 工具调用示例
 

@@ -5,7 +5,7 @@ import type { ServerConfig } from "@framebaker/shared";
 import { ENHANCE_PROMPT_INTENTS, PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
-import { enhancerConfigured, getGenProviders, getImageLayerSettings, getPromptEnhancers, imageLayerConfigured, providerConfigured } from "./provider";
+import { enhancerConfigured, getGenProviders, getImageLayerSettings, getPromptEnhancers, getSpriteMattingSettings, imageLayerConfigured, providerConfigured, spriteMattingConfigured } from "./provider";
 import { isModelCached, listApiProviderModels, runDoctor, testApiProvider } from "./doctor";
 import { enhancePrompt } from "./enhance";
 import { projectsApi } from "./api/projects";
@@ -17,6 +17,7 @@ import { foldersApi } from "./api/folders";
 import { animationAssetsApi } from "./api/animationAssets";
 import { skeletalProjectsApi } from "./api/skeletalProjects";
 import { characterPartSetsApi } from "./api/characterPartSets";
+import { graphsApi } from "./api/graphs";
 import { beginProjectUndo, finishProjectUndo, undoProject } from "./undo";
 import { timelineApi } from "./api/timeline";
 import { attackEffectsApi } from "./api/attackEffects";
@@ -108,12 +109,18 @@ export const app = new Elysia()
   .get("/api/config", (): ServerConfig => {
     const matting = getMattingInfo();
     const imageLayers = getImageLayerSettings();
+    const sprite = getSpriteMattingSettings();
     return {
       matting: {
         engine: matting.engine,
         model: matting.model,
         hint: matting.hint,
         modelCached: isModelCached(matting.model),
+      },
+      spriteMatting: {
+        configured: spriteMattingConfigured(sprite),
+        pythonBin: sprite.pythonBin,
+        cliPath: sprite.cliPath,
       },
       imageLayers: {
         configured: imageLayerConfigured(imageLayers),
@@ -245,6 +252,7 @@ export const app = new Elysia()
   .use(foldersApi)
   .use(animationAssetsApi)
   .use(settingsApi)
+  .use(graphsApi)
   // MCP（Model Context Protocol）端点：Streamable HTTP 传输（SDK v2 自动处理 POST/GET/DELETE）
   .all("/mcp", ({ request }) => mcpHandler.fetch(request));
 

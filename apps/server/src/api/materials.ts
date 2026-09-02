@@ -148,12 +148,29 @@ export const materialsApi = new Elysia({ prefix: "/api" })
   .get("/materials/:id/image", materialImageHandler)
   .get("/materials/:id/image.png", materialImageHandler)
   // 上传素材：单图 → 直接入库；GIF/MP4 → 队列拆帧，每帧一个素材
+  // graphRaw=1（工作流画布的上传入口）：视频/GIF/PSD 保持原始文件直存为单素材，不拆帧
+  // —— material.video / material.psd 等节点语义是"一个源文件"
   .post(
     "/materials/upload",
     async ({ body }) => {
       const origName = body.file.name ?? "素材";
       const ext = extOf(origName);
       const autoMatting = body.autoMatting === "true";
+      const graphRaw = body.graphRaw === "true";
+
+      if (graphRaw && (ext === "gif" || ext === "mp4" || ext === "mov" || ext === "webm" || ext === "psd")) {
+        // 原始文件直存（graph 语义）：保留原扩展名，kind 由路径推断
+        const id = uid();
+        const dir = join(STORAGE_ROOT, "materials", id);
+        mkdirSync(dir, { recursive: true });
+        const rawPath = join(dir, `raw.${ext}`);
+        await Bun.write(rawPath, Buffer.from(await body.file.arrayBuffer()));
+        db.query(
+          "INSERT INTO materials (id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at) VALUES (?, ?, ?, NULL, 'raw', ?, NULL, '{}', ?)"
+        ).run(id, baseName(origName) || "素材", rawPath, ext === "psd" ? "upload" : ext, Date.now());
+        broadcast("materials_changed", {});
+        return { materialId: id };
+      }
 
       if (ext === "gif" || ext === "mp4" || ext === "mov" || ext === "webm") {
         const stagingId = uid();
@@ -211,6 +228,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
         autoMatting: t.Optional(t.String()),
         fps: t.Optional(t.String()),
         folderId: t.Optional(t.String()),
+        graphRaw: t.Optional(t.String()),
       }),
     }
   )

@@ -7,6 +7,7 @@ import SkeletalProjectEditor from "./components/SkeletalProjectEditor";
 import TopNav from "./components/TopNav";
 import AppModals from "./components/AppModals";
 import JobPanel from "./components/JobPanel";
+import GraphPage from "./graph/GraphPage";
 import { MaterialEditorProvider } from "./components/MaterialEditor";
 import { api, wsClient, type Project } from "./api";
 import { hasPixi, loadPixi } from "./pixiLoader";
@@ -21,11 +22,13 @@ type View =
   | { page: "editor"; projectId: string }
   | { page: "materials" }
   | { page: "motions" }
+  | { page: "graphs" }
   | { page: "settings" };
 
 function viewFromLocation(): View {
   if (/^\/materials/.test(location.pathname)) return { page: "materials" };
   if (/^\/motions/.test(location.pathname)) return { page: "motions" };
+  if (/^\/graphs/.test(location.pathname)) return { page: "graphs" };
   if (/^\/settings/.test(location.pathname)) return { page: "settings" };
   const m = /^\/project\/([\w-]+)/.exec(location.pathname);
   return m ? { page: "editor", projectId: m[1] } : { page: "home" };
@@ -136,6 +139,8 @@ export default function App() {
           ? "/materials"
           : v.page === "motions"
             ? "/motions"
+          : v.page === "graphs"
+            ? "/graphs"
           : v.page === "settings"
             ? "/settings"
             : `/project/${v.projectId}`;
@@ -150,6 +155,7 @@ export default function App() {
         {view.page === "home" && <ProjectList onOpen={(id) => nav({ page: "editor", projectId: id })} />}
         {view.page === "materials" && <MaterialsPage />}
         {view.page === "motions" && <MotionsRoute onOpenProjects={() => nav({ page: "home" })} />}
+        {view.page === "graphs" && <GraphPage />}
         {view.page === "settings" && <SettingsPage />}
         {view.page === "editor" && <ProjectEditorRoute projectId={view.projectId} onBack={() => nav({ page: "home" })} />}
         {/* 右侧常驻任务队列面板（有任务时才显示） */}

@@ -7,13 +7,44 @@ Pixel-art frame-by-frame animation editor (Bun fullstack). Material import (GIF/
 ```
 apps/
   server/        @framebaker/server — Elysia API + job queue + bun:sqlite; Bun.serve hosts frontend
-  web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react; index.html is the bundle entry; HTTP facade in src/api.ts, media URLs in src/api/mediaUrls.ts, WS client in src/api/ws.ts
+  web/           @framebaker/web   — React 19 + pixi.js v8 + motion + lucide-react + @xyflow/react; index.html is the bundle entry; HTTP facade in src/api.ts, media URLs in src/api/mediaUrls.ts, WS client in src/api/ws.ts
 packages/
   shared/        @framebaker/shared — shared types/constants for front & back (no build, exports point directly to src/index.ts)
 docs/            architecture / API / roadmap / changelog documentation
 scripts/         environment setup + synchronized SemVer version management
 storage/         generated at runtime (gitignored), resolves to repo root regardless of startup cwd
 ```
+
+### Workflow graph subsystem (infinite-canvas node editor)
+
+```
+apps/server/src/graph/    registry.ts (node schemas + port type check) / contentHash.ts (canonical-json sha256) /
+                          executor.ts (topo sort + per-node run + content-addressed cache) / nodes.ts (node impls)
+apps/web/src/graph/       GraphPage.tsx (list + React Flow canvas; @xyflow/react)
+packages/shared/src/graph.ts  PortType / NodeRunStatus / NodeSchema / GraphDocument types
+```
+
+- Four tables: `graphs` / `graph_nodes` / `graph_edges` / `graph_outputs`; outputs are keyed by `(content_hash, port)` — shared across graphs, deleting a graph keeps outputs. Node artifacts land in `storage/graph/outputs/<hash>/` (idempotent overwrite).
+- Graph execution payloads persist in `graph_outputs` (unlike the job queue's in-memory payloads); on restart completed nodes cache-hit directly.
+- Dependency direction: `graph/` → `jobs/*` one-way (same rule as queue.ts); graph node implementations reuse `jobs/*` low-level functions (`runCmd`, `runMatting`), never import `queue.ts`.
+- Client-executed nodes (imageops worker: `quantize.pixel`, `slice.ui.analyze`, `slice.ui.crop`): executor broadcasts WS `graph_client_task` with input media URLs (served via restricted `GET /api/graph/media`, only under storage/graph|materials) → the open GraphPage runs the worker op → uploads PNGs (`POST .../client-result/:taskId?name=`) or returns analysis JSON (`POST .../client-result/:taskId/complete` with `outputs`), resolving the executor's pending promise (120s timeout). Human-in-the-loop: `slice.ui.analyze` with `interactive: true` pauses after analysis showing a candidate-rect adjustment panel; confirmed adjustments are written into `graph_outputs` (cache-persistent across restarts).
+- Sprite pipeline-parity nodes (server-side, all aligned with sprite-video-lab semantics): `export.frames` (frame PNGs), `export.video` (alpha .mov via ffmpeg qtrle/argb, matching sprite `save_alpha_mov`), `export.package` (png/webp sheet + frames.zip + export.json + 6 engine manifests — generators in `graph/exportFormats.ts` ported verbatim from `sprite_lab/export_formats.py`, including sprite's original `regect` typo kept for parity), `frame.crop` / `frame.canvas` (ffmpeg crop/scale+pad), `frame.alpha` (green-to-black etc. via `matte_cli.py --op alpha`, reusing sprite's own functions), `frames.smart-select` (per-frame signatures via `matte_cli.py --op signature` + bucketed difference selection matching `suggest_job_frames`).
+- Node artifacts preview: executor's `done` WS broadcast carries `previewUrl` (restricted media route); GraphPage renders inline thumbnails (image/video) on node cards with a click-to-zoom lightbox.
+- More sprite-parity nodes via the same matte_cli.py op channel: `material.psd` (--op psd-split), `image.bg-inpaint` (--op bg-inpaint, LaMa→OpenCV fallback), `pose.detect` (--op pose, stdout JSON keypoints), `human.parse` (--op human-parse, part PNGs + manifest), `image.layers` (reuses FrameBaker's `jobs/imageLayers.ts` splitImageLayers directly). AI-dependent ops give clear install guidance (`requirements-ai.txt`) when torch/mediapipe are missing.
+- Sheet compositing in export.package goes through `composeSheet` → matte_cli.py `--op compose` (PIL paste, pixel-lossless like sprite) — never ffmpeg overlay filters (they introduce ±1-37 chroma jitter). Mixed-size frames pack via `graph/rectpack.ts` (self-implemented MaxRectsBssf; grid fallback).
+- Artifact previews persist: `serializeGraph` embeds each node's cached-output previewUrl/frameUrls in the graph document, so late-opened canvases and restarts show thumbnails; the lightbox plays multi-frame sequences (fps slider + thumbnail strip).
+- `matte.pipeline` (sprite multi-mode pipeline, single CLI call, alpha-union semantics — pixel-equivalent to sprite `apply_matte_pipeline`) is configured via settings key `spriteMatting` (pythonBin + cliPath pointing at the sprite repo's `matte_cli.py`); it coexists with the global rembg matting (`matte.batch`). The 6 atomic `matte.X` nodes are single-step sequential semantics, NOT equivalent to chained sprite pipelines.
+- Adding a node type: register its schema in `graph/registry.ts` (inputs/outputs with `PortType`, paramsSchema, execution site), implement it in `graph/nodes.ts` `runNode` switch (server) or the GraphPage client-task handler (client); port-type-mismatched connections are rejected at the API layer.
+- New WS events `graphs_changed` / `graph_node_status` / `graph_client_task` are defined in shared `WS_EVENTS`; frontend node status backfills via WS with `/api/graphs/:id/running` polling fallback.
+- matte.pipeline keying modes are SIX boolean switches (`useChroma`/`useSpriteflow`/`useBirefnet`/`useCorridorkey`/`useLuma`/`useAdditive`), joined in fixed order into one comma-separated `--pipeline` value (single CLI call = alpha-union + additive's global skip-despill behavior; pixel-equivalent to sprite's multi-mode path). Do NOT chain separate matte.* nodes to combine modes — intermediate despill/decontaminate steps would wash out glow and break equivalence. Empty switches fall back to the legacy `pipeline` string param.
+- `preview.frame` node: grab a single frame at `sampleTime` (ffmpeg -ss) from an upstream `material.video`; its payload carries `duration` (ffprobe) so the node card renders an inline timeline scrubber + Grab-frame button (`graph-preview-run` event → full-graph run; content-addressed cache skips unchanged upstream nodes). String params with `enum` (+ optional `enumLabels` for zh labels) in paramsSchema render as dropdowns; `export.package` engine manifests are six boolean switches (`manifestPhaserHash` etc.).
+- Node params render inline on the card (ComfyUI style): WorkflowNode renders every paramsSchema property as a label+control row (materialId → material dropdown with an Upload entry); edits dispatch `graph-param-change` window events → GraphCanvas updates node data + 400ms debounced PATCH. The fields container carries React Flow's `nodrag nopan` classes. Material upload from the canvas uses `/api/materials/upload` with `graphRaw=true` (raw file stored as ONE material — no frame-split; `material.video`/`material.psd` node semantics).
+- Preview-now is chain-aware: `POST /api/graphs/:id/preview-frame` grabs the frame then runs it through downstream server nodes (real params, temp dirs under staging/preview_frame, no cache writes). It borrows the sibling extract.frames chain when preview.frame has no downstream, and skips export.*/client/smart-select/multi-input nodes. The node card shows an "N steps applied" badge (`appliedNodes`).
+- `frame.canvas` MUST go through matte_cli.py `--op resize` (sprite's `stable_resize_frames`: alpha-bbox trim + premultiplied-alpha LANCZOS + canvas placement) — never ffmpeg `scale`, whose non-premultiplied interpolation bleeds transparent pixels' black RGB into semi-transparent edges and produces the dark-rim / "inky" look. Same rule applies to any future node that resizes RGBA frames.
+- Keying defaults match the sprite frontend store (threshold 80 / softness 32 / despill 0.85 / halo 1) in BOTH `graph/registry.ts` and matte_cli.py's argparse — keep them in sync or glow edges regain a dark rim. Node context menu opens only when `e.button === 2`. The task FAB sits at top:70px (below the 60px top-nav, z-index 50 < nav's 70). `preview.frame` nodes always render their timeline; the Preview-now button calls `POST /api/graphs/:id/preview-frame` (writes under `storage/staging/preview_frame`, which is in the graph media allowlist).
+- Graph runs are recorded in the `graph_runs` table (executor inserts 'running' at start, updates final status + node_states JSON in finally; `GET /api/graph/runs` returns the last 20 with node stats). The GraphPage TaskPanel (fixed top-right) shows a running-count badge, live node progress via `graph_node_status` WS, and clickable history entries. Editing a node param marks it + downstream nodes `dirty` (yellow outline, frontend graph closure over edges); Run clears all node states/previews first — cache-hit nodes re-attach thumbnails via the `skipped-cache` WS broadcast which now carries previewUrl.
+- Workflow templates live in `graph/templates.ts` (id/name/nodes/edges; node `key` fields are intra-template references). `GET /api/graph/templates` lists them; `POST /api/graph/templates/:templateId/graphs` instantiates one (nodes + edges + params in a single transaction). GraphPage's "From template…" dropdown uses these.
+- Implementation plan & phase breakdown: `docs/graph-workflow-plan.zh-CN.md`.
 
 ## Common Commands
 
@@ -27,7 +58,7 @@ bun run version:plan -- bug|week|major # preview the next weekly version without
 bun run version:bump -- bug # release Unreleased notes and bump all workspace versions
 ```
 
-No test framework; verification = typecheck + curl smoke tests (see examples in docs/api.md).
+Tests live in `tests/` (`bun test tests`); verification = `bun run typecheck` + `bun test tests` + curl smoke tests (see examples in docs/api.md).
 
 ## Conventions
 

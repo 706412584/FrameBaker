@@ -46,10 +46,17 @@ export interface DetectComponentsOptions {
   maxComponents?: number;
 }
 
+// 像素量化参数/结果类型（实现与算法在 ./quantize.ts，worker 与主线程共用）
+export type { QuantizeOptions, QuantizeMethod, DitheringMethod, PaletteColor } from "./quantize";
+import type { QuantizeOptions, PaletteColor } from "./quantize";
+// UI 智能切片类型（实现与算法在 ../graph/uiSlice.ts；连通域复用本文件的 connectedComponentsOnMask）
+export type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
+import type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
+
 export interface ImageOpRequest {
   id: number;
 
-  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp";
+  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp" | "quantize" | "sliceAnalyze" | "sliceCrop";
 
   blob: Blob;
   rect?: CropRect;
@@ -61,6 +68,12 @@ export interface ImageOpRequest {
   warpGrid?: [number, number];
   /** 自由变形节点归一化位移（行优先，dx 相对宽、dy 相对高），长度 2·cols·rows。 */
   warpPoints?: number[];
+  /** 像素量化参数（op=quantize）。 */
+  quantizeOptions?: QuantizeOptions;
+  /** UI 切片检测参数（op=sliceAnalyze；部分提供，缺省由 defaultUiSmartSliceOptions 补齐）。 */
+  sliceOptions?: Partial<UiSmartSliceOptions>;
+  /** UI 切片裁剪框（op=sliceCrop）。 */
+  sliceRect?: UiSliceRect;
 }
 
 export interface ImageOpResponse {
@@ -70,6 +83,12 @@ export interface ImageOpResponse {
   rects?: CropRect[];
   blob?: Blob;
   analysis?: ImageAnalysis;
+  /** op=quantize 的调色板（PNG 结果在 blob） */
+  palette?: PaletteColor[];
+  /** op=sliceAnalyze 的候选框列表 */
+  slices?: UiSliceCandidate[];
+  /** op=sliceAnalyze 的整体结果（含 warnings） */
+  sliceResult?: UiSmartSliceResult;
   error?: string;
 }
 
@@ -102,25 +121,19 @@ const SAMPLE_SIZE = 16;
  * （上到下分行带、行内左到右）排列的显著部件包围盒。用于精灵图按部件而非
  * 均匀网格切分，避免切穿部件。碎屑按面积阈值滤除。
  */
-export function detectOpaqueComponents(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  options: DetectComponentsOptions = {},
-): CropRect[] {
-  const alphaThreshold = options.alphaThreshold ?? ANALYSIS_ALPHA_THRESHOLD;
+/**
+ * 预构建 mask 上的 4 邻域连通域检测（返回 bbox + 内容面积）。
+ * 唯一的 flood 实现 —— detectOpaqueComponents（alpha mask）与
+ * graph/uiSlice.ts（UI 切片 alpha+颜色 mask）都走这里，勿另写副本。
+ */
+export function connectedComponentsOnMask(mask: Uint8Array, width: number, height: number): Array<{ x: number; y: number; w: number; h: number; area: number }> {
   const total = width * height;
-  if (total <= 0) return [];
-  const foreground = (index: number) => data[index * 4 + 3] > alphaThreshold;
-  let opaquePixels = 0;
-  for (let i = 0; i < total; i++) if (foreground(i)) opaquePixels++;
-  if (opaquePixels === 0) return [];
-
+  if (total <= 0 || mask.length < total) return [];
   const visited = new Uint8Array(total);
   const queue = new Int32Array(total);
-  const components: Array<{ rect: CropRect; area: number }> = [];
+  const components: Array<{ x: number; y: number; w: number; h: number; area: number }> = [];
   for (let start = 0; start < total; start++) {
-    if (visited[start] || !foreground(start)) continue;
+    if (visited[start] || !mask[start]) continue;
     let read = 0;
     let write = 0;
     let area = 0;
@@ -137,7 +150,7 @@ export function detectOpaqueComponents(
       if (y < minY) minY = y;
       if (y > maxY) maxY = y;
       const visit = (next: number) => {
-        if (!visited[next] && foreground(next)) {
+        if (!visited[next] && mask[next]) {
           visited[next] = 1;
           queue[write++] = next;
         }
@@ -147,8 +160,31 @@ export function detectOpaqueComponents(
       if (y > 0) visit(index - width);
       if (y + 1 < height) visit(index + width);
     }
-    components.push({ area, rect: { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } });
+    components.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, area });
   }
+  return components;
+}
+
+export function detectOpaqueComponents(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options: DetectComponentsOptions = {},
+): CropRect[] {
+  const alphaThreshold = options.alphaThreshold ?? ANALYSIS_ALPHA_THRESHOLD;
+  const total = width * height;
+  if (total <= 0) return [];
+  // alpha mask → 共享 flood
+  const mask = new Uint8Array(total);
+  let opaquePixels = 0;
+  for (let i = 0; i < total; i++) {
+    if (data[i * 4 + 3] > alphaThreshold) {
+      mask[i] = 1;
+      opaquePixels++;
+    }
+  }
+  if (opaquePixels === 0) return [];
+  const components = connectedComponentsOnMask(mask, width, height);
 
   const minArea = Math.max(options.minAreaPixels ?? 16, Math.ceil(opaquePixels * (options.minAreaRatio ?? 0.005)));
   let significant = components.filter((component) => component.area >= minArea);
@@ -158,11 +194,14 @@ export function detectOpaqueComponents(
   }
 
   // 阅读顺序：中位高度的行带聚合，行带内按中心 x 排序。
-  const sortedHeights = significant.map((component) => component.rect.h).sort((a, b) => a - b);
+  const sortedHeights = significant.map((component) => component.h).sort((a, b) => a - b);
   const medianHeight = sortedHeights.length ? sortedHeights[Math.floor(sortedHeights.length / 2)] : 1;
   const band = Math.max(1, medianHeight * 0.6);
   return significant
-    .map((component) => ({ rect: component.rect, cx: component.rect.x + component.rect.w / 2, cy: component.rect.y + component.rect.h / 2 }))
+    .map((component) => {
+      const { area: _area, ...rect } = component; // 对外保持 CropRect 形态（不带 area）
+      return { rect, cx: component.x + component.w / 2, cy: component.y + component.h / 2 };
+    })
     .sort((a, b) => (Math.floor(a.cy / band) - Math.floor(b.cy / band)) || (a.cx - b.cx))
     .map((entry) => entry.rect);
 }

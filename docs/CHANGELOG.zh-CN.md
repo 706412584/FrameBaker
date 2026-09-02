@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 新增无限画布节点工作流（`/graphs` 页）：React Flow 画布 + 节点连线搭建资产管线（视频素材 → 抽帧 → 批量抠图 → 导出精灵表），节点拖动位置持久化，执行状态经 WS 实时回填节点（运行/完成/缓存命中/错误描边）。
+- 工作流执行引擎：拓扑排序 + 内容寻址缓存（`content_hash` = 节点类型 + 规范化参数 + 上游端口哈希），改末端参数重跑时上游节点全部缓存命中；产物与 payload 全部落库，重启后已完成节点直接命中；支持执行中取消（AbortSignal 杀 ffmpeg 子进程）。
+- 新增 graphs / graph_nodes / graph_edges / graph_outputs 四表与图 CRUD API（端口类型校验、单输入端口唯一、级联删除），以及 7 个 MCP 工作流工具。
+- 迁移 sprite 工坊抠图管线：`matte_cli.py` CLI 薄壳 + `matte.pipeline` 组合节点（与 sprite `apply_matte_pipeline` 逐像素一致）+ 6 个单步原子抠图节点 + `image.decontaminate` 边缘净化；配置走 `spriteMatting` 设置项，与全局 rembg 抠图共存。
+- 迁移 sprite 像素量化：`quantize.pixel` 节点（imageops worker 执行，主线程降级），与原版逐字节一致。
+- 迁移 sprite UI 智能切片：`slice.ui.analyze` 检测 + `slice.ui.crop` 裁剪（连通域复用 imageops 单份实现），检测候选框与原版逐值一致。
+- 客户端节点执行通道：executor 经 WS 派发任务给打开画布的浏览器，worker 算完回传产物或分析结果；`slice.ui.analyze` 支持 `interactive` 人在环模式 —— 分析后暂停，画布上调整候选框再继续下游，人工调整随缓存持久（重启不丢）。
+- 画布交互补全：双击/右键节点编辑参数（paramsSchema 驱动表单 + 素材下拉）；连线按端口类型着色（悬停加粗、点击删除、拖拽预览虚线）；右键节点上下文菜单。修复一个从画布上线起就存在的隐患——节点未渲染 React Flow Handle 导致连线静默消失。
+- sprite 视频抽帧流水线完整对齐：新增输出·帧图片（export.frames）、输出·透明视频（export.video，qtrle/argb 与 sprite save_alpha_mov 一致）、输出·完整包（export.package：png/webp 图集 + frames.zip + export.json + Phaser/Starling/Cocos/Godot/Urho3D 六种引擎 manifest，生成器逐字移植）；帧处理节点 帧·裁剪、帧·画布归一（贴底/居中方形）、帧·Alpha 处理（绿转黑/半透明转黑/转不透明，复用 sprite 原函数）、智能选帧（差异签名 + 分桶去重，对齐 suggest_job_frames）；全部节点产物在节点卡片内联缩略图预览（图片/视频），点击 lightbox 放大。
+- 预览背景切换（对齐 sprite PreviewPanel）：节点缩略图默认改深色棋盘格——白色半透明纹理（发丝/冰纹）在浅色画布上会炸成"蛛网"观感，深底才是真实效果；Lightbox 顶部新增背景切换条（棋盘格/深色/浅色/自定义+取色器），切换实时同步到全画布缩略图，选择持久化 localStorage。
+- 修复抠图黑边/水墨感（根因：非预乘 alpha 缩放）：frame.canvas 原用 ffmpeg scale，透明像素的黑色 RGB 会被线性插值混进半透明边缘 → 边缘发暗。改走 matte_cli.py 新增的 --op resize（复用 sprite stable_resize_frames：alpha bbox trim → RGB×alpha 预乘 → LANCZOS → 除回 → 画布模式贴合），与 sprite 预览逐像素一致（同源帧 maxdiff=0；端到端视觉 diff 从 55.6% 降到 0.1%）。新增「裁掉透明边」参数（默认开，对齐 sprite）；画布模式默认改 auto（自适应宽度）；模板抠图与画布参数全部对齐 sprite 默认（80/32/0.85/1，512/20/auto）。
+- 立即预览沿链计算：「立即预览」不再只显示原始帧——取该秒帧后自动沿下游服务端节点链执行（含抠图管线，用图中真实参数），预览即处理效果；preview.frame 自身无下游时自动借用同源视频素材的主链（extract→matte→canvas…）；跳过终端输出节点、客户端节点与选帧类节点（单帧语义下无意义），多输入节点无法从单帧构造的跳过；节点卡片显示「过 N 步」徽标（hover 看链路），某步失败预览停留上一步。抠图参数改动即时反映（阈值 80/200 预览差异 4076 像素验证）。
+- 四项反馈修复：1) 右键菜单误触——仅真右键（button===2）打开菜单，点击节点控件/非右键 contextmenu 不再误弹，点节点任意处即关残留菜单；2) 任务悬浮按钮被顶部导航遮挡（top 14px→70px，导航 60px）；3) 抠图特效黑边/水墨感——根因是参数默认值未对齐 sprite 前端（threshold 42→80、softness 12→32、despill 0.5→0.85、halo 0→1），视觉对比确认新默认边缘平滑无暗边，registry 与 matte_cli argparse 双侧同步；4) 单帧预览即时化——preview.frame 未执行也能看帧：时间轴常显（时长探测后回填），新增「立即预览」按钮走轻量 API（POST /api/graphs/:id/preview-frame，不执行全图不落缓存，staging/preview_frame 加入受限媒体白名单）。
+- 任务悬浮面板（ComfyUI 式）：右上角固定「任务」按钮，运行中显示数量角标；面板内实时滚动当前运行的图名与节点进度（WS 直连），下方执行历史（graph_runs 服务端落库，重启不丢）显示每次运行的图名/时间/节点统计（done+cached/total、失败红色、运行中脉冲），点击历史条目跳转对应工作流。- 参数变更即时失效提示与重跑状态重置：节点参数一改即标黄描边（含全部下游——提示哪些节点将重算），点执行先清空全部节点的上次状态/预览再跑（缓存命中节点即刻回填缩略图）；实测改 targetCount 12→15 后 smart-select 重算为 15 帧且上游缓存命中。
+- 抠图模式多选（管线语义）：matte.pipeline 的单选下拉改为 6 个模式开关（绿幕/SpriteFlow/BiRefNet/CorridorKey/Luma/发光特效），可任意组合（如色键+发光）——固定顺序执行 + alpha 并集合并（ImageChops.lighter），additive 的全局行为（跳过去溢色与边缘净化）在组合中自动保留；与 sprite apply_matte_pipeline 多模式路径像素等价（双开关输出与 CLI 直调 chroma,additive maxdiff=0）；旧图兼容回落 legacy pipeline 字符串。
+- 单帧预览工作流（对齐 sprite preview_frame）：新增 preview.frame 节点 —— 指定秒取单帧，节点卡片内时间轴拖动（0.1s 步进，带时长显示）+「取帧」按钮，下游接抠图节点即得该帧抠图效果；内容寻址缓存让取帧只重跑该节点与下游。抽帧节点补齐区间（startTime/endTime）与隔帧（keepEvery）参数；抠图·组合管线补齐 sprite 全参数（键色来源/手动键色/AI 设备/走廊幕色/SF 系列/净化半径强度/特效保护——高亮半透明像素恢复不透明）；参数下拉化：抠图模式 6 选（含发光特效）、画布模式、图集格式、量化算法/抖动、推理设备等全部 enum 下拉，引擎 manifest 改为 6 个独立开关。
+- 节点内联参数编辑（ComfyUI 风格）：全部参数以「标签+输入控件」平铺在节点卡片上直接改（数字/文本/布尔/下拉，防抖 400ms 落库，nodrag 不干扰画布拖拽），参数摘要与双击弹窗编辑退役为兜底；素材字段下拉内置「上传素材…」入口 —— 视频/GIF/PSD 以 graphRaw 模式原样直存为单素材（不拆帧），上传即选中即绑定。
+- 工作流模板：「从模板新建…」下拉一键创建 sprite 视频抽帧流水线默认模板（视频素材→抽帧 8fps→组合抠图→画布归一→智能选帧→完整包/透明视频/帧图片三分支，8 节点 7 连线参数全预设）；GET /api/graph/templates 列模板、POST /api/graph/templates/:id/graphs 建图。
+- 完整对齐补遗：export.package 支持 rectpack 紧凑装箱布局（MaxRectsBssf 自实现，不等大帧自动 packed，layout/frame_positions 记录真实坐标）；图集合成全部改走 PIL paste（ffmpeg overlay 有色度抖动，PIL 逐像素零损——与 sprite 一致）；lightbox 支持多帧序列播放（播放/暂停、fps 滑杆 1-30、帧缩略条点选），产物预览在图文档里持久化（后开页面/重启也显示）；新增 PSD 分层（material.psd）、背景修补（image.bg-inpaint，LaMa→OpenCV 回退）、姿态检测（pose.detect）、人体解析（human.parse）、场景分层（image.layers，复用 FrameBaker image_layers）五个节点——AI 依赖未安装时给出明确安装指引。
+
 ### 移除
 
 - 移除了参考图拆分中的目标骨架选择器：它只影响生成提示词与网格行列，下游切分、命名与绑定均不消费，且 `targetSkeletonId` 从未被服务端接收；拆分网格恢复为手动行列 + 人形默认值。

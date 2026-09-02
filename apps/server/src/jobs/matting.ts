@@ -45,8 +45,9 @@ export function getMattingInfo(): MattingInfo {
  * c. PATH 中的 rembg
  * d. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
+ * graph 节点（matte.batch）也直接复用此函数。
  */
-async function runMatting(input: string, output: string, signal?: AbortSignal): Promise<string | null> {
+export async function runMatting(input: string, output: string, signal?: AbortSignal): Promise<string | null> {
   const { cliBin, cliInputArg, cliOutputArg, cliModelArg, envTemplate, model } = getMattingSettings();
 
   if (cliBin.trim()) {
