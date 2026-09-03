@@ -6,6 +6,7 @@
 // - 执行状态本身持久化在 graph_outputs（每节点完成即落库），重启后已完成节点缓存命中，
 //   未完成节点重新执行（幂等：输出文件路径由 content_hash 决定，重跑覆盖写）。
 import { mkdirSync, rmSync } from "node:fs";
+import { runCmd } from "../jobs/run";
 import { join } from "node:path";
 import type { GraphEdge, GraphNode, GraphOutput } from "@framebaker/shared";
 import { db, STORAGE_ROOT, uid } from "../db";
@@ -84,7 +85,9 @@ async function waitUserRects(
   nodeId: string,
   candidates: Array<{ name: string; x: number; y: number; w: number; h: number }>,
   previewUrl: string | undefined,
-  onStatus: (status: string, payload: Record<string, unknown>) => void
+  onStatus: (status: string, payload: Record<string, unknown>) => void,
+  sourcePath: string,
+  nodeOutputDir: string
 ): Promise<NodeOutput> {
   const taskId = uid();
   const outputDir = join(STORAGE_ROOT, "staging", "ui_confirm", taskId);
@@ -99,9 +102,45 @@ async function waitUserRects(
       timer,
       resolve: () => reject(new Error("人在环节点不能回传文件")),
       reject,
-      resolveOutputs: (outputs) => {
-        const confirmed = outputs.rects as { candidates?: Array<{ name: string; x: number; y: number; w: number; h: number }> } | undefined;
-        resolve({ images: { paths: [] }, rects: { candidates: confirmed?.candidates ?? candidates } });
+      resolveOutputs: async (outputs) => {
+        const confirmed = outputs.rects as { candidates?: Array<{ name: string; x: number; number?: unknown; y: number; w: number; h: number }> } | undefined;
+        const finalCandidates = confirmed?.candidates ?? candidates;
+        if (finalCandidates.length === 0) {
+          resolve({ images: { paths: [] }, rects: { candidates: [] } });
+          return;
+        }
+        // 按修正清单重新裁剪图层（复用 ui-export 的 layers 裁剪：GrabCut 去底），
+        // 否则 images 端口为空、下游帧消费者（入库/输出）拿不到输入
+        try {
+          onStatus("running", { progress: `按确认清单裁剪 ${finalCandidates.length} 图层` });
+          const confirmDir = join(nodeOutputDir, "confirmed_layers");
+          mkdirSync(confirmDir, { recursive: true });
+          const layoutJson = JSON.stringify(
+            finalCandidates.map((c) => [c.name, Math.round(c.x), Math.round(c.y), Math.round(c.w), Math.round(c.h)])
+          );
+          // 用 spriteMatting 配置的 python + matte_cli
+          const { getSpriteMattingSettings } = await import("../provider");
+          const settings = getSpriteMattingSettings();
+          await runCmd(
+            [
+              settings.pythonBin, settings.cliPath,
+              "--op", "ui-export",
+              "--input", sourcePath,
+              "--out-dir", confirmDir,
+              "--ui-export-layout", layoutJson,
+              "--ui-export-background", "transparent",
+              "--ui-export-format", "package",
+            ],
+            undefined,
+            undefined
+          );
+          const { readdirSync } = await import("node:fs");
+          const layersDir = join(confirmDir, "layers");
+          const paths = readdirSync(layersDir).filter((f) => f.endsWith(".png")).sort().map((f) => join(layersDir, f));
+          resolve({ images: { paths }, rects: { candidates: finalCandidates } });
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       },
     });
     onStatus("waiting-for-input", {});
@@ -368,8 +407,11 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
           const firstUrl = inputPayload?.paths?.[0]
             ? `/api/graph/media?path=${encodeURIComponent(inputPayload.paths[0])}`
             : undefined;
-          result = await waitUserRects(graphId, nodeId, candidates, firstUrl, (status, payload) =>
-            broadcast("graph_node_status", { graphId, nodeId, status, ...payload })
+          result = await waitUserRects(
+            graphId, nodeId, candidates, firstUrl,
+            (status, payload) => broadcast("graph_node_status", { graphId, nodeId, status, ...payload }),
+            inputPayload?.paths?.[0] ?? "",
+            ctx.outputDir
           );
         }
         const outputs: Record<string, Record<string, unknown>> = {};
