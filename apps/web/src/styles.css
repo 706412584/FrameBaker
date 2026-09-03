@@ -4937,7 +4937,8 @@ body.resizing-row * {
 .graph-node-preview:hover .graph-node-preview-media { border-color: var(--border-focused); }
 .graph-lightbox { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--bg) 88%, transparent); display: grid; place-items: center; cursor: zoom-out; }
 .graph-lightbox-media { max-width: 86vw; max-height: 84vh; image-rendering: auto; border: 4px solid var(--border); }
-.graph-lightbox-close { position: fixed; top: 16px; right: 20px; background: var(--surface); border: 4px solid var(--border); color: var(--text); font-size: 16px; padding: 4px 12px; cursor: pointer; }
+.graph-lightbox-close { position: fixed; top: 14px; right: 16px; z-index: 62; background: var(--surface); border: 4px solid var(--border); color: var(--text); font-size: 18px; font-weight: 700; padding: 4px 14px; cursor: pointer; box-shadow: 0 3px 0 0 color-mix(in srgb, var(--bg) 60%, #000); }
+.graph-lightbox-close:hover { border-color: var(--error); color: var(--error); }
 
 /* 帧序列播放器（lightbox 内） */
 .graph-frame-player { display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -4977,9 +4978,13 @@ body.resizing-row * {
 .graph-node.gn-status-dirty { border-color: #ffb86c; }
 
 /* 任务悬浮面板（ComfyUI 式右上角） */
-.graph-task-fab { position: fixed; top: 70px; right: 16px; z-index: 50; }
-.graph-task-btn { position: relative; width: 38px; height: 38px; display: grid; place-items: center; background: var(--surface); border: 4px solid var(--border); color: var(--text); cursor: pointer; box-shadow: 0 3px 0 0 color-mix(in srgb, var(--bg) 60%, #000); }
-.graph-task-btn:hover { border-color: var(--border-focused); }
+/* 任务面板（工具栏「任务」按钮的下拉，fixed 于按钮下方） */
+.graph-task-fab { position: fixed; top: 108px; right: 16px; z-index: 55; }
+.graph-task-close { background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer; padding: 0 2px; }
+.graph-task-close:hover { color: var(--text); }
+.graph-task-head { display: flex; align-items: center; gap: 6px; }
+.graph-task-entry { position: relative; }
+.graph-task-badge-inline { position: absolute; top: -5px; right: -5px; background: var(--error); color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; display: grid; place-items: center; border: 2px solid var(--bg); border-radius: 999px; }
 .graph-task-badge { position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; display: grid; place-items: center; background: var(--accent); color: var(--accent-contrast); font-size: 11px; font-weight: 700; border: 2px solid var(--bg); padding: 0 3px; }
 .graph-task-panel { position: absolute; top: 46px; right: 0; width: 320px; max-height: 60vh; overflow-y: auto; background: var(--surface); border: 4px solid var(--border); box-shadow: 0 6px 0 0 color-mix(in srgb, var(--bg) 60%, #000); }
 .graph-task-head { padding: 8px 12px; border-bottom: 4px solid var(--border); color: var(--text); font-size: 13px; font-weight: 700; }
@@ -5026,3 +5031,18 @@ body.resizing-row * {
 .graph-artifacts-empty, .graph-artifacts-loading { color: var(--text-muted); font-size: 10px; }
 
 .graph-import-input { display: none; }
+
+/* 画布缩放控件（自绘，替代内置 Controls） */
+.graph-canvas-controls { position: absolute; left: 10px; bottom: 10px; z-index: 6; display: flex; flex-direction: column; gap: 4px; }
+.graph-canvas-ctrl { width: 30px; height: 30px; display: grid; place-items: center; background: var(--surface); border: 3px solid var(--border); color: var(--text); font-size: 16px; cursor: pointer; padding: 0; line-height: 1; font-family: inherit; }
+.graph-canvas-ctrl:hover { border-color: var(--border-focused); }
+
+/* 侧栏收起窄条 + 拖拽条 */
+.graph-list-collapsed { width: 30px; flex: none; display: flex; align-items: flex-start; justify-content: center; padding-top: 8px; border-right: 4px solid var(--border); background: var(--surface); }
+.graph-list-expand { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; }
+.graph-list-expand:hover { color: var(--text); }
+.graph-list-collapse { position: absolute; right: 6px; bottom: 8px; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; z-index: 2; }
+.graph-list-collapse:hover { color: var(--text); }
+.graph-list { position: relative; }
+.graph-sidebar-resizer { width: 7px; flex: none; cursor: col-resize; background: transparent; z-index: 5; }
+.graph-sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }

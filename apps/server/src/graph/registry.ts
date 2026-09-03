@@ -438,6 +438,41 @@ registry.set("image.layers", {
   execution: "server",
 });
 
+// ===== FrameBaker 能力节点 =====
+
+// 产物回素材库（打通 图→素材库→timeline 编辑器 链路）：帧序列 → 素材
+registry.set("frames.to-material", {
+  type: "frames.to-material",
+  label: "入库·素材库",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("images", "image[]", "帧序列")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      name: { type: "string", title: "素材名", default: "", description: "留空 = 用图名" },
+    },
+  },
+  execution: "server",
+});
+// AI 生图（复用 FrameBaker 生成 provider：prompt → image[]）
+registry.set("generate.image", {
+  type: "generate.image",
+  label: "AI 生成图片",
+  inputs: [],
+  outputs: [port("images", "image[]", "生成帧序列")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", title: "提示词", default: "" },
+      providerId: { type: "string", title: "Provider ID", default: "", description: "留空用第一个已配置" },
+      model: { type: "string", title: "模型", default: "", description: "留空用 provider 默认" },
+      count: { type: "integer", title: "数量", default: 1, minimum: 1, maximum: 16 },
+    },
+    required: ["prompt"],
+  },
+  execution: "server",
+});
+
 export function getNodeSchema(type: string): NodeSchema | undefined {
   return registry.get(type);
 }

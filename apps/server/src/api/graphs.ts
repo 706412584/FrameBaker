@@ -581,6 +581,27 @@ export const graphsApi = new Elysia({ prefix: "/api" })
       .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
     return { entries };
   })
+  // 保存产物到自定义目录（复制整个产物目录）
+  .post(
+    "/graph/save-artifacts",
+    async ({ body, status }) => {
+      const src = String(body.path ?? "").replaceAll("\\", "/");
+      const target = String(body.targetDir ?? "").replaceAll("\\", "/");
+      if (!src.startsWith(join(STORAGE_ROOT, "graph", "outputs").replaceAll("\\", "/"))) {
+        return status(403, "只能保存导出产物目录");
+      }
+      if (!target || !/^[A-Za-z]:\//.test(target)) return status(400, "目标目录无效（需要绝对路径）");
+      if (!existsSync(src)) return status(404, "产物目录不存在");
+      // 目标：<targetDir>/<产物目录名>（已存在则覆盖合并）
+      const srcName = src.split("/").pop() || "artifacts";
+      const dst = join(target, srcName);
+      const { cpSync, mkdirSync } = await import("node:fs");
+      mkdirSync(target, { recursive: true });
+      cpSync(src, dst, { recursive: true, force: true });
+      return { ok: true, savedTo: dst };
+    },
+    { body: t.Object({ path: t.String(), targetDir: t.String() }) }
+  )
   // 打开产物文件夹（资源管理器直达；对齐 sprite open_path_in_file_browser）
   .post(
     "/graph/open-folder",
@@ -589,8 +610,11 @@ export const graphsApi = new Elysia({ prefix: "/api" })
       const allowedRoot = join(STORAGE_ROOT, "graph", "outputs").replaceAll("\\", "/");
       if (!dir.startsWith(allowedRoot)) return status(403, "只能打开导出产物目录");
       if (!existsSync(dir)) return status(404, "目录不存在");
+      // Windows 打开目录（对齐 sprite open_path_in_file_browser 的 os.startfile 语义）：
+      // explorer 直接吃正斜杠会失败回落到"文档"，必须反斜杠原生路径
+      const native = dir.replaceAll("/", "\\");
       const proc = Bun.spawn({
-        cmd: ["explorer", dir],
+        cmd: ["explorer", native],
         stdout: "ignore",
         stderr: "ignore",
       });

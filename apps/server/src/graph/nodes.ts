@@ -5,13 +5,15 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { GraphNode } from "@framebaker/shared";
 import JSZip from "jszip";
-import { db } from "../db";
+import { db, STORAGE_ROOT, uid } from "../db";
 import { JobCancelledError, runCmd } from "../jobs/run";
 import { runMatting } from "../jobs/matting";
 import { getSpriteMattingSettings, spriteMattingConfigured } from "../provider";
 import { MANIFEST_GENERATORS, VALID_MANIFEST_FORMATS, type FramePosition, type FormatData, type ManifestFormat } from "./exportFormats";
 import { packSheetBest } from "./rectpack";
 import { splitImageLayers, type ImageLayersPayload } from "../jobs/imageLayers";
+import { generateFrames, type GeneratePayload } from "../jobs/extract";
+import { getGenProviders, providerConfigured } from "../provider";
 
 /**
  * 图集合成（PIL paste 零损，对齐 sprite packed_sheet.paste / grid paste）：
@@ -102,6 +104,10 @@ export async function runNode(
       return framesSmartSelect(node, inputs, ctx);
     case "preview.frame":
       return previewFrame(node, inputs, ctx);
+    case "frames.to-material":
+      return framesToMaterial(node, inputs, ctx);
+    case "generate.image":
+      return generateImage(node, ctx);
     case "material.psd":
       return materialPsd(node, ctx);
     case "image.bg-inpaint":
@@ -1044,4 +1050,80 @@ async function imageLayers(node: GraphNode, ctx: NodeContext): Promise<NodeOutpu
     (result?.materials ?? []).map((m) => m.raw_path).filter((p): p is string => !!p);
   if (!paths?.length) throw new Error("场景分层未产出图层（检查 imageLayers 设置与 provider 连通）");
   return { images: { paths } };
+}
+
+
+/**
+ * frames.to-material：帧序列入库素材库（打通 图→素材库→timeline 编辑器）。
+ * 每帧一个素材（raw 直存），payload 带 materialIds 供下游/UI 引用。
+ */
+async function framesToMaterial(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("入库节点缺少帧输入");
+  const name = String(node.params.name ?? "").trim();
+  const { mkdirSync, copyFileSync } = await import("node:fs");
+  const materialIds: string[] = [];
+  for (let i = 0; i < images.paths.length; i++) {
+    if (ctx.signal.aborted) throw new JobCancelledError();
+    ctx.report(`入库 ${i + 1}/${images.paths.length}`);
+    const id = uid();
+    const dir = join(STORAGE_ROOT, "materials", id);
+    mkdirSync(dir, { recursive: true });
+    const rawPath = join(dir, "raw.png");
+    copyFileSync(images.paths[i]!, rawPath);
+    db.query(
+      "INSERT INTO materials (id, name, raw_path, processed_path, status, source, folder_id, metadata, created_at) VALUES (?, ?, ?, NULL, 'raw', 'image', NULL, '{}', ?)"
+    ).run(id, name ? `${name}_${i + 1}` : `graph_frame_${i + 1}`, rawPath, Date.now());
+    materialIds.push(id);
+  }
+  broadcastMaterialsChanged();
+  ctx.report(`已入库 ${materialIds.length} 个素材`);
+  return { images: { paths: images.paths, materialIds } satisfies ImageSequencePayload };
+}
+
+/**
+ * generate.image：AI 生图（复用 FrameBaker generateFrames 的 provider 适配层）。
+ * 产物落在 generate 任务的素材入库语义之外（graph 语境）—— 取生成的临时产物路径输出。
+ */
+async function generateImage(node: GraphNode, ctx: NodeContext): Promise<NodeOutput> {
+  const prompt = String(node.params.prompt ?? "").trim();
+  if (!prompt) throw new Error("AI 生成需要提示词");
+  const providers = getGenProviders().filter((p) => providerConfigured(p) && p.imageModels.length > 0);
+  if (providers.length === 0) throw new Error("没有已配置的图片生成 provider（设置页配置）");
+  const provider = providers.find((p) => p.id === node.params.providerId) ?? providers[0]!;
+  const model = String(node.params.model ?? "") || provider.imageModels[0] || "";
+  const count = Math.max(1, Math.min(16, Math.floor(Number(node.params.count ?? 1))));
+  ctx.report(`生成 ${count} 张（${provider.name}）`);
+  const payload: GeneratePayload = {
+    target: { kind: "materials" },
+    providerId: provider.id,
+    model,
+    prompt,
+    count,
+    autoMatting: false,
+    name: `graph_${Date.now()}`,
+    size: provider.imageSize || "",
+  };
+  const committed = await generateFrames(payload, (p: string) => ctx.report(p), () => {}, ctx.signal);
+  // generateFrames target=materials 入库素材并返回提交结果；graph 输出取素材 raw 路径
+  const paths: string[] = [];
+  for (const a of committed) {
+    if (a.kind !== "image") continue;
+    const row = db.query("SELECT raw_path FROM materials WHERE id = ?").get(a.id) as
+      | { raw_path: string | null }
+      | null;
+    if (row?.raw_path) paths.push(row.raw_path);
+  }
+  if (paths.length === 0) throw new Error("生成未产出图片");
+  broadcastMaterialsChanged();
+  return { images: { paths } satisfies ImageSequencePayload };
+}
+
+function broadcastMaterialsChanged() {
+  // executor 已有 broadcast；这里经 ws 模块广播（graph/nodes.ts 不 import executor，单向依赖）
+  import("../ws").then(({ broadcast }) => broadcast("materials_changed", {}));
 }

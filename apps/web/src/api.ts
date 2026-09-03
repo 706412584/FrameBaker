@@ -319,6 +319,12 @@ export const api = {
     req<{ entries: Array<{ name: string; isDir: boolean; size: number }> }>(
       `/api/graph/list-dir?path=${encodeURIComponent(path)}`
     ).then((r) => r.entries),
+  /** 保存产物目录到自定义位置（复制） */
+  saveGraphArtifacts: (path: string, targetDir: string) =>
+    req<{ ok: boolean; savedTo: string }>("/api/graph/save-artifacts", {
+      method: "POST",
+      ...json({ path, targetDir }),
+    }),
   /** 资源管理器打开产物目录 */
   openGraphFolder: (path: string) =>
     req<OkResponse>("/api/graph/open-folder", { method: "POST", ...json({ path }) }),

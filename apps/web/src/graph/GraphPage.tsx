@@ -5,7 +5,6 @@ import {
   addEdge,
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   Position,
   ReactFlow,
@@ -15,12 +14,13 @@ import {
   useReactFlow,
   type Connection,
   type Edge,
+  type ReactFlowInstance,
   type EdgeProps,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { GitBranch, Play, Square, Trash2 } from "lucide-react";
+import { GitBranch, ListTodo, PanelLeftClose, PanelLeftOpen, Play, Square, Trash2 } from "lucide-react";
 import { api, type GraphSummary, type Material, type NodeSchema } from "../api";
 import { getLocale, useT } from "../i18n";
 import { notify } from "../notice";
@@ -81,6 +81,45 @@ function writePreviewBg(mode: PreviewBgMode, color: string) {
   } catch {
     /* 忽略写入失败 */
   }
+}
+
+/**
+ * matte.pipeline 参数按模式显隐：未勾选模式的专属参数不渲染。
+ * 公共参数（净化/特效保护/键色）在任何模式勾选时显示。
+ */
+const MATTE_MODE_PARAM_MAP: Record<string, string[]> = {
+  chroma: ["threshold", "softness", "despillStrength", "haloPixels", "keyMode", "manualKeyHex"],
+  spriteflow: ["sfTolerance", "sfEdgeBlend", "sfBlendZoneRatio", "sfAlphaCutoff", "sfSpillRemoval", "sfSpillStrength"],
+  birefnet: ["aiModel", "aiDevice", "aiResolution"],
+  corridorkey: ["corridorkeyScreen"],
+  luma: ["lumaBlack", "lumaWhite", "lumaGamma", "lumaStrength"],
+  additive: ["lumaBlack", "lumaWhite", "lumaGamma", "lumaStrength"],
+};
+
+/** 返回应显示的参数键集合；非 matte.pipeline 返回 null（全显） */
+function visibleMatteParams(params: Record<string, unknown>): Set<string> | null {
+  const switches: Array<[string, string]> = [
+    ["useChroma", "chroma"],
+    ["useSpriteflow", "spriteflow"],
+    ["useBirefnet", "birefnet"],
+    ["useCorridorkey", "corridorkey"],
+    ["useLuma", "luma"],
+    ["useAdditive", "additive"],
+  ];
+  const active = switches.filter(([k]) => params[k] === true).map(([, m]) => m);
+  if (active.length === 0) {
+    // 开关全空（旧图 legacy pipeline 串）→ 全显，避免藏参数
+    return null;
+  }
+  const visible = new Set<string>();
+  for (const mode of active) {
+    for (const k of MATTE_MODE_PARAM_MAP[mode] ?? []) visible.add(k);
+  }
+  // 公共参数
+  for (const k of ["decontaminate", "decontaminateRadius", "decontaminateStrength", "effectProtectionEnabled", "effectProtectionThreshold"]) {
+    visible.add(k);
+  }
+  return visible;
 }
 
 type GraphNodeData = {
@@ -188,7 +227,13 @@ function WorkflowNode({ id, data, selected }: NodeProps) {
       {/* 内联参数（ComfyUI 风格）：直接在卡片上编辑 */}
       {Object.keys(props).length > 0 && (
         <div className="graph-node-fields nodrag nopan">
-          {Object.entries(props).map(([key, prop]) => {
+          {Object.entries(props)
+            .filter(([key]) => {
+              if (d.schema.type !== "matte.pipeline") return true;
+              const visible = visibleMatteParams(d.params);
+              return !visible || visible.has(key) || key.startsWith("use");
+            })
+            .map(([key, prop]) => {
             const value = d.params[key] ?? prop.default;
             if (key === "materialId") {
               return (
@@ -402,12 +447,36 @@ function ArtifactPanel({ outputDir }: { outputDir: string }) {
   const openFolder = () => {
     api.openGraphFolder(outputDir).catch((e) => notify(String((e as Error).message)));
   };
+  // 保存到自定义目录：File System Access API 选目录（Chromium），不支持则退化为路径输入
+  const saveTo = async () => {
+    let targetDir: string | null = null;
+    const w = window as unknown as { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle> };
+    if (typeof w.showDirectoryPicker === "function") {
+      try {
+        const handle = await w.showDirectoryPicker();
+        targetDir = (handle as unknown as { getPath?: () => string }).getPath?.() ?? null;
+      } catch {
+        return; // 用户取消
+      }
+    }
+    if (!targetDir) {
+      targetDir = window.prompt(t("graph.save_to_hint")) ?? "";
+    }
+    if (!targetDir) return;
+    api
+      .saveGraphArtifacts(outputDir, targetDir)
+      .then((r) => notify(t("graph.saved_to", { path: r.savedTo })))
+      .catch((e) => notify(String((e as Error).message)));
+  };
   const fmtSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(0)} KB` : `${n} B`);
   return (
     <div className="graph-artifacts nodrag nopan">
       <div className="graph-artifacts-bar">
         <button type="button" className="graph-artifacts-toggle" onClick={toggle}>
           {open ? "▾" : "▸"} {t("graph.artifacts")}
+        </button>
+        <button type="button" className="graph-artifacts-open" onClick={saveTo} title={t("graph.save_to_hint")}>
+          {t("graph.save_to")}
         </button>
         <button type="button" className="graph-artifacts-open" onClick={openFolder} title={t("graph.open_folder_hint")}>
           {t("graph.open_folder")}
@@ -442,6 +511,61 @@ function ArtifactPanel({ outputDir }: { outputDir: string }) {
       )}
     </div>
   );
+}
+
+/**
+ * 画布缩放控件（自绘）。内置 <Controls> 和 useReactFlow() hook 在本页都拿不到有效 store
+ * （provider key 重建 + 受控 nodes 重渲染的组合下，hook 闭包指向过期 store 实例，
+ *  d3 transform 纹丝不动 —— 实测验证）。onInit 的 ReactFlow 实例方法稳定有效。
+ */
+function CanvasControls() {
+  const t = useT();
+  // 通道选择（实测结论）：本页受控 nodes + provider 重建的组合下，store/instance/hook
+  // 三条 zoom API 全部不动 d3 transform；但 d3 原生 wheel listener 正常 —— 按钮直接
+  // 向画布 pane 派发合成 wheel（缩放）与 dblclick（React Flow 内置双击放大 = zoomIn）。
+  const pane = () => document.querySelector(".react-flow__pane");
+  const wheel = (deltaY: number) => {
+    const el = pane();
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new WheelEvent("wheel", {
+        bubbles: true, cancelable: true,
+        clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+        deltaY,
+      })
+    );
+  };
+  const zoomInStep = () => {
+    const el = pane();
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }));
+  };
+  return (
+    <div className="graph-canvas-controls">
+      <button type="button" className="graph-canvas-ctrl" title={t("graph.zoom_in")} onPointerDown={(e) => { e.stopPropagation(); wheel(-120); }}>
+        +
+      </button>
+      <button type="button" className="graph-canvas-ctrl" title={t("graph.zoom_out")} onPointerDown={(e) => { e.stopPropagation(); wheel(120); }}>
+        −
+      </button>
+      <button type="button" className="graph-canvas-ctrl" title={t("graph.fit_view")} onPointerDown={(e) => { e.stopPropagation(); zoomOutFull(); }}>
+        ⛶
+      </button>
+    </div>
+  );
+}
+
+/** 全景：连续缩小到最小再 dblclick 不可行 —— 用键盘快捷键通道：React Flow 默认数字键 1 fit */
+function zoomOutFull() {
+  const el = document.querySelector(".react-flow__pane");
+  if (!el) return;
+  // React Flow 12: fitView 快捷键未启用时，退而求其次重置：多次缩小足够可见全图
+  for (let i = 0; i < 6; i++) {
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, deltaY: 240 }));
+  }
 }
 
 const nodeTypes = { workflow: WorkflowNode };
@@ -543,13 +667,26 @@ function FramePlayer({ urls }: { urls: string[] }) {
 
 // ---- 画布 ----
 
-function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchema[] }) {
+function GraphCanvas({
+  graphId,
+  schemas,
+  onCreateGraph,
+  onImportFile,
+  openTaskPanel,
+}: {
+  graphId: string;
+  schemas: NodeSchema[];
+  onCreateGraph: () => void;
+  onImportFile: (file: File) => void;
+  openTaskPanel: () => void;
+}) {
   const t = useT();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [running, setRunning] = useState(false);
   const dragTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const didFitRef = useRef(false);
   // 人在环：等待用户确认/调整候选框（slice.ui.analyze interactive 模式）
   type ConfirmCandidate = { name: string; x: number; y: number; w: number; h: number; area?: number; confidence?: number };
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -615,6 +752,11 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
           };
         })
       );
+      // 首次适配（fitView prop 在受控重渲染下会反复重置 viewport，缩放会被吃掉）
+      if (active && !didFitRef.current) {
+        didFitRef.current = true;
+        setTimeout(() => fitView({ padding: 0.2, duration: 0 }), 80);
+      }
     }).catch((e) => notify(String((e as Error).message)));
     return () => {
       active = false;
@@ -976,6 +1118,9 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
     api.cancelGraph(graphId).catch(() => {});
   }, [graphId]);
 
+  // 工具栏导入工作流（隐藏 file input）
+  const importRef = useRef<HTMLInputElement>(null);
+
   // 导出工作流 JSON：图名 + 节点（类型/参数/位置）+ 连线（索引式，导入按数组序还原）
   const exportGraph = useCallback(() => {
     api.getGraph(graphId).then((doc) => {
@@ -1263,10 +1408,31 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
         <button
           type="button"
           className="px-btn"
+          onClick={() => importRef.current?.click()}
+          title={t("graph.import_hint")}
+        >
+          {t("graph.import")}
+        </button>
+        <button type="button" className="px-btn" onClick={onCreateGraph} title={t("graph.new")}>
+          {t("graph.new")}
+        </button>
+        <button
+          type="button"
+          className="px-btn"
           onClick={exportGraph}
           title={t("graph.export_hint")}
         >
           {t("graph.export")}
+        </button>
+        <button
+          type="button"
+          className="px-btn graph-task-entry"
+          onClick={openTaskPanel}
+          title={t("graph.tasks")}
+        >
+          <ListTodo size={14} />
+          {t("graph.tasks")}
+          {running && <span className="graph-task-badge-inline">●</span>}
         </button>
         {running ? (
           <button type="button" className="px-btn danger" onClick={onCancel}>
@@ -1290,6 +1456,17 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
         >
           <Trash2 size={14} />
         </button>
+        <input
+          ref={importRef}
+          type="file"
+          accept="application/json,.json"
+          className="graph-import-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onImportFile(f);
+            e.target.value = "";
+          }}
+        />
       </div>
       <ReactFlow
         nodes={nodes}
@@ -1309,11 +1486,10 @@ function GraphCanvas({ graphId, schemas }: { graphId: string; schemas: NodeSchem
         }}
         onNodeClick={closeContextMenu}
         onMoveStart={closeContextMenu}
-        fitView
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Controls showInteractive={false} />
+        <CanvasControls />
       </ReactFlow>
       {contextMenu && (
         <div
@@ -1415,10 +1591,69 @@ export default function GraphPage() {
     }).catch(() => {});
   };
 
+  // 任务面板（工具栏入口控制；GraphCanvas 的任务按钮回调）
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+
+  // 侧栏：宽度可拖拽 + Ctrl+B 收起（localStorage 持久化；参照 layout.ts 双写模式，此处本地即可）
+  const [sidebarW, setSidebarW] = useState(() => {
+    const v = Number(localStorage.getItem("framebaker-graph-sidebar-w"));
+    return Number.isFinite(v) && v >= 160 && v <= 420 ? v : 200;
+  });
+  const [sidebarHidden, setSidebarHidden] = useState(
+    () => localStorage.getItem("framebaker-graph-sidebar-hidden") === "1"
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        setSidebarHidden((h) => {
+          localStorage.setItem("framebaker-graph-sidebar-hidden", h ? "0" : "1");
+          return !h;
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarW;
+    let latestW = startW;
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.max(160, Math.min(420, startW + ev.clientX - startX));
+      latestW = w;
+      setSidebarW(w);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      // 闭包里的 sidebarW 是拖拽前的旧值 —— 用 move 期间跟踪的最新值落盘
+      localStorage.setItem("framebaker-graph-sidebar-w", String(Math.round(latestW)));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   return (
     <div className="graph-page">
-      <TaskPanel onOpenGraph={(id) => setSelected(id)} />
-      <aside className="graph-list">
+      <TaskPanel onOpenGraph={(id) => setSelected(id)} open={taskPanelOpen} onClose={() => setTaskPanelOpen(false)} />
+      {sidebarHidden ? (
+        <aside className="graph-list graph-list-collapsed">
+          <button
+            type="button"
+            className="graph-list-expand"
+            onClick={() => {
+              setSidebarHidden(false);
+              localStorage.setItem("framebaker-graph-sidebar-hidden", "0");
+            }}
+            title={t("graph.show_sidebar")}
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+        </aside>
+      ) : (
+      <aside className="graph-list" style={{ width: sidebarW }}>
         <div className="graph-list-head">
           <GitBranch size={14} />
           <span>{t("graph.workflows")}</span>
@@ -1441,29 +1676,7 @@ export default function GraphPage() {
               ))}
             </select>
           )}
-          <button
-            type="button"
-            className="px-btn"
-            onClick={() => importRef.current?.click()}
-            title={t("graph.import_hint")}
-          >
-            {t("graph.import")}
-          </button>
-          <button type="button" className="px-btn" onClick={create}>
-            {t("graph.new")}
-          </button>
         </div>
-        <input
-          ref={importRef}
-          type="file"
-          accept="application/json,.json"
-          className="graph-import-input"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onImportFile(f);
-            e.target.value = "";
-          }}
-        />
         {graphs.map((g) => (
           <div key={g.id} className={`graph-list-item ${selected === g.id ? "active" : ""}`}>
             <button type="button" className="graph-list-btn" onClick={() => setSelected(g.id)}>
@@ -1475,10 +1688,29 @@ export default function GraphPage() {
           </div>
         ))}
         {graphs.length === 0 && <div className="graph-list-empty">{t("graph.empty")}</div>}
+        <button
+          type="button"
+          className="graph-list-collapse"
+          onClick={() => {
+            setSidebarHidden(true);
+            localStorage.setItem("framebaker-graph-sidebar-hidden", "1");
+          }}
+          title={t("graph.hide_sidebar") + " (Ctrl+B)"}
+        >
+          <PanelLeftClose size={14} />
+        </button>
       </aside>
+      )}
+      {!sidebarHidden && <div className="graph-sidebar-resizer" onPointerDown={startResize} title={t("graph.resize_sidebar")} />}
       {selected ? (
         <ReactFlowProvider key={selected}>
-          <GraphCanvas graphId={selected} schemas={schemas} />
+          <GraphCanvas
+          graphId={selected}
+          schemas={schemas}
+          onCreateGraph={create}
+          onImportFile={onImportFile}
+          openTaskPanel={() => setTaskPanelOpen((o) => !o)}
+        />
         </ReactFlowProvider>
       ) : (
         <div className="graph-placeholder">{t("graph.select_hint")}</div>
@@ -1495,9 +1727,16 @@ type RunRecord = {
   nodeStats: { total: number; done: number; cached: number; error: number };
 };
 
-function TaskPanel({ onOpenGraph }: { onOpenGraph: (graphId: string) => void }) {
+function TaskPanel({
+  onOpenGraph,
+  open,
+  onClose,
+}: {
+  onOpenGraph: (graphId: string) => void;
+  open: boolean;
+  onClose: () => void;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   // 当前运行中的图（来自各画布共享的 WS 事件，跨图显示）
   const [live, setLive] = useState<{ graphId: string; graphName: string; nodeId: string; nodeType: string; progress: string }[]>([]);
@@ -1533,53 +1772,54 @@ function TaskPanel({ onOpenGraph }: { onOpenGraph: (graphId: string) => void }) 
   const runningCount = live.length;
   const runningRun = runs.find((r) => r.status === "running");
 
+  if (!open) return null;
   return (
-    <div className="graph-task-fab" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" className="graph-task-btn" onClick={() => setOpen((o) => !o)} title={t("graph.tasks")}>
-        <Play size={15} />
-        {runningCount > 0 && <span className="graph-task-badge">{runningCount}</span>}
-      </button>
-      {open && (
-        <div className="graph-task-panel">
-          <div className="graph-task-head">{t("graph.tasks")}</div>
-          {runningRun || runningCount > 0 ? (
-            <div className="graph-task-live">
-              {live.map((l) => (
-                <div key={l.graphId} className="graph-task-live-row">
-                  <span className="graph-task-dot" />
-                  <span className="graph-task-name">{l.graphName || l.graphId.slice(0, 8)}</span>
-                  <span className="graph-task-progress">{l.progress || "…"}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="graph-task-empty">{t("graph.no_running")}</div>
-          )}
-          <div className="graph-task-history">
-            {runs.map((r) => (
-              <button
-                type="button"
-                key={r.id}
-                className={`graph-task-run ${r.status}`}
-                onClick={() => onOpenGraph(r.graphId)}
-                title={t("graph.open_graph")}
-              >
-                <span className="graph-task-run-name">{r.graphName}</span>
-                <span className="graph-task-run-meta">
-                  {r.status === "running"
-                    ? t("graph.running")
-                    : r.nodeStats.error > 0
-                      ? `${t("graph.run_error")} ${r.nodeStats.error}`
-                      : `${r.nodeStats.done + r.nodeStats.cached}/${r.nodeStats.total}`}
-                </span>
-                <span className="graph-task-run-time">
-                  {new Date(r.startedAt).toLocaleTimeString(getLocale(), { hour12: false })}
-                </span>
-              </button>
+    <div className="graph-task-fab">
+      <div className="graph-task-panel">
+        <div className="graph-task-head">
+          <span>{t("graph.tasks")}</span>
+          <span className="spacer" />
+          <button type="button" className="graph-task-close" onClick={onClose} title={t("common.close")}>
+            ✕
+          </button>
+        </div>
+        {runningRun || runningCount > 0 ? (
+          <div className="graph-task-live">
+            {live.map((l) => (
+              <div key={l.graphId} className="graph-task-live-row">
+                <span className="graph-task-dot" />
+                <span className="graph-task-name">{l.graphName || l.graphId.slice(0, 8)}</span>
+                <span className="graph-task-progress">{l.progress || "…"}</span>
+              </div>
             ))}
           </div>
+        ) : (
+          <div className="graph-task-empty">{t("graph.no_running")}</div>
+        )}
+        <div className="graph-task-history">
+          {runs.map((r) => (
+            <button
+              type="button"
+              key={r.id}
+              className={`graph-task-run ${r.status}`}
+              onClick={() => onOpenGraph(r.graphId)}
+              title={t("graph.open_graph")}
+            >
+              <span className="graph-task-run-name">{r.graphName}</span>
+              <span className="graph-task-run-meta">
+                {r.status === "running"
+                  ? t("graph.running")
+                  : r.nodeStats.error > 0
+                    ? `${t("graph.run_error")} ${r.nodeStats.error}`
+                    : `${r.nodeStats.done + r.nodeStats.cached}/${r.nodeStats.total}`}
+              </span>
+              <span className="graph-task-run-time">
+                {new Date(r.startedAt).toLocaleTimeString(getLocale(), { hour12: false })}
+              </span>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
