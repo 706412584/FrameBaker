@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Layers3, ListTodo, PlugZap, Plus, RefreshCw, Save, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { Layers3, ListTodo, PlugZap, Plus, RefreshCw, Save, Scissors, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
   GenProviderType,
   ImageLayerSettings,
+  ComfyLocalSettings,
   MattingSettings,
+  SpriteMattingSettings,
   PromptEnhancer,
   ProviderTestResponse,
 } from "@framebaker/shared";
@@ -258,6 +260,11 @@ export default function SettingsPage() {
   const t = useT();
   const [drafts, setDrafts] = useState<ProviderDraft[]>([]);
   const [mat, setMat] = useState<MattingSettings>(MAT_DEFAULT);
+  // sprite 抠图管线（graph matte.* 节点）与本地 ComfyUI 生成链（comfy.* / anim.* 节点）
+  const [spriteMat, setSpriteMat] = useState<SpriteMattingSettings>({ pythonBin: "", cliPath: "" });
+  const [comfyLocal, setComfyLocal] = useState<ComfyLocalSettings>({ pythonBin: "python", comfyRoot: "F:/ai/comfui" });
+  const [savingSpriteMat, setSavingSpriteMat] = useState(false);
+  const [savingComfy, setSavingComfy] = useState(false);
   const [imageLayers, setImageLayers] = useState<ImageLayerSettings>(IMAGE_LAYERS_DEFAULT);
   const [enhancers, setEnhancers] = useState<EnhancerDraft[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -288,6 +295,12 @@ export default function SettingsPage() {
         setDrafts(providerDrafts);
         const m = s["matting"] as Partial<MattingSettings> | undefined;
         if (m && typeof m === "object") setMat({ ...MAT_DEFAULT, ...m });
+        const sm = s["spriteMatting"] as Partial<SpriteMattingSettings> | undefined;
+        if (sm && typeof sm === "object") setSpriteMat({ pythonBin: sm.pythonBin ?? "", cliPath: sm.cliPath ?? "" });
+        const cl = s["comfyLocal"] as Partial<ComfyLocalSettings> | undefined;
+        if (cl && typeof cl === "object") {
+          setComfyLocal({ pythonBin: cl.pythonBin || "python", comfyRoot: cl.comfyRoot || "F:/ai/comfui" });
+        }
         const standaloneLayers = s["imageLayers"] as Partial<ImageLayerSettings> | undefined;
         if (standaloneLayers && typeof standaloneLayers === "object") {
           setImageLayers({ ...IMAGE_LAYERS_DEFAULT, ...standaloneLayers });
@@ -423,6 +436,30 @@ export default function SettingsPage() {
       notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
     } finally {
       setSavingMat(false);
+    }
+  };
+
+  const saveSpriteMatting = async () => {
+    setSavingSpriteMat(true);
+    try {
+      await api.putSetting("spriteMatting", spriteMat);
+      notify(t("msg.spritemat_saved"), "info");
+    } catch (e) {
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setSavingSpriteMat(false);
+    }
+  };
+
+  const saveComfyLocal = async () => {
+    setSavingComfy(true);
+    try {
+      await api.putSetting("comfyLocal", comfyLocal);
+      notify(t("msg.comfy_saved"), "info");
+    } catch (e) {
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setSavingComfy(false);
     }
   };
 
@@ -915,6 +952,52 @@ export default function SettingsPage() {
             onClick={saveMatting}
           >
             <Save size={14} /> {savingMat ? t("msg.saving") : t("msg.save_matting_config")}
+          </motion.button>
+        </div>
+      </section>
+
+      {/* ===== sprite 抠图管线（图节点）===== */}
+      <section className="settings-sec">
+        <h3>
+          <Scissors size={14} /> {t("msg.spritemat_title")}
+        </h3>
+        <p className="hint">{t("msg.spritemat_hint")}</p>
+        <div className="settings-grid">
+          <label>
+            {t("msg.spritemat_python")}
+            <input value={spriteMat.pythonBin} onChange={(e) => setSpriteMat((s) => ({ ...s, pythonBin: e.target.value }))} placeholder="D:/…/venv/Scripts/python.exe" />
+          </label>
+          <label>
+            {t("msg.spritemat_cli")}
+            <input value={spriteMat.cliPath} onChange={(e) => setSpriteMat((s) => ({ ...s, cliPath: e.target.value }))} placeholder="D:/…/tools/sprite/matte_cli.py" />
+          </label>
+        </div>
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={savingSpriteMat} onClick={saveSpriteMatting}>
+            <Save size={14} /> {savingSpriteMat ? t("msg.saving") : t("msg.save")}
+          </motion.button>
+        </div>
+      </section>
+
+      {/* ===== 本地生成（ComfyUI）===== */}
+      <section className="settings-sec">
+        <h3>
+          <Sparkles size={14} /> {t("msg.comfy_title")}
+        </h3>
+        <p className="hint">{t("msg.comfy_hint")}</p>
+        <div className="settings-grid">
+          <label>
+            {t("msg.comfy_python")}
+            <input value={comfyLocal.pythonBin} onChange={(e) => setComfyLocal((s) => ({ ...s, pythonBin: e.target.value }))} placeholder="python" />
+          </label>
+          <label>
+            {t("msg.comfy_root")}
+            <input value={comfyLocal.comfyRoot} onChange={(e) => setComfyLocal((s) => ({ ...s, comfyRoot: e.target.value }))} placeholder="F:/ai/comfui" />
+          </label>
+        </div>
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={savingComfy} onClick={saveComfyLocal}>
+            <Save size={14} /> {savingComfy ? t("msg.saving") : t("msg.save")}
           </motion.button>
         </div>
       </section>

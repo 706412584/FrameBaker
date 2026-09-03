@@ -89,6 +89,36 @@ export const GRAPH_TEMPLATES: GraphTemplate[] = [
     ],
   },
   {
+    id: "ai-image-gen",
+    name: "AI 图片生成",
+    description: "提示词 → Z-Image Turbo 生图 → 入库素材库 + 输出 PNG（本地 ComfyUI 免费路线）",
+    nodes: [
+      { key: "gen", type: "comfy.image-gen", params: { prompt: "", size: 1024 }, x: 0, y: 0 },
+      { key: "toLib", type: "frames.to-material", params: { name: "ai_gen" }, x: 230, y: -80 },
+      { key: "frames", type: "export.frames", params: {}, x: 230, y: 80 },
+    ],
+    edges: [
+      { from: "gen", fromPort: "images", to: "toLib", toPort: "images" },
+      { from: "gen", fromPort: "images", to: "frames", toPort: "images" },
+    ],
+  },
+  {
+    id: "ai-image-edit",
+    name: "AI 图片编辑",
+    description: "素材图 → Qwen-Image-Edit 2509 按指令编辑（改背景/配色/服饰）→ 入库 + 输出（本地 ComfyUI 免费路线）",
+    nodes: [
+      { key: "src", type: "material.image", params: { materialId: "" }, x: 0, y: 0 },
+      { key: "edit", type: "comfy.image-edit", params: { prompt: "" }, x: 230, y: 0 },
+      { key: "toLib", type: "frames.to-material", params: { name: "ai_edit" }, x: 460, y: -80 },
+      { key: "frames", type: "export.frames", params: {}, x: 460, y: 80 },
+    ],
+    edges: [
+      { from: "src", fromPort: "images", to: "edit", toPort: "images" },
+      { from: "edit", fromPort: "images", to: "toLib", toPort: "images" },
+      { from: "edit", fromPort: "images", to: "frames", toPort: "images" },
+    ],
+  },
+  {
     id: "ui-slice",
     name: "UI 切片",
     description: "UI 大图 → OpenCV 候选框 + GrabCut 去底图层 → 入库素材库 + 输出帧图片（sprite ui-layer-lab 完整能力）",
