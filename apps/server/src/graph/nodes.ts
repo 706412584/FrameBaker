@@ -1558,7 +1558,8 @@ async function comfyLayered(
   const layers = Math.max(1, Math.min(4, Math.floor(Number(node.params.layers ?? 2))));
   const size = Math.max(512, Math.min(1024, Math.floor(Number(node.params.size ?? 640))));
   const filterSolid = node.params.filterSolid !== false;
-  const { mkdirSync, copyFileSync, readdirSync, existsSync } = await import("node:fs");
+  const { mkdirSync, copyFileSync, readdirSync, existsSync, statSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true }); // 产物目录（漏建会让 copy 报源路径的 ENOENT 假象）
   const inputDir = join(settings.comfyRoot, "input");
   mkdirSync(inputDir, { recursive: true });
   const src = images.paths[0]!;
@@ -1580,14 +1581,58 @@ async function comfyLayered(
     ctx.signal
   );
 
-  // 产物 <prefix>_00001_.png 起（自底向上）；过滤实心层（alpha 全 255 的背景板）
+  // 产物 <prefix>_00001_.png 起（自底向上）；过滤实心层（alpha 全 255 的背景板）。
+  // ComfyUI history 写入早于 SaveImage 全部落盘 —— readdir 可见但 copy 时源缺文件，
+  // 等到产物数稳定（layers+1 张或 10s 无新增）再取
   const outputDir = join(settings.comfyRoot, "output");
-  const outs = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && f.endsWith(".png")).sort();
+  const waitStableFiles = async (prefix: string, expectMin: number): Promise<string[]> => {
+    let last: string[] = [];
+    let stableSince = 0;
+    for (let i = 0; i < 60; i++) {
+      const now = readdirSync(outputDir).filter((f) => f.startsWith(prefix) && f.endsWith(".png")).sort();
+      if (now.length === last.length && now.length >= expectMin) {
+        if (!stableSince) stableSince = Date.now();
+        if (Date.now() - stableSince > 3000) return now; // 3s 无新增且达预期
+      } else {
+        stableSince = 0;
+      }
+      last = now;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return last; // 60s 兜底返回现有
+  };
+  let outs = await waitStableFiles(outPrefix, layers + 1);
   if (outs.length === 0) throw new Error("遮挡分层未产出图层（ComfyUI 队列/显存？）");
+  // ComfyUI history 早于文件落盘（实测 mtime 晚于 wait 返回数秒）；copy 前逐文件等出现
+  const waitForFile = async (p: string) => {
+    for (let i = 0; i < 120; i++) {
+      if (existsSync(p) && statSync(p).size > 0) return true;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return existsSync(p);
+  };
+  const allReady: string[] = [];
+  for (const f of outs) {
+    if (await waitForFile(join(outputDir, f))) allReady.push(f);
+  }
+  outs = allReady;
+  if (outs.length === 0) throw new Error("遮挡分层产物未落盘（等待 2 分钟超时）");
   const kept: string[] = [];
   for (const f of outs) {
     const dst = join(ctx.outputDir, f);
-    copyFileSync(join(outputDir, f), dst);
+    const src = join(outputDir, f);
+    // Windows 下 ComfyUI 写盘/杀软扫描瞬时占用会让 copy 诡异地报 ENOENT ——
+    // waitForFile 已确认存在，这里再带重试兜底
+    let copied = false;
+    for (let attempt = 0; attempt < 5 && !copied; attempt++) {
+      try {
+        copyFileSync(src, dst);
+        copied = true;
+      } catch (err) {
+        if (attempt === 4) throw err;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
     if (filterSolid) {
       // 实心层（alpha 全 255 的背景板）统一在下方 python 采样里过滤
     }
