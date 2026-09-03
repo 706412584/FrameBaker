@@ -39,6 +39,7 @@ export const zh = {
   "graph.show_sidebar": "展开工作流列表",
   "graph.hide_sidebar": "收起侧栏",
   "graph.resize_sidebar": "拖动调整宽度",
+  "graph.add_candidate": "+ 新增候选框",
   "graph.from_template": "从模板新建…",
   "graph.new": "新建",
   "graph.delete": "删除",

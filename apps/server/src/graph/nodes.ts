@@ -110,6 +110,8 @@ export async function runNode(
       return generateImage(node, ctx);
     case "ui.layer.analyze":
       return uiLayerAnalyze(node, inputs, ctx);
+    case "ui.export":
+      return uiExport(node, inputs, ctx);
     case "material.psd":
       return materialPsd(node, ctx);
     case "image.bg-inpaint":
@@ -1177,5 +1179,74 @@ async function uiLayerAnalyze(
     manifests.push(manifest);
   }
   ctx.report(`拆出 ${allPaths.length} 个 UI 图层`);
-  return { images: { paths: allPaths } satisfies ImageSequencePayload };
+  // rects 端口：候选清单（ui.export / 人在环确认面板用）
+  const candidates = (manifests[0] as { files: Array<{ name: string; bbox: { x: number; y: number; w: number; h: number } }> }).files.map(
+    (f) => ({ name: f.name, x: f.bbox.x, y: f.bbox.y, w: f.bbox.w, h: f.bbox.h })
+  );
+  return {
+    images: { paths: allPaths } satisfies ImageSequencePayload,
+    rects: { candidates },
+  };
+}
+
+/**
+ * ui.export：UI 分层导出（sprite _export_session 完整语义）。
+ * 输入：原图（images 端口）+ 候选清单（rects 端口，可经人在环修正）。
+ * 产物：layers/ 分层 PNG + background.png（inpaint 补全或透明）+ layout.json + 可选 PSD。
+ */
+async function uiExport(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const settings = requireSpriteCli();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("UI 分层导出缺少原图输入");
+  const rects = inputs.rects as { candidates?: Array<{ name: string; x: number; y: number; w: number; h: number }> } | undefined;
+  const candidates = rects?.candidates;
+  if (!candidates?.length) throw new Error("UI 分层导出缺少候选清单（上游接 UI 图层拆分的 rects）");
+  const backgroundMode = String(node.params.backgroundMode ?? "transparent");
+  const exportFormat = String(node.params.exportFormat ?? "package");
+
+  const { mkdirSync, readdirSync, statSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true });
+  const layoutJson = JSON.stringify(candidates.map((c) => [c.name, c.x, c.y, c.w, c.h]));
+  ctx.report(`分层导出（${candidates.length} 图层，${backgroundMode === "inpaint" ? "补全背景" : "透明背景"}，${exportFormat}）`);
+  await runCmd(
+    [
+      settings.pythonBin, settings.cliPath,
+      "--op", "ui-export",
+      "--input", images.paths[0]!,
+      "--out-dir", ctx.outputDir,
+      "--ui-export-layout", layoutJson,
+      "--ui-export-background", backgroundMode,
+      "--ui-export-format", exportFormat,
+    ],
+    undefined,
+    ctx.signal
+  );
+
+  // 收集产物
+  const files: Record<string, string> = {};
+  const collect = (dir: string, prefix: string) => {
+    for (const f of readdirSync(dir)) {
+      const fp = join(dir, f);
+      if (statSync(fp).isDirectory()) collect(fp, `${prefix}${f}/`);
+      else files[`${prefix}${f}`] = fp;
+    }
+  };
+  collect(ctx.outputDir, "");
+  const { existsSync } = await import("node:fs");
+  const psdPath = join(ctx.outputDir, "ui_layers.psd");
+  ctx.report(`导出 ${Object.keys(files).length} 个文件${existsSync(psdPath) ? "（含 PSD）" : ""}`);
+  return {
+    sheet: {
+      path: join(ctx.outputDir, "layout.json"),
+      outputDir: ctx.outputDir,
+      files,
+      layoutPath: join(ctx.outputDir, "layout.json"),
+      psdPath: existsSync(psdPath) ? psdPath : null,
+      layerCount: candidates.length,
+    },
+  };
 }

@@ -75,6 +75,49 @@ export function resolveClientTask(
 }
 
 /**
+ * 人在环挂起（server 节点 ui.layer.analyze interactive）：
+ * 复用 client-task 的回传通道（graph_client_task WS + client-result complete API）——
+ * 前端确认面板把修正后的候选清单作为 outputs.rects 回传，替换分析结果继续下游。
+ */
+async function waitUserRects(
+  graphId: string,
+  nodeId: string,
+  candidates: Array<{ name: string; x: number; y: number; w: number; h: number }>,
+  previewUrl: string | undefined,
+  onStatus: (status: string, payload: Record<string, unknown>) => void
+): Promise<NodeOutput> {
+  const taskId = uid();
+  const outputDir = join(STORAGE_ROOT, "staging", "ui_confirm", taskId);
+  mkdirSync(outputDir, { recursive: true });
+  return new Promise<NodeOutput>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      clientTasks.delete(taskId);
+      reject(new Error("等待候选框确认超时（画布页未打开？）"));
+    }, 30 * 60 * 1000); // 人在环给足 30 分钟
+    clientTasks.set(taskId, {
+      outputDir,
+      timer,
+      resolve: () => reject(new Error("人在环节点不能回传文件")),
+      reject,
+      resolveOutputs: (outputs) => {
+        const confirmed = outputs.rects as { candidates?: Array<{ name: string; x: number; y: number; w: number; h: number }> } | undefined;
+        resolve({ images: { paths: [] }, rects: { candidates: confirmed?.candidates ?? candidates } });
+      },
+    });
+    onStatus("waiting-for-input", {});
+    broadcast("graph_client_task", {
+      graphId,
+      nodeId,
+      taskId,
+      nodeType: "ui.layer.confirm",
+      params: { interactive: true },
+      inputUrls: previewUrl ? { images: [previewUrl] } : {},
+      inputPassthrough: { rects: { candidates } },
+    });
+  });
+}
+
+/**
  * 客户端节点统一入口：把节点参数与输入图片 URL 广播给浏览器（画布页），
  * 浏览器用 imageops worker 计算后把产物 PNG 逐个上传到
  * POST /api/graphs/:id/client-result/:taskId（API 层落盘到 ctx.outputDir），
@@ -312,10 +355,23 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
             broadcast("graph_node_status", { graphId, nodeId, status: "running", progress: p });
           },
         };
-        const result: NodeOutput =
+        let result: NodeOutput =
           schema.execution === "client"
             ? await runClientNodeTask(node, inputs, ctx, graphId, nodeId)
             : await runNode(node, inputs, ctx);
+        // 人在环（server 节点）：ui.layer.analyze + interactive=true → 分析完成后暂停，
+        // 广播候选清单给画布确认面板，用户增删改候选框后回传修正 rects，覆盖输出再继续下游。
+        if (node.type === "ui.layer.analyze" && node.params.interactive === true) {
+          const rawRects = result.rects as { candidates?: Array<{ name: string; x: number; y: number; w: number; h: number }> } | undefined;
+          const candidates = rawRects?.candidates ?? [];
+          const inputPayload = inputs.images as { paths?: string[] } | undefined;
+          const firstUrl = inputPayload?.paths?.[0]
+            ? `/api/graph/media?path=${encodeURIComponent(inputPayload.paths[0])}`
+            : undefined;
+          result = await waitUserRects(graphId, nodeId, candidates, firstUrl, (status, payload) =>
+            broadcast("graph_node_status", { graphId, nodeId, status, ...payload })
+          );
+        }
         const outputs: Record<string, Record<string, unknown>> = {};
         for (const [port, payload] of Object.entries(result)) {
           writeOutput(hashes[port], port, node.type, payload);

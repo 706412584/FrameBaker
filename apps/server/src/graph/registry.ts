@@ -479,7 +479,7 @@ registry.set("ui.layer.analyze", {
   type: "ui.layer.analyze",
   label: "UI 图层拆分",
   inputs: [port("images", "image[]", "帧序列")],
-  outputs: [port("images", "image[]", "图层序列")],
+  outputs: [port("images", "image[]", "图层序列"), port("rects", "rect[]", "候选清单")],
   paramsSchema: {
     type: "object",
     properties: {
@@ -489,6 +489,31 @@ registry.set("ui.layer.analyze", {
         type: "string", title: "图层模式", default: "cutout",
         enum: ["cutout", "raw", "both"],
         enumLabels: { cutout: "去底图层（GrabCut）", raw: "原图裁块", both: "两者都出" },
+      },
+      /** true = 分析后在画布上暂停，等用户调整/增删候选框再继续下游（人在环，对齐 sprite 图层树编辑） */
+      interactive: { type: "boolean", title: "人工确认候选框", default: false },
+    },
+  },
+  execution: "server",
+});
+// UI 分层导出（sprite _export_session 完整语义）：layers/ + background(inpaint/透明) + layout.json + 可选 PSD
+registry.set("ui.export", {
+  type: "ui.export",
+  label: "UI 分层导出",
+  inputs: [port("images", "image[]", "原图"), port("rects", "rect[]", "候选清单")],
+  outputs: [port("sheet", "sheet", "导出包")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      backgroundMode: {
+        type: "string", title: "背景模式", default: "transparent",
+        enum: ["transparent", "inpaint"],
+        enumLabels: { transparent: "透明背景", inpaint: "补全背景" },
+      },
+      exportFormat: {
+        type: "string", title: "导出格式", default: "package",
+        enum: ["package", "psd", "both"],
+        enumLabels: { package: "分层包", psd: "PSD", both: "分层包 + PSD" },
       },
     },
   },

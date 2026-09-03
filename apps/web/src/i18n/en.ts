@@ -39,6 +39,7 @@ export const en = {
   "graph.show_sidebar": "Show workflow list",
   "graph.hide_sidebar": "Hide sidebar",
   "graph.resize_sidebar": "Drag to resize",
+  "graph.add_candidate": "+ Add candidate",
   "graph.from_template": "From template…",
   "graph.new": "New",
   "graph.delete": "Delete",

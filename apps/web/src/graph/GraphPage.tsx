@@ -871,6 +871,27 @@ function GraphCanvas({
         const inputUrls = task.inputUrls?.images ?? [];
         if (!inputUrls.length) throw new Error("客户端节点缺少图片输入");
 
+        // 人在环（server 节点挂起）：ui.layer.analyze interactive → 确认面板（可增删改候选框）
+        if (task.nodeType === "ui.layer.confirm") {
+          const candidates = (task.inputPassthrough?.rects as { candidates?: ConfirmCandidate[] } | undefined)?.candidates ?? [];
+          setPendingConfirm({
+            taskId: task.taskId,
+            width: 0,
+            height: 0,
+            candidates,
+            submit: (confirmed) =>
+              fetch(`/api/graphs/${graphId}/client-result/${task.taskId}/complete`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ outputs: { rects: { candidates: confirmed } } }),
+              }),
+          });
+          setNodes((ns) =>
+            ns.map((n) => (n.id === task.nodeId ? { ...n, data: { ...n.data, runStatus: "waiting-for-input" } } : n))
+          );
+          return;
+        }
+
         // 分析型：slice.ui.analyze → 输出候选框 JSON（不上传文件）
         if (task.nodeType === "slice.ui.analyze") {
           const res = await fetch(inputUrls[0]!);
@@ -1374,6 +1395,26 @@ function GraphCanvas({
             ))}
           </div>
           <div className="graph-confirm-actions">
+            <button
+              type="button"
+              className="px-btn"
+              onClick={() => {
+                const idx = (pendingConfirm.candidates.length + 1).toString().padStart(2, "0");
+                setPendingConfirm((p) =>
+                  p
+                    ? {
+                        ...p,
+                        candidates: [
+                          ...p.candidates,
+                          { name: `manual_${idx}`, x: 0, y: 0, w: 64, h: 64 },
+                        ],
+                      }
+                    : p
+                );
+              }}
+            >
+              {t("graph.add_candidate")}
+            </button>
             <button
               type="button"
               className="px-btn"
