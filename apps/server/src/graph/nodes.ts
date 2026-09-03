@@ -13,7 +13,7 @@ import { MANIFEST_GENERATORS, VALID_MANIFEST_FORMATS, type FramePosition, type F
 import { packSheetBest } from "./rectpack";
 import { splitImageLayers, type ImageLayersPayload } from "../jobs/imageLayers";
 import { generateFrames, type GeneratePayload } from "../jobs/extract";
-import { getGenProviders, providerConfigured } from "../provider";
+import { getGenProviders, providerConfigured, getComfyLocalSettings } from "../provider";
 
 /**
  * 图集合成（PIL paste 零损，对齐 sprite packed_sheet.paste / grid paste）：
@@ -112,6 +112,18 @@ export async function runNode(
       return uiLayerAnalyze(node, inputs, ctx);
     case "ui.export":
       return uiExport(node, inputs, ctx);
+    case "comfy.seethrough":
+      return comfySeethrough(node, inputs, ctx);
+    case "anim.map-parts":
+      return animMapParts(node, inputs, ctx);
+    case "anim.bake":
+      return animBake(node, inputs, ctx);
+    case "comfy.h3-video":
+      return comfyH3Video(node, inputs, ctx);
+    case "comfy.image-edit":
+      return comfyImageEdit(node, inputs, ctx);
+    case "comfy.image-gen":
+      return comfyImageGen(node, ctx);
     case "material.psd":
       return materialPsd(node, ctx);
     case "image.bg-inpaint":
@@ -1249,4 +1261,278 @@ async function uiExport(
       layerCount: candidates.length,
     },
   };
+}
+// ===== 本地生成能力（ComfyUI + 骨骼烘焙链；脚本在 apps/server/graph/comfy/）=====
+
+/** ComfyUI 链公共：配置 + 脚本目录 */
+function comfyEnv() {
+  const settings = getComfyLocalSettings();
+  const scriptDir = join(import.meta.dir, "..", "..", "graph", "comfy");
+  return { settings, scriptDir };
+}
+
+/** 捕获 stdout 的 spawn（bake 脚本把 JSON 打到 stdout，runCmd 会丢） */
+async function spawnCapture(argv: string[], signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
+  const onAbort = () => {
+    try {
+      proc.kill();
+    } catch {
+      /* ignore */
+    }
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const [code, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { code, stdout, stderr };
+}
+
+/**
+ * comfy.seethrough：See-through 语义部件分层（立绘 → 29 层部件）。
+ * 输入图拷进 comfyRoot/input，脚本排队跑 ComfyUI（约 5-10 分钟），
+ * 产物在 comfyRoot/output/<prefix 时间戳 uid>_layers.json + 各层 PNG。
+ * rects 端口输出 outPrefix（下游 anim.map-parts 靠它定位产物）+ 层清单。
+ */
+async function comfySeethrough(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("语义分层节点缺少输入图");
+  const resolution = Math.max(256, Math.min(1024, Math.floor(Number(node.params.resolution ?? 1024))));
+  const depthResolution = Math.max(256, Math.min(1024, Math.floor(Number(node.params.depthResolution ?? 640))));
+  const { mkdirSync, copyFileSync, readdirSync } = await import("node:fs");
+  const inputDir = join(settings.comfyRoot, "input");
+  mkdirSync(inputDir, { recursive: true });
+  const src = images.paths[0]!;
+  const ext = src.endsWith(".png") ? "png" : src.split(".").pop()?.toLowerCase() || "png";
+  const inputName = `graph_${uid()}.${ext}`;
+  copyFileSync(src, join(inputDir, inputName));
+  const outPrefix = `graph_st_${uid().slice(0, 8)}`;
+
+  ctx.report(`See-through 分层（${resolution}px，约 5-10 分钟，看 ComfyUI 队列）…`);
+  await runCmd(
+    [
+      settings.pythonBin, join(scriptDir, "comfy_seethrough.py"),
+      "--image", inputName,
+      "--out", outPrefix,
+      "--resolution", String(resolution),
+      "--depth-resolution", String(depthResolution),
+    ],
+    undefined,
+    ctx.signal
+  );
+
+  // SavePSD 写 <prefix 时间戳 uid>_layers.json —— 前缀扫描找最新
+  const outputDir = join(settings.comfyRoot, "output");
+  const manifest = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && f.endsWith("layers.json")).sort().pop();
+  if (!manifest) throw new Error("See-through 未产出分层清单（ComfyUI 队列是否执行成功？）");
+  copyFileSync(join(outputDir, manifest), join(ctx.outputDir, manifest));
+  const manifestData = JSON.parse(await Bun.file(join(ctx.outputDir, manifest)).text()) as {
+    width: number;
+    height: number;
+    layers: Array<{ name: string; depth_median?: number }>;
+  };
+  ctx.report(`分层完成：${manifestData.layers.length} 层`);
+  return {
+    images: { paths: [join(ctx.outputDir, manifest)] },
+    rects: {
+      outPrefix: manifest.replace(/layers\.json$/, ""),
+      manifestPath: join(ctx.outputDir, manifest),
+      width: manifestData.width,
+      height: manifestData.height,
+      layers: manifestData.layers,
+    },
+  };
+}
+
+/**
+ * anim.map-parts：语义部件 → FrameBaker 骨段部件（head/torso/pelvis/四肢…12 段）。
+ * 输入 rects 端口 = comfy.seethrough 的分层清单（outPrefix 定位 ComfyUI output 产物）。
+ */
+async function animMapParts(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const rects = inputs.rects as { outPrefix?: string } | undefined;
+  const outPrefix = rects?.outPrefix;
+  if (!outPrefix) throw new Error("部件映射需要上游语义分层清单（接 AI·语义分层的 rects）");
+  const { mkdirSync, readdirSync, existsSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true });
+  const args = [
+    settings.pythonBin, join(scriptDir, "map_seethrough_to_framebaker.py"),
+    outPrefix, ctx.outputDir,
+    "--out-root", join(settings.comfyRoot, "output"),
+  ];
+  if (node.params.singleFoot === true) args.push("--single-foot");
+  if (node.params.splitSleeve === true) args.push("--split-sleeve");
+  ctx.report("语义部件 → 骨段部件…");
+  await runCmd(args, undefined, ctx.signal);
+  const layoutPath = join(ctx.outputDir, "layout.json");
+  if (!existsSync(layoutPath)) throw new Error("部件映射未产出 layout.json");
+  const layout = JSON.parse(await Bun.file(layoutPath).text()) as { canvas?: { width: number; height: number } };
+  const partPaths = readdirSync(ctx.outputDir).filter((f) => f.endsWith(".png")).sort().map((f) => join(ctx.outputDir, f));
+  ctx.report(`映射出 ${partPaths.length} 个骨段部件`);
+  return {
+    images: { paths: partPaths },
+    sheet: { partsDir: ctx.outputDir, layoutPath, canvasWidth: layout.canvas?.width ?? 0, canvasHeight: layout.canvas?.height ?? 0 },
+  };
+}
+
+/**
+ * anim.bake：反解绑定 + 烘动作 + 渲染精灵表。
+ * build_binding_and_bake.ts 在 apps/server/（import @framebaker/shared 只在此解析），
+ * 其 stdout = poses.json → render_poses.py 渲染逐帧动画 → 输出帧序列 + 精灵表。
+ */
+async function animBake(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const sheet = inputs.sheet as { partsDir?: string } | undefined;
+  const partsDir = sheet?.partsDir;
+  if (!partsDir) throw new Error("烘焙动作需要上游骨段布局（接 骨骼·部件映射 的 sheet）");
+  const clip = String(node.params.clip ?? "motion-original-preset-idle");
+  const frameCount = Math.max(2, Math.min(32, Math.floor(Number(node.params.frameCount ?? 8))));
+  const { mkdirSync, existsSync, readdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true });
+
+  // 1) 反解绑定 + 烘动作（stdout 是 poses JSON）
+  const bakeScript = join(import.meta.dir, "..", "..", "build_binding_and_bake.ts");
+  if (!existsSync(bakeScript)) throw new Error("apps/server/build_binding_and_bake.ts 缺失（骨骼烘焙链前置）");
+  ctx.report(`烘 ${clip} × ${frameCount} 帧…`);
+  const r = await spawnCapture(["bun", bakeScript, partsDir, clip, String(frameCount)], ctx.signal);
+  if (r.code !== 0) throw new Error(`骨骼烘焙失败: ${r.stderr.trim().slice(-300)}`);
+  const posesPath = join(ctx.outputDir, "poses.json");
+  writeFileSync(posesPath, r.stdout);
+
+  // 2) 渲染精灵表（render_poses.py poses.json out.png partsDir；逐帧 PNG 在同目录）
+  ctx.report("渲染精灵表…");
+  const outSheet = join(ctx.outputDir, "spritesheet.png");
+  await runCmd(
+    [settings.pythonBin, join(scriptDir, "render_poses.py"), posesPath, outSheet, partsDir],
+    undefined,
+    ctx.signal
+  );
+  if (!existsSync(outSheet)) throw new Error("精灵表渲染未产出");
+  // render_poses 出精灵表 + 循环 gif；逐帧从 gif 拆（ffmpeg，帧率取 duration/帧数）
+  const gifPath = outSheet.replace(".png", ".gif");
+  let framePaths = readdirSync(ctx.outputDir).filter((f) => /^frame_\d+\.png$/.test(f)).sort().map((f) => join(ctx.outputDir, f));
+  if (framePaths.length === 0 && existsSync(gifPath)) {
+    ctx.report("拆分逐帧…");
+    await runCmd(
+      ["ffmpeg", "-y", "-i", gifPath.replaceAll("\\", "/"), join(ctx.outputDir, "frame_%03d.png").replaceAll("\\", "/")],
+      undefined,
+      ctx.signal
+    );
+    framePaths = readdirSync(ctx.outputDir).filter((f) => /^frame_\d+\.png$/.test(f)).sort().map((f) => join(ctx.outputDir, f));
+  }
+  ctx.report(`完成：${framePaths.length || 1} 帧`);
+  return {
+    images: { paths: framePaths.length ? framePaths : [outSheet] },
+    sheet: { path: outSheet, outputDir: ctx.outputDir, frameCount: framePaths.length || 1, clip },
+  };
+}
+
+/**
+ * comfy.h3-video：H3 图生视频（立绘 → 动作循环视频，640/24fps/73 帧）。
+ * first+last 帧同图（硬规则，attack 不失控），产物 mp4 → video 端口（接抽帧链）。
+ */
+async function comfyH3Video(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("动作视频节点缺少输入立绘");
+  const action = String(node.params.action ?? "idle");
+  const { mkdirSync, copyFileSync, readdirSync, statSync } = await import("node:fs");
+  const inputDir = join(settings.comfyRoot, "input");
+  mkdirSync(inputDir, { recursive: true });
+  const src = images.paths[0]!;
+  const inputName = `graph_h3_${uid().slice(0, 8)}.png`;
+  copyFileSync(src, join(inputDir, inputName));
+  const outPrefix = `graph_h3_${uid().slice(0, 8)}`;
+
+  const args = [settings.pythonBin, join(scriptDir, "comfy_h3_video.py"), "--image", inputName, "--action", action, "--out", outPrefix];
+  if (action === "attack" && node.params.attackPrompt) {
+    args.push("--attack", String(node.params.attackPrompt));
+  }
+  ctx.report(`H3 生成 ${action} 动作视频（2-5 分钟）…`);
+  await runCmd(args, undefined, ctx.signal);
+
+  // 产物 F:/ai/comfui/output/<out>_00001_.mp4
+  const outputDir = join(settings.comfyRoot, "output");
+  const mp4 = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && f.endsWith(".mp4")).sort().pop();
+  if (!mp4) throw new Error("H3 未产出视频（ComfyUI 队列/显存？）");
+  const dst = join(ctx.outputDir, mp4);
+  copyFileSync(join(outputDir, mp4), dst);
+  return { video: { path: dst, frameCount: 73, action } };
+}
+
+/** comfy.image-edit：Qwen-Image-Edit 2509 图片编辑（prompt 驱动） */
+async function comfyImageEdit(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("图片编辑节点缺少输入图");
+  const prompt = String(node.params.prompt ?? "").trim();
+  if (!prompt) throw new Error("图片编辑需要编辑指令");
+  const { mkdirSync, copyFileSync, readdirSync } = await import("node:fs");
+  const inputDir = join(settings.comfyRoot, "input");
+  mkdirSync(inputDir, { recursive: true });
+  const src = images.paths[0]!;
+  const inputName = `graph_edit_${uid().slice(0, 8)}.png`;
+  copyFileSync(src, join(inputDir, inputName));
+  const outPrefix = `graph_edit_${uid().slice(0, 8)}`;
+
+  ctx.report(`图片编辑（约 3 分钟）…`);
+  await runCmd(
+    [settings.pythonBin, join(scriptDir, "comfy_qwen_edit.py"), "--image", inputName, "--prompt", prompt, "--out", outPrefix],
+    undefined,
+    ctx.signal
+  );
+  const outputDir = join(settings.comfyRoot, "output");
+  const out = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && /\.(png|webp)$/i.test(f)).sort().pop();
+  if (!out) throw new Error("图片编辑未产出");
+  const dst = join(ctx.outputDir, out);
+  copyFileSync(join(outputDir, out), dst);
+  return { images: { paths: [dst] } };
+}
+
+/** comfy.image-gen：Z-Image Turbo 文生图 */
+async function comfyImageGen(node: GraphNode, ctx: NodeContext): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const prompt = String(node.params.prompt ?? "").trim();
+  if (!prompt) throw new Error("图片生成需要提示词");
+  const size = Math.max(256, Math.min(1536, Math.floor(Number(node.params.size ?? 1024))));
+  const { mkdirSync, readdirSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true });
+  const outPrefix = `graph_gen_${uid().slice(0, 8)}`;
+
+  ctx.report(`生成图片（约 2 分钟）…`);
+  await runCmd(
+    [settings.pythonBin, join(scriptDir, "comfy_zimage.py"), "--prompt", prompt, "--out", outPrefix, "--size", String(size)],
+    undefined,
+    ctx.signal
+  );
+  const outputDir = join(settings.comfyRoot, "output");
+  const out = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && /\.(png|webp)$/i.test(f)).sort().pop();
+  if (!out) throw new Error("图片生成未产出");
+  const { copyFileSync } = await import("node:fs");
+  const dst = join(ctx.outputDir, out);
+  copyFileSync(join(outputDir, out), dst);
+  return { images: { paths: [dst] } };
 }

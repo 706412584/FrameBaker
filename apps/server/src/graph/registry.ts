@@ -520,6 +520,109 @@ registry.set("ui.export", {
   execution: "server",
 });
 
+// ===== 本地生成能力（ComfyUI + 骨骼烘焙链；脚本在 apps/server/graph/comfy/）=====
+
+// See-through 语义部件分层：立绘 → 29 层部件（发/脸/眼/上衣/鞋…，骨骼动画用）
+registry.set("comfy.seethrough", {
+  type: "comfy.seethrough",
+  label: "AI·语义分层",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("images", "image[]", "部件层序列"), port("rects", "rect[]", "分层清单")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      resolution: { type: "integer", title: "分辨率", default: 1024, description: "上限 1024（8G 显存实测），更大直接 OOM" },
+      depthResolution: { type: "integer", title: "深度分辨率", default: 640 },
+      seedHead: { type: "string", title: "头部另跑种子", default: "", description: "face 层空时换 seed 重跑后填两次结果的 out 前缀，选头部好的那次" },
+    },
+  },
+  execution: "server",
+});
+// 语义部件 → FrameBaker 骨段部件（head/torso/pelvis/四肢…12 段 + layout.json）
+registry.set("anim.map-parts", {
+  type: "anim.map-parts",
+  label: "骨骼·部件映射",
+  inputs: [port("rects", "rect[]", "分层清单")],
+  outputs: [port("images", "image[]", "骨段部件"), port("sheet", "sheet", "骨段布局")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      singleFoot: { type: "boolean", title: "侧视单脚", default: false, description: "侧视立绘：两脚并进裙摆不劈（正面默认劈左右小腿）" },
+      splitSleeve: { type: "boolean", title: "窄袖切分", default: false, description: "窄袖角色在肘部切两段；宽袍大袖默认整片挂肩" },
+    },
+  },
+  execution: "server",
+});
+// 反解绑定 + 烘动作 + 渲染精灵表（idle/walk/...）
+registry.set("anim.bake", {
+  type: "anim.bake",
+  label: "骨骼·烘焙动作",
+  inputs: [port("sheet", "sheet", "骨段布局")],
+  outputs: [port("images", "image[]", "动画帧序列"), port("sheet", "sheet", "精灵表")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      clip: {
+        type: "string", title: "动作", default: "motion-original-preset-idle",
+        enum: ["motion-original-preset-idle", "motion-original-preset-walk", "motion-original-preset-run", "motion-original-preset-attack", "motion-original-preset-hurt", "motion-original-preset-death", "motion-original-preset-jump"],
+        enumLabels: { "motion-original-preset-idle": "待机·呼吸", "motion-original-preset-walk": "行走", "motion-original-preset-run": "奔跑", "motion-original-preset-attack": "攻击", "motion-original-preset-hurt": "受击", "motion-original-preset-death": "倒地", "motion-original-preset-jump": "跳跃" },
+      },
+      frameCount: { type: "integer", title: "帧数", default: 8, minimum: 2, maximum: 32 },
+    },
+  },
+  execution: "server",
+});
+// H3 图生视频：立绘 → 动作循环视频（接抽帧链做序列帧）
+registry.set("comfy.h3-video", {
+  type: "comfy.h3-video",
+  label: "AI·动作视频",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("video", "video", "动作视频")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string", title: "动作", default: "idle",
+        enum: ["idle", "walk", "attack", "talk", "greet", "cast"],
+        enumLabels: { idle: "待机", walk: "行走", attack: "攻击", talk: "说话", greet: "打招呼", cast: "施法" },
+      },
+      attackPrompt: { type: "string", title: "攻击描述", default: "", description: "attack 时补充：动作幅度适中克制，禁大幅转身/跳跃/甩袖" },
+    },
+  },
+  execution: "server",
+});
+// ComfyUI 图片编辑（Qwen-Image-Edit 2509）
+registry.set("comfy.image-edit", {
+  type: "comfy.image-edit",
+  label: "AI·图片编辑",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("images", "image[]", "编辑后帧序列")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", title: "编辑指令", default: "" },
+    },
+    required: ["prompt"],
+  },
+  execution: "server",
+});
+// ComfyUI 文生图（Z-Image Turbo）
+registry.set("comfy.image-gen", {
+  type: "comfy.image-gen",
+  label: "AI·图片生成",
+  inputs: [],
+  outputs: [port("images", "image[]", "生成图")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", title: "提示词", default: "" },
+      size: { type: "integer", title: "尺寸", default: 1024 },
+    },
+    required: ["prompt"],
+  },
+  execution: "server",
+});
+
 export function getNodeSchema(type: string): NodeSchema | undefined {
   return registry.get(type);
 }

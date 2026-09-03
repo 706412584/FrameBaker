@@ -1,4 +1,4 @@
-import type { GenProvider, GenProviderType, ImageLayerSettings, MattingSettings, PromptEnhancer, SpriteMattingSettings } from "@framebaker/shared";
+import type { ComfyLocalSettings, GenProvider, GenProviderType, ImageLayerSettings, MattingSettings, PromptEnhancer, SpriteMattingSettings } from "@framebaker/shared";
 import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
 import { existsSync } from "node:fs";
 import { db } from "./db";
@@ -163,6 +163,16 @@ export function getSpriteMattingSettings(): SpriteMattingSettings {
 
 export function spriteMattingConfigured(s: SpriteMattingSettings): boolean {
   return !!(s.pythonBin && s.cliPath && existsSync(s.pythonBin) && existsSync(s.cliPath));
+}
+
+/** 本地 ComfyUI 生成链配置（settings 表 comfyLocal）：python + ComfyUI 根目录。
+ *  pythonBin 缺省 PATH python；comfyRoot 缺省 F:/ai/comfui（既定环境）。 */
+export function getComfyLocalSettings(): ComfyLocalSettings {
+  const saved = getSettingJson<Partial<ComfyLocalSettings>>("comfyLocal");
+  return {
+    pythonBin: saved?.pythonBin?.trim() || "python",
+    comfyRoot: saved?.comfyRoot?.trim() || "F:/ai/comfui",
+  };
 }
 
 /** 归一化一个加强模型条目 */

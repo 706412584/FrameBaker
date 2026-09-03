@@ -377,6 +377,16 @@ export interface SpriteMattingSettings {
   /** matte_cli.py 绝对路径 */
   cliPath: string;
 }
+
+/** 设置页「本地生成（ComfyUI）」配置（settings 表 key=comfyLocal）：
+ *  ComfyUI 生成路线（seethrough 分层 / H3 视频）+ 骨骼烘焙链的运行环境。
+ *  脚本已拷贝到 apps/server/graph/comfy/，此配置只指向 python 与 ComfyUI 目录。 */
+export interface ComfyLocalSettings {
+  /** Python 解释器绝对路径（脚本依赖 PIL/numpy；缺省用 PATH 的 python） */
+  pythonBin: string;
+  /** ComfyUI 根目录（input/ 与 output/ 所在，如 F:/ai/comfui） */
+  comfyRoot: string;
+}
 /** GET /api/config 下发的 sprite 抠图摘要（总是下发，configured = 两个字段非空且文件存在由服务端判定） */
 export interface SpriteMattingInfo {
   configured: boolean;
@@ -654,6 +664,7 @@ export const SETTING_KEYS = [
   "lang",
   "genProviders",
   "matting",
+  "comfyLocal",
   "spriteMatting",
   "imageLayers",
   "promptEnhancers",
