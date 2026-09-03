@@ -108,6 +108,8 @@ export async function runNode(
       return framesToMaterial(node, inputs, ctx);
     case "generate.image":
       return generateImage(node, ctx);
+    case "ui.layer.analyze":
+      return uiLayerAnalyze(node, inputs, ctx);
     case "material.psd":
       return materialPsd(node, ctx);
     case "image.bg-inpaint":
@@ -1126,4 +1128,54 @@ async function generateImage(node: GraphNode, ctx: NodeContext): Promise<NodeOut
 function broadcastMaterialsChanged() {
   // executor 已有 broadcast；这里经 ws 模块广播（graph/nodes.ts 不 import executor，单向依赖）
   import("../ws").then(({ broadcast }) => broadcast("materials_changed", {}));
+}
+
+/**
+ * ui.layer.analyze：UI 大图 → 候选图层 PNG（sprite ui-layer-lab 完整能力）。
+ * matte_cli.py --op ui-analyze：OpenCV Canny 候选框 + GrabCut 前景蒙版切图层。
+ * 与 slice.ui.analyze（纯 alpha 连通域、已去底图用）互补 —— 本节点适配实底 UI 截图。
+ */
+async function uiLayerAnalyze(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const settings = requireSpriteCli();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("UI 图层拆分节点缺少图片输入");
+  const { mkdirSync, readFileSync } = await import("node:fs");
+  const maxNodes = Math.max(1, Math.min(128, Math.floor(Number(node.params.maxNodes ?? 64))));
+  const minSize = Math.max(1, Math.floor(Number(node.params.minSize ?? 8)));
+  const alphaMode = String(node.params.alphaMode ?? "cutout");
+
+  const allPaths: string[] = [];
+  const manifests: unknown[] = [];
+  for (let i = 0; i < images.paths.length; i++) {
+    if (ctx.signal.aborted) throw new JobCancelledError();
+    ctx.report(`UI 分析 ${i + 1}/${images.paths.length}`);
+    const layersDir = join(ctx.outputDir, `img_${String(i).padStart(3, "0")}_layers`);
+    const manifestPath = join(ctx.outputDir, `img_${String(i).padStart(3, "0")}_manifest.json`);
+    await runCmd(
+      [
+        settings.pythonBin, settings.cliPath,
+        "--op", "ui-analyze",
+        "--input", images.paths[i]!,
+        "--out-dir", layersDir,
+        "--out-manifest", manifestPath,
+        "--ui-max-nodes", String(maxNodes),
+        "--ui-min-size", String(minSize),
+        "--ui-alpha-mode", alphaMode,
+      ],
+      undefined,
+      ctx.signal
+    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+      candidateCount: number;
+      files: Array<{ path: string; name: string; bbox: { x: number; y: number; w: number; h: number } }>;
+    };
+    allPaths.push(...manifest.files.map((f) => f.path));
+    manifests.push(manifest);
+  }
+  ctx.report(`拆出 ${allPaths.length} 个 UI 图层`);
+  return { images: { paths: allPaths } satisfies ImageSequencePayload };
 }

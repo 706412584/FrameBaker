@@ -50,4 +50,20 @@ export const GRAPH_TEMPLATES: GraphTemplate[] = [
       { from: "select", fromPort: "images", to: "frames", toPort: "images" },
     ],
   },
+  {
+    id: "ui-slice",
+    name: "UI 切片",
+    description: "UI 大图 → OpenCV 候选框 + GrabCut 去底图层 → 入库素材库 + 输出帧图片（sprite ui-layer-lab 完整能力）",
+    nodes: [
+      { key: "src", type: "material.image", params: { materialId: "" }, x: 0, y: 0 },
+      { key: "analyze", type: "ui.layer.analyze", params: { maxNodes: 64, minSize: 8, alphaMode: "cutout" }, x: 230, y: 0 },
+      { key: "toLib", type: "frames.to-material", params: { name: "ui_slice" }, x: 460, y: -80 },
+      { key: "frames", type: "export.frames", params: {}, x: 460, y: 80 },
+    ],
+    edges: [
+      { from: "src", fromPort: "images", to: "analyze", toPort: "images" },
+      { from: "analyze", fromPort: "images", to: "toLib", toPort: "images" },
+      { from: "analyze", fromPort: "images", to: "frames", toPort: "images" },
+    ],
+  },
 ];

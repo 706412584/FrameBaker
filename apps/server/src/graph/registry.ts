@@ -473,6 +473,28 @@ registry.set("generate.image", {
   execution: "server",
 });
 
+// UI 图层分析（sprite ui-layer-lab 完整能力：OpenCV Canny 候选框 + GrabCut 切图层，
+// 适配实底 UI 截图；与 slice.ui.analyze 的纯 alpha 连通域互补）
+registry.set("ui.layer.analyze", {
+  type: "ui.layer.analyze",
+  label: "UI 图层拆分",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("images", "image[]", "图层序列")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      maxNodes: { type: "integer", title: "最大图层数", default: 64, minimum: 1, maximum: 128 },
+      minSize: { type: "integer", title: "最小边 px", default: 8, minimum: 1 },
+      alphaMode: {
+        type: "string", title: "图层模式", default: "cutout",
+        enum: ["cutout", "raw", "both"],
+        enumLabels: { cutout: "去底图层（GrabCut）", raw: "原图裁块", both: "两者都出" },
+      },
+    },
+  },
+  execution: "server",
+});
+
 export function getNodeSchema(type: string): NodeSchema | undefined {
   return registry.get(type);
 }
