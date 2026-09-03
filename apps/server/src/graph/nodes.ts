@@ -124,6 +124,10 @@ export async function runNode(
       return comfyImageEdit(node, inputs, ctx);
     case "comfy.image-gen":
       return comfyImageGen(node, ctx);
+    case "comfy.layered":
+      return comfyLayered(node, inputs, ctx);
+    case "layers.to-psd":
+      return layersToPsd(node, inputs, ctx);
     case "material.psd":
       return materialPsd(node, ctx);
     case "image.bg-inpaint":
@@ -1535,4 +1539,123 @@ async function comfyImageGen(node: GraphNode, ctx: NodeContext): Promise<NodeOut
   const dst = join(ctx.outputDir, out);
   copyFileSync(join(outputDir, out), dst);
   return { images: { paths: [dst] } };
+}
+
+/**
+ * comfy.layered：本地 Qwen-Image-Layered 图生拆层（设置页「场景分层」的本地免费版）。
+ * 图生模式实测（SKILL）：最后一层是干净主体，中间层是实心背景板 —— filterSolid 自动丢弃。
+ */
+async function comfyLayered(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const { settings, scriptDir } = comfyEnv();
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("遮挡分层节点缺少输入图");
+  const prompt = String(node.params.prompt ?? "").trim();
+  if (!prompt) throw new Error("遮挡分层需要整图描述（写整图内容，含被遮挡部分）");
+  const layers = Math.max(1, Math.min(4, Math.floor(Number(node.params.layers ?? 2))));
+  const size = Math.max(512, Math.min(1024, Math.floor(Number(node.params.size ?? 640))));
+  const filterSolid = node.params.filterSolid !== false;
+  const { mkdirSync, copyFileSync, readdirSync, existsSync } = await import("node:fs");
+  const inputDir = join(settings.comfyRoot, "input");
+  mkdirSync(inputDir, { recursive: true });
+  const src = images.paths[0]!;
+  const inputName = `graph_ly_${uid().slice(0, 8)}.png`;
+  copyFileSync(src, join(inputDir, inputName));
+  const outPrefix = `graph_ly_${uid().slice(0, 8)}`;
+
+  ctx.report(`Qwen 遮挡分层（${layers}+1 层，${size}px，约 6-10 分钟）…`);
+  await runCmd(
+    [
+      settings.pythonBin, join(scriptDir, "comfy_qwen_layered.py"),
+      "--prompt", prompt,
+      "--image", inputName,
+      "--out", outPrefix,
+      "--layers", String(layers),
+      "--size", String(size),
+    ],
+    undefined,
+    ctx.signal
+  );
+
+  // 产物 <prefix>_00001_.png 起（自底向上）；过滤实心层（alpha 全 255 的背景板）
+  const outputDir = join(settings.comfyRoot, "output");
+  const outs = readdirSync(outputDir).filter((f) => f.startsWith(outPrefix) && f.endsWith(".png")).sort();
+  if (outs.length === 0) throw new Error("遮挡分层未产出图层（ComfyUI 队列/显存？）");
+  const kept: string[] = [];
+  for (const f of outs) {
+    const dst = join(ctx.outputDir, f);
+    copyFileSync(join(outputDir, f), dst);
+    if (filterSolid) {
+      // 实心层（alpha 全 255 的背景板）统一在下方 python 采样里过滤
+    }
+    kept.push(dst);
+  }
+  // 实心层过滤：一次 python 进程判定全部层
+  let finalPaths = kept;
+  if (filterSolid) {
+    const script = `import json,sys
+from PIL import Image
+out=[]
+for p in json.load(open(sys.argv[1])):
+    im=Image.open(p).convert("RGBA")
+    a=im.getchannel("A")
+    hist=a.histogram()
+    zero=hist[0]; solid=hist[255]
+    total=im.width*im.height
+    # 丢弃 alpha=255 占比 >99% 的实心板（背景板不可叠）
+    out.append(None if solid/total>0.99 else p)
+print(json.dumps(out))`;
+    const listFile = join(ctx.outputDir, "_layers.json");
+    await Bun.write(listFile, JSON.stringify(kept));
+    const proc = Bun.spawn([settings.pythonBin, "-c", script, listFile], { stdout: "pipe", stderr: "pipe" });
+    const [code, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    if (code === 0 && stdout.trim()) {
+      finalPaths = (JSON.parse(stdout.trim()) as Array<string | null>).filter((p): p is string => !!p);
+      if (finalPaths.length === 0) throw new Error("全部图层被判定为实心背景板（换 seed 或关闭过滤实心层）");
+    }
+  }
+  ctx.report(`分层完成：${finalPaths.length}/${outs.length} 层可用`);
+  return { images: { paths: finalPaths } satisfies ImageSequencePayload };
+}
+
+/** layers.to-psd：图层 PNG 清单 → 整幅堆叠 PSD（matte_cli --op layered-psd，复用 sprite export_layered_psd） */
+async function layersToPsd(
+  node: GraphNode,
+  inputs: Record<string, Record<string, unknown>>,
+  ctx: NodeContext
+): Promise<NodeOutput> {
+  const settings = getSpriteMattingSettings();
+  if (!spriteMattingConfigured(settings)) {
+    throw new Error("PSD 合成需要 sprite 工坊环境（设置页配置 pythonBin + matte_cli.py）");
+  }
+  const images = inputs.images as unknown as ImageSequencePayload | undefined;
+  if (!images?.paths?.length) throw new Error("图层合成 PSD 缺少图层输入");
+  const name = String(node.params.name ?? "layers").replace(/[\\/:*?"<>|]/g, "_") || "layers";
+  const { mkdirSync, existsSync } = await import("node:fs");
+  mkdirSync(ctx.outputDir, { recursive: true });
+  const psdPath = join(ctx.outputDir, `${name}.psd`);
+  ctx.report(`合成 ${images.paths.length} 层 PSD…`);
+  await runCmd(
+    [
+      settings.pythonBin, settings.cliPath,
+      "--op", "layered-psd",
+      "--input", images.paths[0]!,
+      "--psd-out", psdPath,
+      "--psd-layers", JSON.stringify(images.paths),
+    ],
+    undefined,
+    ctx.signal
+  );
+  if (!existsSync(psdPath)) throw new Error("PSD 未产出");
+  ctx.report(`完成：${name}.psd（${images.paths.length} 层）`);
+  return {
+    sheet: { path: psdPath, outputDir: ctx.outputDir, layerCount: images.paths.length, files: { psd: psdPath } },
+  };
 }

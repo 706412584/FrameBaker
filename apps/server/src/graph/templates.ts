@@ -119,6 +119,20 @@ export const GRAPH_TEMPLATES: GraphTemplate[] = [
     ],
   },
   {
+    id: "layered-psd",
+    name: "UI 图分层 PSD",
+    description: "UI 完整图 → 本地 Qwen-Image-Layered 遮挡分层（免费）→ 图层合成 PSD（可导入 PS/GIMP 继续编辑）",
+    nodes: [
+      { key: "src", type: "material.image", params: { materialId: "" }, x: 0, y: 0 },
+      { key: "layered", type: "comfy.layered", params: { prompt: "", layers: 2, size: 640, filterSolid: true }, x: 230, y: 0 },
+      { key: "psd", type: "layers.to-psd", params: { name: "ui_layers" }, x: 460, y: 0 },
+    ],
+    edges: [
+      { from: "src", fromPort: "images", to: "layered", toPort: "images" },
+      { from: "layered", fromPort: "images", to: "psd", toPort: "images" },
+    ],
+  },
+  {
     id: "ui-slice",
     name: "UI 切片",
     description: "UI 大图 → OpenCV 候选框 + GrabCut 去底图层 → 入库素材库 + 输出帧图片（sprite ui-layer-lab 完整能力）",

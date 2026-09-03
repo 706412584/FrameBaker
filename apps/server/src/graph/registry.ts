@@ -623,6 +623,40 @@ registry.set("comfy.image-gen", {
   execution: "server",
 });
 
+// 本地 Qwen-Image-Layered 图生拆层（同模型本地免费版；图生模式只有最后一层是干净主体，
+// 中间实心背景层自动过滤 —— SKILL 实测结论）
+registry.set("comfy.layered", {
+  type: "comfy.layered",
+  label: "AI·遮挡分层",
+  inputs: [port("images", "image[]", "帧序列")],
+  outputs: [port("images", "image[]", "图层序列")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", title: "整图描述", default: "", description: "写整图内容含被遮挡部分（引导补全）；不能指定各层内容" },
+      layers: { type: "integer", title: "层数", default: 2, minimum: 1, maximum: 4, description: "出图 = 层数 + 1" },
+      size: { type: "integer", title: "尺寸", default: 640, description: "推荐 640；1024 高清但更慢" },
+      filterSolid: { type: "boolean", title: "过滤实心层", default: true, description: "图生模式丢弃实心背景板，只留透明层" },
+    },
+    required: ["prompt"],
+  },
+  execution: "server",
+});
+// 图层序列 → PSD（整幅堆叠；Qwen 分层 / See-through 层都适用）
+registry.set("layers.to-psd", {
+  type: "layers.to-psd",
+  label: "图层合成 PSD",
+  inputs: [port("images", "image[]", "图层序列")],
+  outputs: [port("sheet", "sheet", "PSD 文件")],
+  paramsSchema: {
+    type: "object",
+    properties: {
+      name: { type: "string", title: "文件名", default: "layers", description: "生成 <name>.psd" },
+    },
+  },
+  execution: "server",
+});
+
 export function getNodeSchema(type: string): NodeSchema | undefined {
   return registry.get(type);
 }
