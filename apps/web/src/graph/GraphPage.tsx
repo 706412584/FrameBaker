@@ -174,6 +174,61 @@ const STATUS_CLASS: Record<string, string> = {
 const nodeStatusClass = (d: GraphNodeData) =>
   d.dirty ? "gn-status-dirty" : (STATUS_CLASS[d.runStatus ?? ""] ?? "");
 
+/**
+ * 文本参数输入（IME 安全）：受控 value 来自节点数据，每次 onChange 回写再重渲染会把
+ * 中文拼音组合打断（composition 期间 value 被重置）。本地草稿 + composition 保护：
+ * 组合期间不回写 onChange；失焦/确认时同步回节点数据。
+ */
+function TextField({
+  prop,
+  value,
+  onChange,
+}: {
+  prop: { title?: string; description?: string };
+  value: unknown;
+  onChange: (v: string) => void;
+}) {
+  const composing = useRef(false);
+  const [draft, setDraft] = useState<string | null>(null); // null = 跟随节点数据
+  const shown = draft ?? String(value ?? "");
+  return (
+    <div className="graph-field">
+      <span className="graph-field-label" title={prop.description}>
+        {prop.title}
+      </span>
+      <input
+        type="text"
+        className="graph-field-input"
+        value={shown}
+        placeholder={prop.description ?? ""}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={(e) => {
+          composing.current = false;
+          setDraft(null);
+          onChange((e.target as HTMLInputElement).value);
+        }}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (composing.current) {
+            setDraft(v); // 组合期间只进本地草稿
+            return;
+          }
+          setDraft(null);
+          onChange(v);
+        }}
+        onBlur={() => {
+          if (draft !== null) {
+            setDraft(null);
+            onChange(draft);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function WorkflowNode({ id, data, selected }: NodeProps) {
   const t = useT();
   const d = data as GraphNodeData;
@@ -318,20 +373,7 @@ function WorkflowNode({ id, data, selected }: NodeProps) {
                 </div>
               );
             }
-            return (
-              <div key={key} className="graph-field">
-                <span className="graph-field-label" title={prop.description ?? key}>
-                  {prop.title ?? key}
-                </span>
-                <input
-                  type="text"
-                  className="graph-field-input"
-                  value={String(value ?? "")}
-                  placeholder={prop.description ?? ""}
-                  onChange={(e) => setParam(key, e.target.value)}
-                />
-              </div>
-            );
+            return <TextField key={key} prop={prop} value={value} onChange={(v) => setParam(key, v)} />;
           })}
         </div>
       )}
@@ -1090,7 +1132,20 @@ function GraphCanvas({
       });
       // 本地即时反映
       setNodes((ns) =>
-        ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, params: { ...(n.data as GraphNodeData).params, [key]: value } } } : n))
+        ns.map((n) => {
+          if (n.id !== nodeId) return n;
+          const nextData = {
+            ...n.data,
+            params: { ...(n.data as GraphNodeData).params, [key]: value },
+          } as GraphNodeData;
+          // 换素材 → 预览即时刷新（素材图片端点 processed→raw；带素材类型推断预览 kind）
+          if (key === "materialId" && typeof value === "string" && value) {
+            nextData.previewUrl = `/api/materials/${value}/image`;
+            const nodeType = (n.data as GraphNodeData).schema.type;
+            nextData.previewKind = nodeType === "material.video" ? "video" : "image";
+          }
+          return { ...n, data: nextData };
+        })
       );
       // 防抖 400ms 落库（整个 params 对象 PATCH）
       const timers = paramTimers.current;
