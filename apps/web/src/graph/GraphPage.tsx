@@ -695,7 +695,13 @@ function GraphCanvas({
     height: number;
     candidates: ConfirmCandidate[];
     submit: (candidates: ConfirmCandidate[]) => Promise<Response>;
+    /** 原图 URL（server 人在环 / 手动框选模式：图上拖框的底图） */
+    imageUrl?: string;
   } | null>(null);
+  // 图上拖框：进行中的矩形（显示坐标，图片像素坐标在松开时换算）
+  const [dragRect, setDragRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // 底图加载完成标记（叠加框的显示比例换算依赖 clientWidth，需在 img onLoad 后重渲染）
+  const [confirmImgLoaded, setConfirmImgLoaded] = useState(false);
   // 参数编辑：双击节点打开面板；编辑草稿在本地，保存才 PATCH
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [paramDraft, setParamDraft] = useState<Record<string, unknown>>({});
@@ -874,11 +880,14 @@ function GraphCanvas({
         // 人在环（server 节点挂起）：ui.layer.analyze interactive → 确认面板（可增删改候选框）
         if (task.nodeType === "ui.layer.confirm") {
           const candidates = (task.inputPassthrough?.rects as { candidates?: ConfirmCandidate[] } | undefined)?.candidates ?? [];
+          const imageUrl = task.inputUrls?.images?.[0];
+          setConfirmImgLoaded(false);
           setPendingConfirm({
             taskId: task.taskId,
             width: 0,
             height: 0,
             candidates,
+            imageUrl,
             submit: (confirmed) =>
               fetch(`/api/graphs/${graphId}/client-result/${task.taskId}/complete`, {
                 method: "POST",
@@ -1362,6 +1371,73 @@ function GraphCanvas({
             {t("graph.confirm_slices", { count: pendingConfirm.candidates.length })}
             <span className="graph-confirm-meta">{pendingConfirm.width}×{pendingConfirm.height}</span>
           </div>
+          {/* 图上拖框（server 人在环：原图铺底，拖出新候选框 = 新增一行；已有候选以描边框叠加显示） */}
+          {pendingConfirm.imageUrl && (
+            <div
+              className="graph-confirm-canvas"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                const r = e.currentTarget.getBoundingClientRect();
+                setDragRect({ x0: e.clientX - r.left, y0: e.clientY - r.top, x1: e.clientX - r.left, y1: e.clientY - r.top });
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (!dragRect) return;
+                const r = e.currentTarget.getBoundingClientRect();
+                setDragRect((d) => (d ? { ...d, x1: Math.max(0, Math.min(r.width, e.clientX - r.left)), y1: Math.max(0, Math.min(r.height, e.clientY - r.top)) } : d));
+              }}
+              onPointerUp={() => {
+                if (!dragRect) return;
+                const host = document.querySelector(".graph-confirm-canvas img") as HTMLImageElement | null;
+                const dispW = host?.clientWidth || 1;
+                const dispH = host?.clientHeight || 1;
+                const natW = host?.naturalWidth || dispW;
+                const natH = host?.naturalHeight || dispH;
+                // 显示坐标 → 图片像素坐标
+                const toImg = (v: number, disp: number, nat: number) => Math.round((v / disp) * nat);
+                const x = toImg(Math.min(dragRect.x0, dragRect.x1), dispW, natW);
+                const y = toImg(Math.min(dragRect.y0, dragRect.y1), dispH, natH);
+                const w = toImg(Math.abs(dragRect.x1 - dragRect.x0), dispW, natW);
+                const h = toImg(Math.abs(dragRect.y1 - dragRect.y0), dispH, natH);
+                setDragRect(null);
+                if (w < 4 || h < 4) return; // 误触忽略
+                const idx = (pendingConfirm.candidates.length + 1).toString().padStart(2, "0");
+                setPendingConfirm((p) =>
+                  p ? { ...p, candidates: [...p.candidates, { name: `manual_${idx}`, x, y, w, h }] } : p
+                );
+              }}
+            >
+              <img src={pendingConfirm.imageUrl} alt="" draggable={false} onLoad={() => setConfirmImgLoaded(true)} />
+              {/* 已有候选框叠加（按图片像素比例定位；onLoad 后才有 clientWidth） */}
+              {(() => {
+                if (!confirmImgLoaded) return null;
+                const host = document.querySelector(".graph-confirm-canvas img") as HTMLImageElement | null;
+                if (!host || !host.clientWidth) return null;
+                const sx = (host.clientWidth || host.naturalWidth) / (host.naturalWidth || 1);
+                const sy = (host.clientHeight || host.naturalHeight) / (host.naturalHeight || 1);
+                return pendingConfirm.candidates.map((c) => (
+                  <span
+                    key={c.name}
+                    className="graph-confirm-rect"
+                    style={{ left: c.x * sx, top: c.y * sy, width: c.w * sx, height: c.h * sy }}
+                    title={c.name}
+                  />
+                ));
+              })()}
+              {dragRect && (
+                <span
+                  className="graph-confirm-rect dragging"
+                  style={{
+                    left: Math.min(dragRect.x0, dragRect.x1),
+                    top: Math.min(dragRect.y0, dragRect.y1),
+                    width: Math.abs(dragRect.x1 - dragRect.x0),
+                    height: Math.abs(dragRect.y1 - dragRect.y0),
+                  }}
+                />
+              )}
+              <span className="graph-confirm-canvas-hint">{t("graph.drag_hint")}</span>
+            </div>
+          )}
           <div className="graph-confirm-list">
             {pendingConfirm.candidates.map((c, i) => (
               <div key={c.name} className="graph-confirm-row">

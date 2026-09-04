@@ -483,6 +483,12 @@ registry.set("ui.layer.analyze", {
   paramsSchema: {
     type: "object",
     properties: {
+      mode: {
+        type: "string", title: "检测模式", default: "auto",
+        enum: ["auto", "manual"],
+        enumLabels: { auto: "自动检测（OpenCV）", manual: "手动框选（图上画框）" },
+        description: "manual = 跳过自动检测，直接在原图上拖框指定图层区域（零提示词）",
+      },
       maxNodes: { type: "integer", title: "最大图层数", default: 64, minimum: 1, maximum: 128 },
       minSize: { type: "integer", title: "最小边 px", default: 8, minimum: 1 },
       alphaMode: {
@@ -492,6 +498,8 @@ registry.set("ui.layer.analyze", {
       },
       /** true = 分析后在画布上暂停，等用户调整/增删候选框再继续下游（人在环，对齐 sprite 图层树编辑） */
       interactive: { type: "boolean", title: "人工确认候选框", default: false },
+      /** manual 模式确认后生成补全背景层（inpaint 掉所有框区域） */
+      inpaintBackground: { type: "boolean", title: "补全背景层", default: true },
     },
   },
   execution: "server",

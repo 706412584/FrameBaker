@@ -87,7 +87,8 @@ async function waitUserRects(
   previewUrl: string | undefined,
   onStatus: (status: string, payload: Record<string, unknown>) => void,
   sourcePath: string,
-  nodeOutputDir: string
+  nodeOutputDir: string,
+  inpaintBackground = false
 ): Promise<NodeOutput> {
   const taskId = uid();
   const outputDir = join(STORAGE_ROOT, "staging", "ui_confirm", taskId);
@@ -128,15 +129,18 @@ async function waitUserRects(
               "--input", sourcePath,
               "--out-dir", confirmDir,
               "--ui-export-layout", layoutJson,
-              "--ui-export-background", "transparent",
+              "--ui-export-background", inpaintBackground ? "inpaint" : "transparent",
               "--ui-export-format", "package",
             ],
             undefined,
             undefined
           );
-          const { readdirSync } = await import("node:fs");
+          const { readdirSync, existsSync } = await import("node:fs");
           const layersDir = join(confirmDir, "layers");
           const paths = readdirSync(layersDir).filter((f) => f.endsWith(".png")).sort().map((f) => join(layersDir, f));
+          // 补全背景层：框选区域被 inpaint 掉的完整底图，作为最底层并入序列
+          const bgPath = join(confirmDir, "background.png");
+          if (inpaintBackground && existsSync(bgPath)) paths.unshift(bgPath);
           resolve({ images: { paths }, rects: { candidates: finalCandidates } });
         } catch (err) {
           reject(err instanceof Error ? err : new Error(String(err)));
@@ -394,10 +398,18 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
             broadcast("graph_node_status", { graphId, nodeId, status: "running", progress: p });
           },
         };
+        // 手动框选模式（ui.layer.analyze mode=manual + interactive）：
+        // 跳过 OpenCV 自动检测，空清单直接挂起 —— 用户在原图上拖框，确认后按框清单裁剪
+        const manualRects =
+          node.type === "ui.layer.analyze" &&
+          node.params.mode === "manual" &&
+          node.params.interactive === true;
         let result: NodeOutput =
-          schema.execution === "client"
-            ? await runClientNodeTask(node, inputs, ctx, graphId, nodeId)
-            : await runNode(node, inputs, ctx);
+          manualRects
+            ? { images: { paths: [] }, rects: { candidates: [] } }
+            : schema.execution === "client"
+              ? await runClientNodeTask(node, inputs, ctx, graphId, nodeId)
+              : await runNode(node, inputs, ctx);
         // 人在环（server 节点）：ui.layer.analyze + interactive=true → 分析完成后暂停，
         // 广播候选清单给画布确认面板，用户增删改候选框后回传修正 rects，覆盖输出再继续下游。
         if (node.type === "ui.layer.analyze" && node.params.interactive === true) {
@@ -411,7 +423,8 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
             graphId, nodeId, candidates, firstUrl,
             (status, payload) => broadcast("graph_node_status", { graphId, nodeId, status, ...payload }),
             inputPayload?.paths?.[0] ?? "",
-            ctx.outputDir
+            ctx.outputDir,
+            node.params.inpaintBackground === true
           );
         }
         const outputs: Record<string, Record<string, unknown>> = {};

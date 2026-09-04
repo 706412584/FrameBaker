@@ -5046,3 +5046,10 @@ body.resizing-row * {
 .graph-list { position: relative; }
 .graph-sidebar-resizer { width: 7px; flex: none; cursor: col-resize; background: transparent; z-index: 5; }
 .graph-sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* 人在环：图上拖框区（原图铺底 + 候选框叠加 + 拖拽新框） */
+.graph-confirm-canvas { position: relative; max-height: 46vh; overflow: auto; margin: 6px 0; border: 3px solid var(--border); background: var(--surface); user-select: none; touch-action: none; }
+.graph-confirm-canvas img { display: block; max-width: 100%; pointer-events: none; }
+.graph-confirm-rect { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; }
+.graph-confirm-rect.dragging { border-style: dashed; border-color: var(--error); }
+.graph-confirm-canvas-hint { position: sticky; bottom: 0; left: 0; display: inline-block; padding: 2px 8px; background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); font-size: 11px; pointer-events: none; }
