@@ -2,11 +2,15 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ensureBuiltinAnimationAssets, normalizeGeneratedAnimationAssetNames } from "./builtinAnimationAssets";
+import { APP_ROOT, DATA_ROOT, migrateLegacyStorage } from "./paths";
 import type { AttackEffectCell, AttackEffectCellRow, Frame, FrameRow, Material, MaterialRow } from "@framebaker/shared";
 
-// 仓库根目录（apps/server/src → 根）：storage 固定放在根级，与启动时的 cwd 无关
-export const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
-export const STORAGE_ROOT = join(REPO_ROOT, "storage");
+// 数据根：源码运行=仓库根（apps/server/src → 根）；桌面版=Electron 壳注入的 userData/data
+// （安装目录会被升级/卸载清理，用户数据放安装器不碰的位置 —— 详见 paths.ts）。
+// 旧版落安装目录的数据首次启动自动搬迁（migrateLegacyStorage）。
+migrateLegacyStorage();
+export const REPO_ROOT = APP_ROOT;
+export const STORAGE_ROOT = join(DATA_ROOT, "storage");
 
 // 确保运行时目录存在
 mkdirSync(join(STORAGE_ROOT, "projects"), { recursive: true });
@@ -230,6 +234,28 @@ function ensureColumn(table: string, column: string, decl: string) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
   }
 }
+
+// 打包版全新安装：无历史库 → 从 resources/default-settings.db 预置继承的 settings
+// （provider / spriteMatting / comfyLocal 等；由打包脚本从源码版 settings 表生成）。
+// 有历史库（升级 / 迁移来的用户数据）不覆盖 —— INSERT OR IGNORE 双保险。
+if (process.env.FRAMEBAKER_PACKAGED === "1") {
+  const { existsSync } = require("node:fs") as typeof import("node:fs");
+  const { RESOURCES_ROOT } = require("./paths") as typeof import("./paths");
+  const defaultDb = join(RESOURCES_ROOT, "default-settings.db");
+  if (existsSync(defaultDb)) {
+    const src = new Database(defaultDb, { readonly: true });
+    try {
+      const rows = src.query("SELECT key, value, updated_at FROM settings").all() as Array<{
+        key: string; value: string; updated_at: number;
+      }>;
+      const insert = db.query("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
+      db.transaction(() => rows.forEach((r) => insert.run(r.key, r.value, r.updated_at)))();
+    } finally {
+      src.close();
+    }
+  }
+}
+
 ensureColumn("projects", "folder_id", "TEXT");
 ensureColumn("projects", "kind", "TEXT NOT NULL DEFAULT 'frame'");
 ensureColumn("materials", "folder_id", "TEXT");

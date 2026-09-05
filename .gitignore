@@ -7,3 +7,6 @@ coverage/
 .DS_Store
 .aider*
 .agents/
+.ai-engine/
+build/
+release/

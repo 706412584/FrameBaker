@@ -1,7 +1,7 @@
 // 节点执行实现。全部复用既有能力（AGENTS.md:39 依赖方向：graph/ → jobs/ 单向）。
 // 每个节点：inputs（上游端口 payload）→ 执行 → outputs（端口 payload）。
 // 产物文件落 executor.nodeOutputDir（由 content_hash 决定路径，重跑幂等覆盖）。
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { GraphNode } from "@framebaker/shared";
 import JSZip from "jszip";
@@ -12,8 +12,10 @@ import { getSpriteMattingSettings, spriteMattingConfigured } from "../provider";
 import { MANIFEST_GENERATORS, VALID_MANIFEST_FORMATS, type FramePosition, type FormatData, type ManifestFormat } from "./exportFormats";
 import { packSheetBest } from "./rectpack";
 import { splitImageLayers, type ImageLayersPayload } from "../jobs/imageLayers";
+import { runComfyLayered } from "../jobs/comfyLayers";
 import { generateFrames, type GeneratePayload } from "../jobs/extract";
 import { getGenProviders, providerConfigured, getComfyLocalSettings } from "../provider";
+import { AI_ENGINE_MODELS, BAKE_RUNNER, COMFY_SCRIPTS_ROOT } from "../paths";
 
 /**
  * 图集合成（PIL paste 零损，对齐 sprite packed_sheet.paste / grid paste）：
@@ -382,7 +384,10 @@ async function spriteMatteNode(
         "--pipeline", mode,
         ...extraArgs,
       ],
-      undefined,
+      // AI 引擎已装时把模型缓存指向 ai-engine/models（BiRefNet 不再依赖 sprite 工坊原缓存）
+      AI_ENGINE_MODELS && existsSync(AI_ENGINE_MODELS)
+        ? { SPRITE_VIDEO_LAB_AI_MODEL_CACHE: AI_ENGINE_MODELS }
+        : undefined,
       ctx.signal
     );
     outPaths.push(dst);
@@ -1266,12 +1271,12 @@ async function uiExport(
     },
   };
 }
-// ===== 本地生成能力（ComfyUI + 骨骼烘焙链；脚本在 apps/server/graph/comfy/）=====
+// ===== 本地生成能力（ComfyUI + 骨骼烘焙链；脚本在 apps/server/graph/comfy/，打包后在 resources/comfy/）=====
 
 /** ComfyUI 链公共：配置 + 脚本目录 */
 function comfyEnv() {
   const settings = getComfyLocalSettings();
-  const scriptDir = join(import.meta.dir, "..", "..", "graph", "comfy");
+  const scriptDir = COMFY_SCRIPTS_ROOT;
   return { settings, scriptDir };
 }
 
@@ -1409,11 +1414,13 @@ async function animBake(
   const { mkdirSync, existsSync, readdirSync, writeFileSync } = await import("node:fs");
   mkdirSync(ctx.outputDir, { recursive: true });
 
-  // 1) 反解绑定 + 烘动作（stdout 是 poses JSON）
-  const bakeScript = join(import.meta.dir, "..", "..", "build_binding_and_bake.ts");
-  if (!existsSync(bakeScript)) throw new Error("apps/server/build_binding_and_bake.ts 缺失（骨骼烘焙链前置）");
+  // 1) 反解绑定 + 烘动作（stdout 是 poses JSON）。
+  // 源码运行：bun + apps/server/build_binding_and_bake.ts；打包：resources/bin 下的独立 exe。
+  const bakeScript = BAKE_RUNNER;
+  if (!existsSync(bakeScript)) throw new Error("烘焙脚本缺失（build_binding_and_bake，骨骼烘焙链前置）");
   ctx.report(`烘 ${clip} × ${frameCount} 帧…`);
-  const r = await spawnCapture(["bun", bakeScript, partsDir, clip, String(frameCount)], ctx.signal);
+  const bakeCommand = BAKE_RUNNER.endsWith(".ts") ? ["bun", bakeScript] : [bakeScript];
+  const r = await spawnCapture([...bakeCommand, partsDir, clip, String(frameCount)], ctx.signal);
   if (r.code !== 0) throw new Error(`骨骼烘焙失败: ${r.stderr.trim().slice(-300)}`);
   const posesPath = join(ctx.outputDir, "poses.json");
   writeFileSync(posesPath, r.stdout);
@@ -1550,7 +1557,6 @@ async function comfyLayered(
   inputs: Record<string, Record<string, unknown>>,
   ctx: NodeContext
 ): Promise<NodeOutput> {
-  const { settings, scriptDir } = comfyEnv();
   const images = inputs.images as unknown as ImageSequencePayload | undefined;
   if (!images?.paths?.length) throw new Error("遮挡分层节点缺少输入图");
   const prompt = String(node.params.prompt ?? "").trim();
@@ -1558,116 +1564,18 @@ async function comfyLayered(
   const layers = Math.max(1, Math.min(4, Math.floor(Number(node.params.layers ?? 2))));
   const size = Math.max(512, Math.min(1024, Math.floor(Number(node.params.size ?? 640))));
   const filterSolid = node.params.filterSolid !== false;
-  const { mkdirSync, copyFileSync, readdirSync, existsSync, statSync } = await import("node:fs");
-  mkdirSync(ctx.outputDir, { recursive: true }); // 产物目录（漏建会让 copy 报源路径的 ENOENT 假象）
-  const inputDir = join(settings.comfyRoot, "input");
-  mkdirSync(inputDir, { recursive: true });
-  const src = images.paths[0]!;
-  const inputName = `graph_ly_${uid().slice(0, 8)}.png`;
-  copyFileSync(src, join(inputDir, inputName));
-  const outPrefix = `graph_ly_${uid().slice(0, 8)}`;
-
-  ctx.report(`Qwen 遮挡分层（${layers}+1 层，${size}px，约 6-10 分钟）…`);
-  await runCmd(
-    [
-      settings.pythonBin, join(scriptDir, "comfy_qwen_layered.py"),
-      "--prompt", prompt,
-      "--image", inputName,
-      "--out", outPrefix,
-      "--layers", String(layers),
-      "--size", String(size),
-    ],
-    undefined,
-    ctx.signal
-  );
-
-  // 产物 <prefix>_00001_.png 起（自底向上）；过滤实心层（alpha 全 255 的背景板）。
-  // ComfyUI history 写入早于 SaveImage 全部落盘 —— readdir 可见但 copy 时源缺文件，
-  // 等到产物数稳定（layers+1 张或 10s 无新增）再取
-  const outputDir = join(settings.comfyRoot, "output");
-  const waitStableFiles = async (prefix: string, expectMin: number): Promise<string[]> => {
-    let last: string[] = [];
-    let stableSince = 0;
-    for (let i = 0; i < 60; i++) {
-      const now = readdirSync(outputDir).filter((f) => f.startsWith(prefix) && f.endsWith(".png")).sort();
-      if (now.length === last.length && now.length >= expectMin) {
-        if (!stableSince) stableSince = Date.now();
-        if (Date.now() - stableSince > 3000) return now; // 3s 无新增且达预期
-      } else {
-        stableSince = 0;
-      }
-      last = now;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    return last; // 60s 兜底返回现有
-  };
-  let outs = await waitStableFiles(outPrefix, layers + 1);
-  if (outs.length === 0) throw new Error("遮挡分层未产出图层（ComfyUI 队列/显存？）");
-  // ComfyUI history 早于文件落盘（实测 mtime 晚于 wait 返回数秒）；copy 前逐文件等出现
-  const waitForFile = async (p: string) => {
-    for (let i = 0; i < 120; i++) {
-      if (existsSync(p) && statSync(p).size > 0) return true;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    return existsSync(p);
-  };
-  const allReady: string[] = [];
-  for (const f of outs) {
-    if (await waitForFile(join(outputDir, f))) allReady.push(f);
-  }
-  outs = allReady;
-  if (outs.length === 0) throw new Error("遮挡分层产物未落盘（等待 2 分钟超时）");
-  const kept: string[] = [];
-  for (const f of outs) {
-    const dst = join(ctx.outputDir, f);
-    const src = join(outputDir, f);
-    // Windows 下 ComfyUI 写盘/杀软扫描瞬时占用会让 copy 诡异地报 ENOENT ——
-    // waitForFile 已确认存在，这里再带重试兜底
-    let copied = false;
-    for (let attempt = 0; attempt < 5 && !copied; attempt++) {
-      try {
-        copyFileSync(src, dst);
-        copied = true;
-      } catch (err) {
-        if (attempt === 4) throw err;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
-    if (filterSolid) {
-      // 实心层（alpha 全 255 的背景板）统一在下方 python 采样里过滤
-    }
-    kept.push(dst);
-  }
-  // 实心层过滤：一次 python 进程判定全部层
-  let finalPaths = kept;
-  if (filterSolid) {
-    const script = `import json,sys
-from PIL import Image
-out=[]
-for p in json.load(open(sys.argv[1])):
-    im=Image.open(p).convert("RGBA")
-    a=im.getchannel("A")
-    hist=a.histogram()
-    zero=hist[0]; solid=hist[255]
-    total=im.width*im.height
-    # 丢弃 alpha=255 占比 >99% 的实心板（背景板不可叠）
-    out.append(None if solid/total>0.99 else p)
-print(json.dumps(out))`;
-    const listFile = join(ctx.outputDir, "_layers.json");
-    await Bun.write(listFile, JSON.stringify(kept));
-    const proc = Bun.spawn([settings.pythonBin, "-c", script, listFile], { stdout: "pipe", stderr: "pipe" });
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    if (code === 0 && stdout.trim()) {
-      finalPaths = (JSON.parse(stdout.trim()) as Array<string | null>).filter((p): p is string => !!p);
-      if (finalPaths.length === 0) throw new Error("全部图层被判定为实心背景板（换 seed 或关闭过滤实心层）");
-    }
-  }
-  ctx.report(`分层完成：${finalPaths.length}/${outs.length} 层可用`);
-  return { images: { paths: finalPaths } satisfies ImageSequencePayload };
+  // 核心与本地分层 job 共用（jobs/comfyLayers.ts），避免等产物/copy/过滤逻辑重复。
+  const paths = await runComfyLayered({
+    srcPath: images.paths[0]!,
+    prompt,
+    layers,
+    size,
+    filterSolid,
+    outputDir: ctx.outputDir,
+    report: (p) => ctx.report(p),
+    signal: ctx.signal,
+  });
+  return { images: { paths } satisfies ImageSequencePayload };
 }
 
 /** layers.to-psd：图层 PNG 清单 → 整幅堆叠 PSD（matte_cli --op layered-psd，复用 sprite export_layered_psd） */

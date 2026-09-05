@@ -22,6 +22,9 @@ async function fetchConfig(): Promise<ServerConfig | null> {
           textModels: Array.isArray(provider.textModels) ? provider.textModels : [],
         })),
       },
+      // 热更新期间旧后端可能不下发 comfyLocal/aiEngine，兜底避免前端读属性崩溃。
+      comfyLocal: raw.comfyLocal ?? { configured: false },
+      aiEngine: raw.aiEngine ?? { installed: false, birefnetPython: false, rembgVenv: false, models: [] },
       promptEnhancers: Array.isArray(raw.promptEnhancers) ? raw.promptEnhancers : [],
     };
     cache = cfg;
