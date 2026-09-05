@@ -6,12 +6,17 @@ import { getSettingJson } from "./provider";
 import { matte } from "./jobs/matting";
 import { JobCancelledError } from "./jobs/run";
 import { splitImageLayers, type ImageLayersPayload } from "./jobs/imageLayers";
+import { splitComfyLayers, type ComfyLayersPayload } from "./jobs/comfyLayers";
+import { installAiEngine, type AiEnginePayload } from "./jobs/aiEngine";
 
 export interface JobPayload {
   extract?: ExtractPayload;
   generate?: GeneratePayload;
-  matting?: { target: "frame" | "material"; id: string };
+  /** pipeline 非空时走 sprite 管线（chroma/birefnet…）而非 rembg */
+  matting?: { target: "frame" | "material"; id: string; pipeline?: string };
   imageLayers?: ImageLayersPayload;
+  comfyLayers?: ComfyLayersPayload;
+  aiEngine?: AiEnginePayload;
 }
 
 // 任务负载只存内存（状态落 SQLite），重启后 queued/running 任务不会恢复
@@ -112,11 +117,13 @@ export function findActiveMattingJob(target: "frame" | "material", targetId: str
 export function createMattingJob(
   projectId: string,
   target: "frame" | "material",
-  targetId: string
+  targetId: string,
+  pipeline?: string
 ): { jobId: string; duplicate: boolean } {
+  // 去重按目标素材（同图重复入队无意义）；pipeline 不参与去重键
   const existing = findActiveMattingJob(target, targetId);
   if (existing) return { jobId: existing, duplicate: true };
-  return { jobId: createJob(projectId, "matting", { matting: { target, id: targetId } }), duplicate: false };
+  return { jobId: createJob(projectId, "matting", { matting: { target, id: targetId, pipeline } }), duplicate: false };
 }
 
 function enqueueMatting(projectId: string, target: "frame" | "material", id: string) {
@@ -194,10 +201,14 @@ async function runJob(id: string) {
       if (payload.generate.followUp && generated[0]?.kind === "image") generatedReferenceId = generated[0].id;
     } else if (job.type === "matting" && payload.matting) {
       if (signal.aborted) throw new JobCancelledError();
-      const warn = await matte(payload.matting.target, payload.matting.id, signal);
+      const warn = await matte(payload.matting.target, payload.matting.id, signal, payload.matting.pipeline);
       if (warn) report(warn); // 引擎缺失等警告写进 job.progress
     } else if (job.type === "image_layers" && payload.imageLayers) {
       await splitImageLayers(payload.imageLayers, report, signal);
+    } else if (job.type === "comfy_layers" && payload.comfyLayers) {
+      await splitComfyLayers(payload.comfyLayers, report, signal);
+    } else if (job.type === "ai_engine" && payload.aiEngine) {
+      await installAiEngine(payload.aiEngine, report, signal);
     } else {
       throw new Error(`未知任务类型: ${job.type}`);
     }

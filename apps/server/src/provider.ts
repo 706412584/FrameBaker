@@ -2,6 +2,7 @@ import type { ComfyLocalSettings, GenProvider, GenProviderType, ImageLayerSettin
 import { GEN_PROVIDER_TYPES } from "@framebaker/shared";
 import { existsSync } from "node:fs";
 import { db } from "./db";
+import { AI_ENGINE_PYTHON, BUNDLED_SPRITE_CLI, BUNDLED_SPRITE_PYTHON } from "./paths";
 
 // 生成 / 抠图 / 提示词加强的运行配置：设置页（settings 表）优先，环境变量兜底
 // 生成 provider 为列表模型：CLI 与 API 系可配置多个共存，生成时按 id 选择、模型单独指定
@@ -152,13 +153,23 @@ export function getMattingSettings(): MattingSettings & { envTemplate: string } 
  * sprite 抠图管线配置（settings 表 spriteMatting）：指向 sprite 工坊的 matte_cli.py。
  * 供图节点 matte.chroma / matte.spriteflow / matte.birefnet / matte.corridorkey /
  * matte.luma / matte.additive 使用；与全局 rembg matting 互不影响。
+ * 打包版内置精简 sprite（chroma/spriteflow/luma/PSD/UI 分析）——设置未配置时自动回落内置；
+ * BiRefNet 等重 AI 依赖按需安装到 ai-engine/（详见 paths.ts），配置了 AI python 则优先用。
  */
 export function getSpriteMattingSettings(): SpriteMattingSettings {
   const saved = getSettingJson<Partial<SpriteMattingSettings>>("spriteMatting");
-  return {
-    pythonBin: str(saved?.pythonBin).trim(),
-    cliPath: str(saved?.cliPath).trim(),
-  };
+  const configuredPython = str(saved?.pythonBin).trim();
+  const configuredCli = str(saved?.cliPath).trim();
+  if (configuredPython && configuredCli) return { pythonBin: configuredPython, cliPath: configuredCli };
+  // 打包版：未配置 → 内置 sprite 兜底（AI 引擎已装则用其 python，torch 可用）
+  if (BUNDLED_SPRITE_PYTHON && BUNDLED_SPRITE_CLI && existsSync(BUNDLED_SPRITE_CLI)) {
+    const aiPython = AI_ENGINE_PYTHON;
+    return {
+      pythonBin: aiPython && existsSync(aiPython) ? aiPython : BUNDLED_SPRITE_PYTHON,
+      cliPath: BUNDLED_SPRITE_CLI,
+    };
+  }
+  return { pythonBin: configuredPython, cliPath: configuredCli };
 }
 
 export function spriteMattingConfigured(s: SpriteMattingSettings): boolean {
@@ -173,6 +184,12 @@ export function getComfyLocalSettings(): ComfyLocalSettings {
     pythonBin: saved?.pythonBin?.trim() || "python",
     comfyRoot: saved?.comfyRoot?.trim() || "F:/ai/comfui",
   };
+}
+
+/** 本地 ComfyUI 是否可用：comfyRoot 目录存在即认为已配置（pythonBin 恒有 PATH 兜底）。
+ *  宽松判定——脚本执行失败由 runCmd 报错，不在此处强校验 python 可执行。 */
+export function comfyLocalConfigured(s: ComfyLocalSettings): boolean {
+  return !!(s.comfyRoot && existsSync(s.comfyRoot));
 }
 
 /** 归一化一个加强模型条目 */

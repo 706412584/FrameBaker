@@ -120,6 +120,14 @@ export interface LayerMaterialBody {
   autoMatting?: boolean;
 }
 
+export interface ComfyLayerMaterialBody {
+  /** 整图描述（引导补全被遮挡部分）；可空。 */
+  prompt?: string;
+  layers: number;
+  size: number;
+  filterSolid?: boolean;
+}
+
 export const api = {
   listProjects: () => req<ProjectsResponse>("/api/projects").then((r) => r.projects),
   createProject: (name: string, kind: ProjectKind = "frame", folderId?: string | null) =>
@@ -209,19 +217,26 @@ export const api = {
     req<JobCreatedResponse | MaterialCreatedResponse>("/api/materials/upload", { method: "POST", body: fd }),
   generateMaterial: (body: GenerateBody) =>
     req<JobCreatedResponse>("/api/materials/generate", { method: "POST", ...json(body) }),
-  matteMaterial: (id: string) => req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST" }),
+  /** pipeline 非空走 sprite 管线（chroma/birefnet…）；缺省走 rembg（设置页模型） */
+  matteMaterial: (id: string, pipeline?: string) =>
+    req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST", ...json(pipeline ? { pipeline } : {}) }),
   layerMaterial: (id: string, body: LayerMaterialBody) =>
     req<JobCreatedResponse>(`/api/materials/${id}/layers`, { method: "POST", ...json(body) }),
+  comfyLayerMaterial: (id: string, body: ComfyLayerMaterialBody) =>
+    req<JobCreatedResponse>(`/api/materials/${id}/comfy-layers`, { method: "POST", ...json(body) }),
+  installAiEngine: (body: { device?: "auto" | "cuda" | "cpu"; allModels?: boolean; rembg?: boolean }) =>
+    req<JobCreatedResponse>("/api/ai-engine/install", { method: "POST", ...json(body) }),
+  uninstallAiEngine: () => req<OkResponse>("/api/ai-engine", { method: "DELETE" }),
   /** 视频/GIF 素材抽帧 → 每帧一个新素材；timestamps 定点（仅视频），否则 fps 整段 */
   extractMaterial: (
     id: string,
     body?: { fps?: number; timestamps?: number[]; autoMatting?: boolean; folderId?: string | null }
   ) => req<JobCreatedResponse>(`/api/materials/${id}/extract`, { method: "POST", ...json(body ?? {}) }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
-  batchMatteMaterials: (ids: string[]) =>
+  batchMatteMaterials: (ids: string[], pipeline?: string) =>
     req<OkResponse & { count: number; skipped: number }>("/api/materials/batch-matting", {
       method: "POST",
-      ...json({ ids }),
+      ...json(pipeline ? { ids, pipeline } : { ids }),
     }),
   replaceMaterialImage: (id: string, file: Blob, slot: "raw" | "processed") => {
     const fd = new FormData();

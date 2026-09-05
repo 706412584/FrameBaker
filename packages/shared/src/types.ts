@@ -20,7 +20,7 @@ export const FRAME_SOURCES = [
 ] as const;
 export type FrameSource = (typeof FRAME_SOURCES)[number];
 
-export const JOB_TYPES = ["extract_frames", "generate_frames", "matting", "image_layers"] as const;
+export const JOB_TYPES = ["extract_frames", "generate_frames", "matting", "image_layers", "comfy_layers", "ai_engine"] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
 /** Qwen-Image-Layered /images/layers 当前服务端允许的单次图层数 */
@@ -307,7 +307,7 @@ export interface GenProviderInfo {
 /** 各 provider 类型是否支持视频生成（服务端 /api/config 摘要与前端弹窗过滤共用） */
 export const PROVIDER_VIDEO_SUPPORT: Record<GenProviderType, boolean> = {
   cli: true, // 产物按魔数检测：是视频自动逐帧拆帧
-  api: false,
+  api: true, // OpenAI 兼容 api：配了 videoModels 即支持（Agnes 等提供视频端点；与 videoModels 非空取与）
   dashscope: true,
   gemini: false,
   minimax: true,
@@ -409,6 +409,17 @@ export interface ServerConfig {
   imageLayers: {
     configured: boolean;
     model: string;
+  };
+  /** 本地 ComfyUI 场景分层（comfy_layers job 用；未配置时前端本地引擎选项灰置） */
+  comfyLocal: {
+    configured: boolean;
+  };
+  /** AI 抠图引擎（桌面版按需安装：BiRefNet + rembg → exe 旁 ai-engine/） */
+  aiEngine: {
+    installed: boolean;
+    birefnetPython: boolean;
+    rembgVenv: boolean;
+    models: string[];
   };
   gen: {
     /** 全部已配置 provider（不含 apiKey）；生成时按 id 选择 */

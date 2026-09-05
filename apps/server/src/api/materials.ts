@@ -8,6 +8,7 @@ import { createGenerationJobs, createJob, createMattingJob } from "../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../jobs/extract";
 import { checkImageReferenceSupport, checkVideoSupport, resolveReferencePaths } from "../providerAdapter";
 import { getImageLayerSettings, imageLayerConfigured } from "../provider";
+import { isValidSpritePipeline } from "../jobs/matting";
 import { broadcast } from "../ws";
 import { appendFramePool, importFrameCellsToTarget, validateFrameImportTarget, type NewFrameCell } from "../timeline";
 import { getThumbnailPath, isImagePath, parseThumbnailSize, serveMediaFile } from "../media";
@@ -340,16 +341,49 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       autoMatting: t.Optional(t.Boolean()),
     }) }
   )
+  // 本地 ComfyUI Qwen 分层：入队异步执行（脚本约 6-10 分钟），产物落库为多素材。
+  .post(
+    "/materials/:id/comfy-layers",
+    ({ params, body, status }) => {
+      const m = getMaterial(params.id);
+      if (!m) return status(404, "素材不存在");
+      const input = m.processed_path && existsSync(m.processed_path) ? m.processed_path : m.raw_path;
+      if (!input || !existsSync(input) || /\.(mp4|mov|webm|avi|gif)$/i.test(input)) return status(400, "只支持图片素材分层");
+      const jobId = createJob("", "comfy_layers", { comfyLayers: {
+        materialId: m.id,
+        prompt: body.prompt?.trim() || "",
+        layers: body.layers,
+        size: body.size,
+        filterSolid: body.filterSolid ?? true,
+      } });
+      return { jobId };
+    },
+    { body: t.Object({
+      prompt: t.Optional(t.String()),
+      layers: t.Integer({ minimum: IMAGE_LAYER_COUNT_MIN, maximum: IMAGE_LAYER_COUNT_MAX }),
+      size: t.Integer({ minimum: 512, maximum: 1024 }),
+      filterSolid: t.Optional(t.Boolean()),
+    }) }
+  )
   // 执行抠图：入队异步执行（模型首次下载可能耗时数分钟，同步会挂死请求；与批量抠图同路径）
-  .post("/materials/:id/matting", ({ params, status }) => {
-    const m = getMaterial(params.id);
-    if (!m) return status(404, "素材不存在");
-    if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少 raw 文件");
-    if (/\.(mp4|mov|webm|avi)$/i.test(m.raw_path)) return status(400, "视频素材不能抠图，请先抽帧");
-    const r = createMattingJob("", "material", params.id);
-    if (r.duplicate) return status(409, "该素材已有进行中的抠图任务");
-    return { jobId: r.jobId };
-  })
+  // body.pipeline 非空走 sprite 管线（chroma/birefnet/…），否则走 rembg（设置页模型）
+  .post(
+    "/materials/:id/matting",
+    ({ params, body, status }) => {
+      const m = getMaterial(params.id);
+      if (!m) return status(404, "素材不存在");
+      if (!m.raw_path || !existsSync(m.raw_path)) return status(400, "素材缺少 raw 文件");
+      if (/\.(mp4|mov|webm|avi)$/i.test(m.raw_path)) return status(400, "视频素材不能抠图，请先抽帧");
+      const pipeline = typeof body.pipeline === "string" ? body.pipeline.trim() : "";
+      if (pipeline && !isValidSpritePipeline(pipeline)) {
+        return status(400, "不支持的抠图管线：" + pipeline + "（可用：chroma/spriteflow/birefnet/corridorkey/luma/additive，可逗号组合）");
+      }
+      const r = createMattingJob("", "material", params.id, pipeline || undefined);
+      if (r.duplicate) return status(409, "该素材已有进行中的抠图任务");
+      return { jobId: r.jobId };
+    },
+    { body: t.Object({ pipeline: t.Optional(t.String()) }) }
+  )
   // 视频抽帧：复制到 staging → extract_frames → 每帧一个素材（同文件夹）
   // body.timestamps 有值 → 定点抽帧（仅视频）；否则整段按 fps（GIF/视频）
   .post(
@@ -411,9 +445,14 @@ export const materialsApi = new Elysia({ prefix: "/api" })
     }
   )
   // 批量抠图：仅对未抠图（raw）入队；已抠图 / 视频 / 已有进行中任务跳过
+  // body.pipeline 非空走 sprite 管线（chroma/birefnet/…）
   .post(
     "/materials/batch-matting",
-    ({ body }) => {
+    ({ body, status }) => {
+      const pipeline = typeof body.pipeline === "string" ? body.pipeline.trim() : "";
+      if (pipeline && !isValidSpritePipeline(pipeline)) {
+        return status(400, "不支持的抠图管线：" + pipeline);
+      }
       let count = 0;
       let skipped = 0;
       for (const id of body.ids) {
@@ -423,7 +462,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           skipped++;
           continue;
         }
-        const r = createMattingJob("", "material", id);
+        const r = createMattingJob("", "material", id, pipeline || undefined);
         if (r.duplicate) {
           skipped++;
           continue;
@@ -432,7 +471,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       }
       return { ok: true, count, skipped };
     },
-    { body: t.Object({ ids: t.Array(t.String()) }) }
+    { body: t.Object({ ids: t.Array(t.String()), pipeline: t.Optional(t.String()) }) }
   )
   // 替换图片（剪裁工具产出）：slot=raw 覆盖原图；slot=processed 覆盖/建立抠图结果
   .post(

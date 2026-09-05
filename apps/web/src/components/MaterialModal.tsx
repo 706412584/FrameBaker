@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bone, Crop, Film, Grid3x3, Layers3, MoveHorizontal, Pencil, PersonStanding, RefreshCw, Scan, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, materialFileUrl, materialImageUrl, type Material, type Project } from "../api";
 import { getLocale, useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -15,6 +15,7 @@ import MattingOption from "./MattingOption";
 import VideoExtractModal from "./VideoExtractModal";
 import VideoPlayer from "./VideoPlayer";
 import LayerSplitModal from "./LayerSplitModal";
+import SceneSplitModal from "./SceneSplitModal";
 import { useMaterialEditor } from "./MaterialEditor";
 
 interface Props {
@@ -27,7 +28,7 @@ interface Props {
   onDecomposeCharacter: () => void;
 }
 
-export type MaterialDetailAction = "crop" | "frame-split" | "skeletal-split" | "actions" | "directions";
+export type MaterialDetailAction = "crop" | "frame-split" | "skeletal-split" | "scene-split" | "actions" | "directions";
 
 /** 素材详情：图片对比滑杆 / 视频预览 + 抽帧编辑器；抠图/还原/导入/删除 */
 export default function MaterialModal({ material: m, v, initialAction, onClose, onChanged, onToast, onDecomposeCharacter }: Props) {
@@ -44,6 +45,7 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
   const [crop, setCrop] = useState<{ blob: Blob; slot: "raw" | "processed" } | null>(null);
   const [showSplit, setShowSplit] = useState(initialAction === "frame-split" || initialAction === "skeletal-split");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialAction === "skeletal-split" ? "skeletal" : "frame");
+  const [showScene, setShowScene] = useState(initialAction === "scene-split");
   const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(initialAction === "actions" || initialAction === "directions");
   const [actionPreset, setActionPreset] = useState<"actions" | "directions">(initialAction === "directions" ? "directions" : "actions");
@@ -339,6 +341,16 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
                 whileTap={{ scale: 0.95 }}
                 className="px-btn"
                 disabled={busy}
+                title={t("sceneSplit.subtitle")}
+                onClick={() => setShowScene(true)}
+              >
+                <Scan size={14} /> {t("sceneSplit.action")}
+              </motion.button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn"
+                disabled={busy}
                 title={t("skeletal.generate.decomposeHint")}
                 onClick={onDecomposeCharacter}
               >
@@ -435,6 +447,12 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
         <AnimatePresence>
           {showSplit && (
             <GridSplitModal material={m} v={v} initialLine={splitLine} onClose={() => setShowSplit(false)} onDone={onChanged} onToast={onToast} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showScene && (
+            <SceneSplitModal material={m} v={v} onClose={() => setShowScene(false)} onChanged={onChanged} onToast={onToast} />
           )}
         </AnimatePresence>
 

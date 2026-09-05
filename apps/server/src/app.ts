@@ -5,7 +5,8 @@ import type { ServerConfig } from "@framebaker/shared";
 import { ENHANCE_PROMPT_INTENTS, PROVIDER_VIDEO_SUPPORT } from "@framebaker/shared";
 import { db } from "./db";
 import { getMattingInfo } from "./jobs/matting";
-import { enhancerConfigured, getGenProviders, getImageLayerSettings, getPromptEnhancers, getSpriteMattingSettings, imageLayerConfigured, providerConfigured, spriteMattingConfigured } from "./provider";
+import { comfyLocalConfigured, enhancerConfigured, getComfyLocalSettings, getGenProviders, getImageLayerSettings, getPromptEnhancers, getSpriteMattingSettings, imageLayerConfigured, providerConfigured, spriteMattingConfigured } from "./provider";
+import { getAiEngineStatus, uninstallAiEngine } from "./jobs/aiEngine";
 import { isModelCached, listApiProviderModels, runDoctor, testApiProvider } from "./doctor";
 import { enhancePrompt } from "./enhance";
 import { projectsApi } from "./api/projects";
@@ -22,14 +23,20 @@ import { beginProjectUndo, finishProjectUndo, undoProject } from "./undo";
 import { timelineApi } from "./api/timeline";
 import { attackEffectsApi } from "./api/attackEffects";
 import { mcpHandler } from "./mcp";
-import { cancelJob, getQueueConcurrency } from "./queue";
+import { cancelJob, createJob, getQueueConcurrency } from "./queue";
 import { broadcast } from "./ws";
+import { FONTS_ROOT, PACKAGED, PIXI_BUNDLE_PATH, WORKER_PREBUILT_PATH } from "./paths";
 
 // imageOps worker 打包结果：生产缓存一次，开发每次重建（跟随源码改动）
 let imageOpsWorkerCode: string | null = null;
 
 async function buildImageOpsWorker(): Promise<string> {
-  if (imageOpsWorkerCode && process.env.NODE_ENV === "production") return imageOpsWorkerCode;
+  if (imageOpsWorkerCode && (process.env.NODE_ENV === "production" || PACKAGED)) return imageOpsWorkerCode;
+  if (PACKAGED && WORKER_PREBUILT_PATH) {
+    // 打包模式：worker 预构建产物随 resources/web 一起复制
+    imageOpsWorkerCode = readFileSync(WORKER_PREBUILT_PATH, "utf8");
+    return imageOpsWorkerCode;
+  }
   const result = await Bun.build({
     entrypoints: [join(import.meta.dir, "..", "..", "web", "src", "imageops", "imageOps.worker.ts")],
     target: "browser",
@@ -40,7 +47,7 @@ async function buildImageOpsWorker(): Promise<string> {
   return imageOpsWorkerCode;
 }
 
-const pixiBundlePath = join(import.meta.dir, "..", "..", "web", "node_modules", "pixi.js", "dist", "pixi.min.js");
+const pixiBundlePath = PIXI_BUNDLE_PATH;
 let pixiGzipCache: { version: string; body: Uint8Array } | null = null;
 
 function acceptsGzip(value: string | null): boolean {
@@ -126,6 +133,10 @@ export const app = new Elysia()
         configured: imageLayerConfigured(imageLayers),
         model: imageLayers.model,
       },
+  comfyLocal: {
+    configured: comfyLocalConfigured(getComfyLocalSettings()),
+  },
+  aiEngine: getAiEngineStatus(),
       gen: {
         providers: getGenProviders().map((p) => ({
           id: p.id,
@@ -171,6 +182,27 @@ export const app = new Elysia()
   )
   // 体检：逐项检查存储 / ffmpeg / 抠图引擎与模型 / 生成 provider（API 方式含联通测试）
   .get("/api/doctor", () => runDoctor())
+  // AI 抠图引擎（桌面版按需安装）：BiRefNet + rembg 落 exe 旁 ai-engine/
+  .post(
+    "/api/ai-engine/install",
+    ({ body }) => {
+      const jobId = createJob("", "ai_engine", { aiEngine: {
+        device: body.device ?? "auto",
+        allModels: body.allModels ?? false,
+        rembg: body.rembg ?? true,
+      } });
+      return { jobId };
+    },
+    { body: t.Object({
+      device: t.Optional(t.Union([t.Literal("auto"), t.Literal("cuda"), t.Literal("cpu")])),
+      allModels: t.Optional(t.Boolean()),
+      rembg: t.Optional(t.Boolean()),
+    }) }
+  )
+  .delete("/api/ai-engine", ({ status }) => {
+    if (!uninstallAiEngine()) return status(404, "AI 引擎未安装");
+    return { ok: true };
+  })
   // API provider 联通测试（用表单当前值，不要求已保存）：api/dashscope/gemini 实发模型列表端点；minimax 仅校验字段
   .post(
     "/api/provider/test",
@@ -218,11 +250,11 @@ export const app = new Elysia()
     if (!cancelJob(params.id)) return status(409, "取消失败");
     return { ok: true };
   })
-  // 字体等静态文件（位于 apps/web/public/fonts）
+  // 字体等静态文件（源码位于 apps/web/public/fonts；打包后位于 resources/fonts）
   .get("/fonts/:name", ({ params, status }) => {
     const name = params.name;
     if (!/^[\w.-]+$/.test(name)) return status(400, "非法文件名");
-    const file = Bun.file(join(import.meta.dir, "..", "..", "web", "public", "fonts", name));
+    const file = Bun.file(join(FONTS_ROOT, name));
     return new Response(file, {
       headers: {
         "Content-Type": name.endsWith(".woff2") ? "font/woff2" : "text/plain; charset=utf-8",

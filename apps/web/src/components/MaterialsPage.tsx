@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Bone, Check, Crop, Download, Eye, Film, Grid3x3, ImageDown, Layers3, Package, Pencil, PersonStanding, RefreshCw, Scan, Send, Sparkles, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
+import { Bone, BrainCircuit, Check, Crop, Download, Eye, Film, Grid3x3, ImageDown, Layers3, Package, Pencil, PersonStanding, RefreshCw, Scan, Send, Sparkles, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
 import { SOURCE_COLORS } from "@framebaker/shared";
 import { api, materialFileUrl, materialImageUrl, wsClient, type Folder, type Material } from "../api";
 import { downloadMaterialImage, downloadMaterialImages } from "../export";
@@ -308,7 +308,7 @@ export default function MaterialsPage() {
   };
 
   // 批量抠图：只对未抠图入队（已抠图跳过；详情页仍可重新抠）
-  const requestBatchMatting = async (ids: string[]) => {
+  const requestBatchMatting = async (ids: string[], pipeline?: string) => {
     const rawIds = materials.filter((m) => ids.includes(m.id) && m.status !== "matted").map((m) => m.id);
     if (rawIds.length === 0) {
       notify(t("msg.all_selected_are_already_matted_open_detail_to_rematte"), "info");
@@ -317,7 +317,7 @@ export default function MaterialsPage() {
     if (!(await askConfirm(t("msg.queue_matting_for_n_unmatted_materials", { n: rawIds.length })))) return;
     setBusy(true);
     try {
-      const r = await api.batchMatteMaterials(rawIds);
+      const r = await api.batchMatteMaterials(rawIds, pipeline);
       const msg =
         r.skipped > 0
           ? t("msg.queued_count_matting_jobs_skipped_skipped_already_matted", { count: r.count, skipped: r.skipped })
@@ -366,13 +366,13 @@ export default function MaterialsPage() {
     }
   };
 
-  const matteOne = async (id: string, rematte: boolean) => {
+  const matteOne = async (id: string, rematte: boolean, pipeline?: string) => {
     const msg = rematte ? t("msg.re_matte_this_material") : t("msg.queue_matting_for_this_material");
     if (!(await askConfirm(msg))) return;
     setBusy(true);
     try {
       // 单条走详情同款接口，已抠图也可重新抠（批量接口会跳过已抠图）
-      await api.matteMaterial(id);
+      await api.matteMaterial(id, pipeline);
       toast(t("msg.matting_job_queued"));
     } catch (e) {
       notify(t("msg.matting_failed_msg", { msg: (e as Error).message }));
@@ -509,6 +509,12 @@ export default function MaterialsPage() {
             onClick: () => void requestBatchMatting([...selectedIds]),
           },
           {
+            label: t("msg.batch_matting_ai_n", { n: selectedIds.size }),
+            icon: <BrainCircuit size={13} />,
+            disabled: !cfg?.spriteMatting.configured,
+            onClick: () => void requestBatchMatting([...selectedIds], "birefnet"),
+          },
+          {
             label: t("msg.auto_trim_n", { n: selectedIds.size }),
             icon: <Scan size={13} />,
             onClick: () => void requestBatchAutoCrop([...selectedIds]),
@@ -572,6 +578,11 @@ export default function MaterialsPage() {
                     onClick: () => openDetail(ctxMat.id, "skeletal-split"),
                   },
                   {
+                    label: t("sceneSplit.action"),
+                    icon: <Scan size={13} />,
+                    onClick: () => openDetail(ctxMat.id, "scene-split"),
+                  },
+                  {
                     label: t("skeletal.generate.fromReference"),
                     icon: <PersonStanding size={13} />,
                     onClick: () => openCharacterDecompose(ctxMat.id),
@@ -595,6 +606,13 @@ export default function MaterialsPage() {
                     label: ctxMat.status === "matted" ? t("msg.re_matte") : t("msg.matting"),
                     icon: <Wand2 size={13} />,
                     onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
+                  },
+                  {
+                    label: t("msg.matting_ai"),
+                    icon: <BrainCircuit size={13} />,
+                    disabled: !cfg?.spriteMatting.configured,
+                    title: cfg?.spriteMatting.configured ? undefined : t("msg.matting_ai_need_sprite"),
+                    onClick: () => void matteOne(ctxMat.id, true, "birefnet"),
                   },
                   ...(ctxMat.status === "matted"
                     ? ([{
@@ -782,6 +800,13 @@ export default function MaterialsPage() {
                   onClick={() => void requestBatchMatting([...selectedIds])}
                 >
                   <Wand2 size={14} />
+                </IconBtn>
+                <IconBtn
+                  title={cfg?.spriteMatting.configured ? t("msg.batch_matting_ai") : t("msg.matting_ai_need_sprite")}
+                  disabled={busy || !cfg?.spriteMatting.configured}
+                  onClick={() => void requestBatchMatting([...selectedIds], "birefnet")}
+                >
+                  <BrainCircuit size={14} />
                 </IconBtn>
                 <IconBtn
                   title={t("msg.batch_auto_trim")}
