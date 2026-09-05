@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Layers3, ListTodo, PlugZap, Plus, RefreshCw, Save, Scissors, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
+import { BrainCircuit, Download, Layers3, ListTodo, PlugZap, Plus, RefreshCw, Save, Scissors, Settings2, Sparkles, Stethoscope, Trash2, Wand2 } from "lucide-react";
 import type {
   DoctorResponse,
   GenProvider,
@@ -13,7 +13,7 @@ import type {
   ProviderTestResponse,
 } from "@framebaker/shared";
 import { REMBG_MODELS } from "@framebaker/shared";
-import { api } from "../api";
+import { api, wsClient } from "../api";
 import { refreshServerConfig, useServerConfig } from "../config";
 import { askConfirm, notify } from "../notice";
 import { t, useT } from "../i18n";
@@ -265,6 +265,8 @@ export default function SettingsPage() {
   const [comfyLocal, setComfyLocal] = useState<ComfyLocalSettings>({ pythonBin: "python", comfyRoot: "F:/ai/comfui" });
   const [savingSpriteMat, setSavingSpriteMat] = useState(false);
   const [savingComfy, setSavingComfy] = useState(false);
+  const [aiInstalling, setAiInstalling] = useState(false);
+  const [aiAllModels, setAiAllModels] = useState(false);
   const [imageLayers, setImageLayers] = useState<ImageLayerSettings>(IMAGE_LAYERS_DEFAULT);
   const [enhancers, setEnhancers] = useState<EnhancerDraft[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -448,6 +450,44 @@ export default function SettingsPage() {
       notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
     } finally {
       setSavingSpriteMat(false);
+    }
+  };
+
+  /** AI 引擎按需安装（桌面版）：后台 job，进度看任务面板 */
+  const installAi = async () => {
+    setAiInstalling(true);
+    try {
+      await api.installAiEngine({ device: "auto", allModels: aiAllModels, rembg: true });
+      notify(t("msg.aiEngine.queued"), "info");
+    } catch (e) {
+      notify(t("msg.aiEngine.installFailed", { msg: (e as Error).message }));
+      setAiInstalling(false);
+    }
+  };
+
+  // ai_engine job 完成/失败 → 刷新状态并解除按钮（job 完成广播由 ws 推送）
+  useEffect(() => {
+    const unsub = wsClient.subscribe((msg) => {
+      if (msg.type === "job_done" && (msg.payload as { type?: string }).type === "ai_engine") {
+        setAiInstalling(false);
+        void refreshServerConfig();
+      } else if (msg.type === "job_error" && (msg.payload as { type?: string }).type === "ai_engine") {
+        setAiInstalling(false);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const removeAi = async () => {
+    setAiInstalling(true);
+    try {
+      await api.uninstallAiEngine();
+      await refreshServerConfig();
+      notify(t("msg.aiEngine.removed"), "info");
+    } catch (e) {
+      notify(t("msg.save_failed_msg", { msg: (e as Error).message }));
+    } finally {
+      setAiInstalling(false);
     }
   };
 
@@ -976,6 +1016,41 @@ export default function SettingsPage() {
           <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={savingSpriteMat} onClick={saveSpriteMatting}>
             <Save size={14} /> {savingSpriteMat ? t("msg.saving") : t("msg.save")}
           </motion.button>
+        </div>
+      </section>
+
+      {/* ===== AI 抠图引擎（桌面版按需安装）===== */}
+      <section className="settings-sec">
+        <h3>
+          <BrainCircuit size={14} /> {t("msg.aiEngine.title")}
+          <span className={`engine-status ${cfg?.aiEngine.installed ? "ok" : "bad"}`}>
+            <span className="dot" />
+            {cfg?.aiEngine.installed ? t("msg.aiEngine.installed") : t("msg.aiEngine.notInstalled")}
+          </span>
+        </h3>
+        <p className="hint">{t("msg.aiEngine.hint")}</p>
+        {cfg?.aiEngine.installed && (
+          <p className="hint">
+            {t("msg.aiEngine.models")}：{cfg.aiEngine.models.join(", ") || "—"}
+            {cfg.aiEngine.rembgVenv ? ` · ${t("msg.aiEngine.rembgOk")}` : ""}
+          </p>
+        )}
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          {!cfg?.aiEngine.installed ? (
+            <>
+              <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={aiInstalling} onClick={() => void installAi()}>
+                <Download size={14} /> {aiInstalling ? t("msg.aiEngine.installing") : t("msg.aiEngine.install")}
+              </motion.button>
+              <label className="px-check">
+                <input type="checkbox" checked={aiAllModels} onChange={(e) => setAiAllModels(e.target.checked)} />
+                {t("msg.aiEngine.allModels")}
+              </label>
+            </>
+          ) : (
+            <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn danger" disabled={aiInstalling} onClick={() => void removeAi()}>
+              <Trash2 size={14} /> {t("msg.aiEngine.remove")}
+            </motion.button>
+          )}
         </div>
       </section>
 

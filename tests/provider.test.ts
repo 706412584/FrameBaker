@@ -348,9 +348,10 @@ describe("生成适配器校验", () => {
     ]);
 
     expect(() => createProviderAdapter({ prompt: "x", providerId: "api", model: "other" }, () => {})).toThrow("不属于 provider");
-    expect(() => createProviderAdapter({ prompt: "x", providerId: "api", mediaKind: "video" }, () => {})).toThrow("不支持视频生成");
+    // api 型现在支持视频（Agnes /v1/videos）——没配 videoModels 报「未配置视频模型」而非「不支持」
+    expect(() => createProviderAdapter({ prompt: "x", providerId: "api", mediaKind: "video" }, () => {})).toThrow("未配置视频模型");
     expect(() => createProviderAdapter({ prompt: "x", providerId: "gemini", mediaKind: "video" }, () => {})).toThrow("不支持视频生成");
-    expect(checkVideoSupport({ providerId: "api", mediaKind: "video" })).toContain("不支持视频生成");
+    expect(checkVideoSupport({ providerId: "api", mediaKind: "video" })).toContain("未配置视频模型");
     expect(checkVideoSupport({ providerId: "missing", mediaKind: "video" })).toContain("不存在或未配置");
     expect(checkVideoSupport({ providerId: "api", mediaKind: "image" })).toBeNull();
   });

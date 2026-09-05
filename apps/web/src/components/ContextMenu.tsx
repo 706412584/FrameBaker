@@ -7,6 +7,8 @@ export interface CtxMenuItem {
   /** 危险项（删除等）红色 */
   danger?: boolean;
   disabled?: boolean;
+  /** hover 提示（如禁用原因） */
+  title?: string;
   onClick: () => void | Promise<void>;
 }
 
@@ -74,6 +76,7 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
           type="button"
           className={`ctx-item ${it.danger ? "danger" : ""}`}
           disabled={it.disabled}
+          title={it.title}
           onClick={() => {
             onClose();
             void it.onClick();

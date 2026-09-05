@@ -74,6 +74,8 @@ async function readError(res: Response, which: string): Promise<Error> {
  * - 无引用图：POST {base}/images/generations（JSON：{ model, prompt, size?, n: 1 }）
  * - 有引用图：POST {base}/images/edits（multipart：image + prompt + model + size?）
  *   edits 需模型支持（gpt-image 系列、dall-e-2 支持；dall-e-3 不支持，此时 API 报错会写入 job error）
+ *   edits 失败（Agnes 等不实现该端点）自动回退：POST /images/generations + extra_body.image[]（data URI）
+ *   —— Agnes 官方图生图格式（文档：agnes-image-2.5-flash 图生图走 generations + extra_body.image）
  */
 async function generateViaOpenAI(
   cfg: RuntimeProvider,
@@ -103,7 +105,16 @@ async function generateViaOpenAI(
       body: form,
       signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
     });
-    if (!res.ok) throw await readError(res, "images/edits（引用图）");
+    if (!res.ok) {
+      // 端点级失败（Agnes 系：403 team 无权该端点 / 503 未部署 / 404 不存在）→ 回退
+      // Agnes 官方图生图格式：generations + extra_body.image[]（data URI）
+      // 400/422 是模型能力/参数错误（端点活着），回退只会掩盖根因，直接抛
+      if ([403, 404, 503].includes(res.status)) {
+        res = await generateWithReferenceImages(base, auth, cfg, prompt, model, referencePaths, signal);
+      } else {
+        throw await readError(res, "images/edits（引用图）");
+      }
+    }
   } else {
     const body: Record<string, unknown> = { model, prompt, n: 1 };
     if (cfg.apiSize.trim()) body.size = cfg.apiSize.trim();
@@ -116,6 +127,36 @@ async function generateViaOpenAI(
     if (!res.ok) throw await readError(res, "images/generations");
   }
   await saveFirstImage((await res.json()) as ImagesResponse, outPath, signal);
+}
+
+/** Agnes 风格图生图：POST /images/generations，参考图走 extra_body.image[]（data URI 数组） */
+async function generateWithReferenceImages(
+  base: string,
+  auth: Record<string, string>,
+  cfg: RuntimeProvider,
+  prompt: string,
+  model: string,
+  referencePaths: string[],
+  signal?: AbortSignal
+): Promise<Response> {
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    n: 1,
+    extra_body: {
+      image: referencePaths.map((p) => imageDataUri(p)),
+      response_format: "url",
+    },
+  };
+  if (cfg.apiSize.trim()) body.size = cfg.apiSize.trim();
+  const res = await fetch(`${base}/images/generations`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: fetchSignal(signal, IMAGE_GENERATION_TIMEOUT),
+  });
+  if (!res.ok) throw await readError(res, "images/generations（图生图 extra_body.image 回退）");
+  return res;
 }
 
 interface DashscopeResponse {
@@ -752,9 +793,91 @@ async function generateVideoViaDashscope(
 }
 
 /**
- * API 视频生成统一入口（仅 dashscope / minimax，其余类型在前端已被过滤，这里兜底报错）。
+ * Agnes 视频（api 型 OpenAI 兼容 + Agnes 官方 Videos API）：
+ * POST {base}/videos { model, prompt, mode, size:"720P", aspect_ratio?, ... } → video_id
+ * 轮询 GET {host}/agnesapi?video_id=…&model_name=…（status: completed → metadata.url）
+ * 文档：https://www.agnes-ai.com/zh-Hans/docs/agnes-video-25-flash
+ *   - mode: text（纯文）/ keyframe（首尾帧 first_frame/last_frame，URL）/ reference（images[] URL，≤5）
+ *   - seconds "4"–"12" 字符串；size 固定 "720P"；aspect_ratio 16:9 等
+ *   - 轮询必须带 model_name（text 模式可省）
+ */
+async function generateVideoViaAgnes(
+  cfg: RuntimeProvider,
+  prompt: string,
+  model: string,
+  outPath: string,
+  report: (s: string) => void,
+  signal?: AbortSignal,
+  referencePaths?: string[]
+): Promise<void> {
+  const base = cfg.apiBaseUrl.trim().replace(/\/+$/, "");
+  const host = base.replace(/\/v1$/, "");
+  const auth = { Authorization: `Bearer ${cfg.apiKey.trim()}` };
+
+  // 本地参考图 → data URI（图片侧 extra_body.image 官方支持 data URI，视频侧文档写公开 URL，
+  // data URI 试试——失败再提示需要公网图床）
+  const references = referencePaths ?? [];
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    mode: references.length ? "reference" : "text",
+    seconds: "5",
+    size: "720P",
+    aspect_ratio: "16:9",
+  };
+  if (references.length) {
+    body.images = references.slice(0, 5).map((p) => imageDataUri(p));
+    // reference 模式用 <Picture N> 指代素材
+    body.prompt = references.length === 1
+      ? `以 <Picture 1> 中的角色和美术风格为参考：${prompt}`
+      : prompt;
+  }
+  if (cfg.apiSize.trim()) {
+    // apiSize 可能是 "720P" 或比例（GEN_VIDEO_SIZE 预设）；720P 固定，比例透传
+    const s = cfg.apiSize.trim();
+    if (/^\d{1,2}:\d{1,2}$/.test(s)) body.aspect_ratio = s;
+  }
+
+  const res = await fetch(`${base}/videos`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: fetchSignal(signal, VIDEO_POLL_TIMEOUT),
+  });
+  if (!res.ok) throw await readError(res, "videos（Agnes）");
+  const created = (await res.json()) as { video_id?: string; id?: string; task_id?: string };
+  const videoId = created.video_id ?? created.id ?? created.task_id;
+  if (!videoId) throw new Error("Agnes 视频接口未返回 video_id / task_id");
+
+  const url = await pollVideoTask(report, async () => {
+    const q = await fetch(
+      `${host}/agnesapi?video_id=${encodeURIComponent(videoId)}&model_name=${encodeURIComponent(model)}`,
+      { headers: auth, signal: fetchSignal(signal, 60_000) }
+    );
+    if (!q.ok) {
+      // 429/5xx 视为瞬时失败继续轮询
+      if (q.status === 429 || q.status >= 500) return { done: false };
+      throw await readError(q, "agnesapi 轮询");
+    }
+    const status = (await q.json()) as { status?: string; url?: string; metadata?: { url?: string } };
+    const state = String(status.status ?? "").toLowerCase();
+    if (["failed", "error", "cancelled", "canceled", "rejected"].includes(state)) {
+      return { done: true, error: `Agnes 视频生成失败（${state}）` };
+    }
+    if (state === "completed") {
+      const videoUrl = status.url ?? status.metadata?.url;
+      if (!videoUrl) return { done: true, error: "Agnes 视频任务完成但响应缺少 url / metadata.url" };
+      return { done: true, url: videoUrl };
+    }
+    return { done: false };
+  }, signal);
+  await downloadFile(url, outPath, signal);
+}
+
+/**
+ * API 视频生成统一入口（dashscope / minimax / api-Agnes，其余类型在前端已被过滤，这里兜底报错）。
  * 产出 mp4 到 outPath；耗时数分钟，进度经 report 写入 job.progress
- * referencePaths：百炼 i2v 作单张首帧、r2v 作多张参考图；其余协议不接收
+ * referencePaths：百炼 i2v 作单张首帧、r2v 作多张参考图；Agnes 作首帧图；其余协议不接收
  * sizeOverride：生成弹窗选择的比例/分辨率，非空时覆盖 provider.apiSize
  */
 export async function generateVideoViaApi(
@@ -773,5 +896,8 @@ export async function generateVideoViaApi(
     return generateVideoViaDashscope(eff, prompt, model, outPath, report, signal, referencePaths);
   }
   if (eff.type === "minimax") return generateVideoViaMinimax(eff, prompt, model, outPath, report, signal);
-  throw new Error(`该 provider 类型（${eff.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
+  if (eff.type === "api") {
+    return generateVideoViaAgnes(eff, prompt, model, outPath, report, signal, referencePaths);
+  }
+  throw new Error(`该 provider 类型（${eff.type}）不支持视频生成（支持：CLI / 百炼 / MiniMax / API-Agnes）`);
 }

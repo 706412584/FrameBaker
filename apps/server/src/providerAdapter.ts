@@ -34,7 +34,7 @@ export function createProviderAdapter(
   const capabilityModels = req.mediaKind === "video" ? provider.videoModels : provider.imageModels;
   const model = req.model?.trim() || capabilityModels[0] || "";
   if (req.mediaKind === "video" && !PROVIDER_VIDEO_SUPPORT[provider.type])
-    throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`);
+    throw new Error(`provider「${provider.name}」不支持视频生成（支持：CLI / API-Agnes / 百炼 / MiniMax）`);
   if (req.mediaKind === "video" && provider.type !== "cli" && provider.videoModels.length === 0)
     throw new Error(`provider「${provider.name}」未配置视频模型`);
   if (provider.type !== "cli" && !model)
@@ -161,7 +161,7 @@ export function checkVideoSupport(opts: { mediaKind?: "image" | "video"; provide
   if (opts.mediaKind !== "video") return null;
   const provider = resolveGenProvider(opts.providerId);
   if (!provider) return "生成 provider 不存在或未配置，请到设置页添加";
-  if (!PROVIDER_VIDEO_SUPPORT[provider.type]) return `provider「${provider.name}」不支持视频生成（支持：CLI / 百炼 / MiniMax）`;
+  if (!PROVIDER_VIDEO_SUPPORT[provider.type]) return `provider「${provider.name}」不支持视频生成（支持：CLI / API-Agnes / 百炼 / MiniMax）`;
   return provider.type !== "cli" && provider.videoModels.length === 0 ? `provider「${provider.name}」未配置视频模型` : null;
 }
 
