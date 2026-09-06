@@ -4,6 +4,7 @@
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
 import { quantizeImageData, type QuantizeOptions } from "./quantize";
 import { analyzeUiSmartSlicesData } from "../graph/uiSlice";
+import { diagnoseSheetCells } from "./frameDiag";
 
 
 declare function postMessage(message: ImageOpResponse): void;
@@ -133,6 +134,16 @@ self.onmessage = async (e: MessageEvent<ImageOpRequest>) => {
       if (!rect) throw new Error("sliceCrop 缺少 rect");
       const out = await cropFromBitmap(bitmap, rect);
       postMessage({ id, ok: true, blob: out });
+    } else if (op === "frameDiag") {
+      const rows = e.data.frameDiagRows;
+      const cols = e.data.frameDiagCols;
+      if (!rows || !cols) throw new Error("frameDiag 缺少 rows/cols");
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      const result = diagnoseSheetCells(imageData.data, bitmap.width, bitmap.height, rows, cols);
+      postMessage({ id, ok: true, frameDiag: result });
     } else {
 
       const out = await editFromBitmap(bitmap, strokes ?? [], quarterTurns ?? 0, flipHorizontal ?? false);

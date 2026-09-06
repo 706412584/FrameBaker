@@ -15,6 +15,7 @@ import FolderTree, { type FolderSelection } from "./FolderTree";
 import FileZoom, { useFileZoom } from "./FileZoom";
 import MaterialImportModal from "./MaterialImportModal";
 import LayerSplitModal from "./LayerSplitModal";
+import MattingModeModal from "./MattingModeModal";
 import MaterialModal, { type MaterialDetailAction } from "./MaterialModal";
 import ProjectPickerModal from "./ProjectPickerModal";
 import VideoExtractModal from "./VideoExtractModal";
@@ -100,6 +101,7 @@ export default function MaterialsPage() {
   const [detailAction, setDetailAction] = useState<MaterialDetailAction | undefined>();
   const [extractId, setExtractId] = useState<string | null>(null);
   const [layerId, setLayerId] = useState<string | null>(null);
+  const [mattingModeId, setMattingModeId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   /** 右键导入：null=批量选中；string=单素材 id */
   const [pickerScope, setPickerScope] = useState<"batch" | string>("batch");
@@ -605,7 +607,7 @@ export default function MaterialsPage() {
                   {
                     label: ctxMat.status === "matted" ? t("msg.re_matte") : t("msg.matting"),
                     icon: <Wand2 size={13} />,
-                    onClick: () => void matteOne(ctxMat.id, ctxMat.status === "matted"),
+                    onClick: () => setMattingModeId(ctxMat.id),
                   },
                   {
                     label: t("msg.matting_ai"),
@@ -906,6 +908,22 @@ export default function MaterialsPage() {
               }}
             />
           )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {mattingModeId && (() => {
+            const target = materials.find((x) => x.id === mattingModeId) ?? null;
+            return target ? (
+              <MattingModeModal
+                material={target}
+                onClose={() => setMattingModeId(null)}
+                onToast={(msg) => {
+                  toast(msg);
+                  void load();
+                }}
+              />
+            ) : null;
+          })()}
         </AnimatePresence>
 
         <AnimatePresence>

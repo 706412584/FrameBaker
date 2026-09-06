@@ -86,9 +86,44 @@ export function resolveSpritePipelinePython(pythonBin: string, mode: string): st
  * d. PATH 中的 rembg
  * e. passthrough 复制（返回警告提示安装）
  * 返回警告文案（无警告为 null）；b/c 会注入 U2NET_HOME=<repo>/storage/models
+ * modelOverride：本次调用覆盖 rembg 模型（素材库「抠图模式选择弹窗」用；空=用设置页模型）
  * graph 节点（matte.batch）也直接复用此函数。
  */
-export async function runMatting(input: string, output: string, signal?: AbortSignal, pipeline?: string): Promise<string | null> {
+/**
+ * sprite 管线可调参数（matte_cli.py CLI 键 → 值）；弹窗「参数设置」透传。
+ * 默认值对齐用户实测：chroma threshold=20 / spriteflow sfTolerance=25
+ * （CLI 原默认 80/120 对纯色背景过激，直接把主体扣透明）。
+ */
+export type SpriteMattingParams = Record<string, number | string | boolean>;
+
+const SPRITE_PARAM_KEYS = new Set([
+  "threshold", "softness", "despillStrength", "haloPixels", "keyMode", "manualKeyHex",
+  "aiModel", "aiDevice", "aiResolution",
+  "lumaBlack", "lumaWhite", "lumaGamma", "lumaStrength",
+  "corridorkeyScreen", "sfTolerance", "sfEdgeBlend", "sfBlendZoneRatio", "sfAlphaCutoff",
+  "sfSpillRemoval", "sfSpillStrength", "decontaminate", "decontaminateRadius", "decontaminateStrength",
+  "effectProtectionEnabled", "effectProtectionThreshold",
+]);
+
+/** camelCase 参数 → matte_cli 的 --kebab-case CLI；布尔转 "true"/"false"（argparse 显式值）。 */
+export function spriteParamsToArgs(params: SpriteMattingParams): string[] {
+  const args: string[] = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (!SPRITE_PARAM_KEYS.has(key) || value === undefined || value === null) continue;
+    const flag = `--${key.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}`;
+    args.push(flag, typeof value === "boolean" ? String(value) : String(value));
+  }
+  return args;
+}
+
+export async function runMatting(
+  input: string,
+  output: string,
+  signal?: AbortSignal,
+  pipeline?: string,
+  modelOverride?: string,
+  mattingParams?: SpriteMattingParams,
+): Promise<string | null> {
   // a. sprite 管线（显式选择，最高优先）：与图工作流 matte.pipeline 节点同一 CLI 同一语义。
   // birefnet 等 AI 模式需要 torch：配置的 python 没有时自动切 AI 引擎的 venv-ai
   // （外部 sprite venv 常只装 OpenCV 系轻依赖）。
@@ -98,8 +133,12 @@ export async function runMatting(input: string, output: string, signal?: AbortSi
       throw new Error("sprite 抠图未配置：设置页填 pythonBin 与 matte_cli.py 路径");
     }
     const pythonBin = resolveSpritePipelinePython(settings.pythonBin, pipeline);
+    // 弹窗参数透传（camelCase → CLI）；未传时补保守默认：chroma 阈值 20 / spriteflow 容差 25
+    const params: SpriteMattingParams = { ...mattingParams };
+    if (params.threshold === undefined && /chroma/.test(pipeline) && !/spriteflow/.test(pipeline)) params.threshold = 20;
+    if (params.sfTolerance === undefined && /spriteflow/.test(pipeline)) params.sfTolerance = 25;
     await runCmd(
-      [pythonBin, settings.cliPath, "--input", input, "--output", output, "--pipeline", pipeline.trim()],
+      [pythonBin, settings.cliPath, "--input", input, "--output", output, "--pipeline", pipeline.trim(), ...spriteParamsToArgs(params)],
       AI_ENGINE_MODELS && existsSync(AI_ENGINE_MODELS)
         ? { SPRITE_VIDEO_LAB_AI_MODEL_CACHE: AI_ENGINE_MODELS }
         : undefined,
@@ -108,7 +147,8 @@ export async function runMatting(input: string, output: string, signal?: AbortSi
     return null;
   }
 
-  const { cliBin, cliInputArg, cliOutputArg, cliModelArg, envTemplate, model } = getMattingSettings();
+  const { cliBin, cliInputArg, cliOutputArg, cliModelArg, envTemplate, model: settingModel } = getMattingSettings();
+  const model = modelOverride?.trim() || settingModel;
 
   if (cliBin.trim()) {
     const argv = [cliBin.trim()];
@@ -144,7 +184,7 @@ export async function runMatting(input: string, output: string, signal?: AbortSi
 }
 
 /** 抠图：项目帧。返回警告文案（null = 真抠图） */
-export async function matteFrame(frameId: string, signal?: AbortSignal, pipeline?: string): Promise<string | null> {
+export async function matteFrame(frameId: string, signal?: AbortSignal, pipeline?: string, model?: string, mattingParams?: SpriteMattingParams): Promise<string | null> {
   const frame = getFrame(frameId);
   if (!frame) throw new Error(`帧不存在: ${frameId}`);
   if (!frame.raw_path) throw new Error(`帧缺少 raw 文件: ${frameId}`);
@@ -155,7 +195,7 @@ export async function matteFrame(frameId: string, signal?: AbortSignal, pipeline
   const backupPath = join(stageDir, "previous.png");
   mkdirSync(stageDir, { recursive: true });
   try {
-    const warning = await runMatting(frame.raw_path, stagedPath, signal, pipeline);
+    const warning = await runMatting(frame.raw_path, stagedPath, signal, pipeline, model, mattingParams);
     const current = getFrame(frameId);
     if (!current) throw new Error(`帧已在抠图期间删除: ${frameId}`);
     mkdirSync(dirname(outPath), { recursive: true });
@@ -178,14 +218,14 @@ export async function matteFrame(frameId: string, signal?: AbortSignal, pipeline
 }
 
 /** 抠图：素材。返回警告文案（null = 真抠图） */
-export async function matteMaterial(materialId: string, signal?: AbortSignal, pipeline?: string): Promise<string | null> {
+export async function matteMaterial(materialId: string, signal?: AbortSignal, pipeline?: string, model?: string, mattingParams?: SpriteMattingParams): Promise<string | null> {
   const m = getMaterial(materialId);
   if (!m) throw new Error(`素材不存在: ${materialId}`);
   if (!m.raw_path) throw new Error(`素材缺少 raw 文件: ${materialId}`);
 
   const outPath = join(STORAGE_ROOT, "materials", materialId, "processed.png");
   mkdirSync(dirname(outPath), { recursive: true });
-  const warning = await runMatting(m.raw_path, outPath, signal, pipeline);
+  const warning = await runMatting(m.raw_path, outPath, signal, pipeline, model, mattingParams);
 
   db.query("UPDATE materials SET status = 'matted', processed_path = ? WHERE id = ?").run(outPath, materialId);
   broadcast("material_updated", { id: materialId });
@@ -197,8 +237,12 @@ export async function matte(
   target: "frame" | "material",
   id: string,
   signal?: AbortSignal,
-  pipeline?: string
+  pipeline?: string,
+  model?: string,
+  mattingParams?: SpriteMattingParams
 ): Promise<string | null> {
   if (signal?.aborted) throw new JobCancelledError();
-  return target === "frame" ? matteFrame(id, signal, pipeline) : matteMaterial(id, signal, pipeline);
+  return target === "frame"
+    ? matteFrame(id, signal, pipeline, model, mattingParams)
+    : matteMaterial(id, signal, pipeline, model, mattingParams);
 }

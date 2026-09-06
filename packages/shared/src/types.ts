@@ -498,6 +498,8 @@ export function suggestActionSheetGrid(frameCount: number): { cols: number; rows
 /**
  * 组装「连续动作拼图表」prompt：短文案优先（MiniMax 等厂商限 ~1500 字符）。
  * 引用图锁角色 + 行列 + 有序帧；强调帧间连续。角色描述/附加描述会被截断。
+ * 移植 spriteflow promptBuilder 的核心合同（紧凑版）：帧数合同锁死格数（防 AI 自加帧）、
+ * 身份锁精简（防跨帧漂移）、反复制（防相邻帧雷同）、locomotion 硬约束（腿脚必须动）。
  */
 export function buildActionSheetPrompt(opts: {
   /** 有序帧序列（可含重复动作 id） */
@@ -519,16 +521,28 @@ export function buildActionSheetPrompt(opts: {
     ? `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous ${a0.prompt} cycle, L→R then T→B. Identical look each panel; smooth motion; last loops to first. Plain/transparent bg, no text.`
     : `Same character as reference. One ${rows}×${cols} sprite sheet: ${n}-frame continuous sequence, L→R then T→B. Identical look; smooth panel-to-panel motion. Plain/transparent bg, no text.`;
 
-  const parts = [head];
+  // spriteflow 合同（紧凑版）：格数硬约束 + 身份锁 + 反复制 + locomotion（移动类动作）
+  const isLocomotion = n > 0 && frames.some((f) => ["walk", "run"].includes(f.id));
+  const contracts = [
+    `FRAME COUNT CONTRACT: exactly ${cols * rows} cells, ${n} filled — no extra implied frames, no duplicated cells.`,
+    "IDENTITY LOCK: same silhouette, proportions, outfit, props, palette, camera in every cell; pose and limbs change, identity does not.",
+    "ANTI-COPY: adjacent cells must differ visibly in limb positions / weight / contact points — never near-identical poses.",
+    ...(isLocomotion
+      ? ["LOCOMOTION: legs and feet drive the motion — supporting foot must change between consecutive frames, arms counter-swing; NOT just hair/cloth sway."]
+      : []),
+    "FORBIDDEN: speed lines, motion arcs, dust, floating stars/icons, ground shadows, text or labels.",
+  ].join(" ");
+
+  const parts = [head, contracts];
   const character = opts.characterPrompt?.trim();
-  if (character) parts.push(`Char: ${clip(character, 160)}`);
+  if (character) parts.push(`Char: ${clip(character, 140)}`);
   if (n > 0) {
     parts.push(`Frames: ${frames.map((f, i) => `${i + 1}:${f.id}/${f.prompt}`).join("; ")}`);
   }
   const empty = cols * rows - n;
   if (empty > 0) parts.push(`Blank last ${empty} panel(s).`);
   const extra = opts.extra?.trim();
-  if (extra) parts.push(clip(extra, 600));
+  if (extra) parts.push(clip(extra, 420));
   // 再保险：整体压到 1400，给 MiniMax 1500 限留余量
   return clip(parts.join(" "), 1400);
 }

@@ -5054,6 +5054,28 @@ body.resizing-row * {
 .graph-confirm-rect.dragging { border-style: dashed; border-color: var(--error); }
 .graph-confirm-canvas-hint { position: sticky; bottom: 0; left: 0; display: inline-block; padding: 2px 8px; background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--text-muted); font-size: 11px; pointer-events: none; }
 
+/* 抠图模式选择弹窗 */
+.matting-mode-group-head { display: flex; align-items: center; justify-content: space-between; }
+.matting-param-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0; }
+.matting-param-tab { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.matting-param-tab-title { display: block; font-size: 12px; margin-bottom: 4px; color: var(--accent); }
+.matting-param-panel { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; }
+.matting-param-field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-muted); }
+.matting-param-field .num { width: 100%; }
+.matting-mode-modal { max-width: 560px; width: 92vw; }
+.matting-mode-group { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.matting-mode-group > strong { display: flex; align-items: center; gap: 5px; font-size: 13px; }
+.matting-mode-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 切帧诊断叠加（GridSplitModal frame 模式；算法移植 spriteflow slicer） */
+.gs-diag-cell { position: absolute; border: 1px dashed transparent; pointer-events: none; }
+.gs-diag-cell.bad { border-color: var(--warn, #f59e0b); background: color-mix(in srgb, #f59e0b 8%, transparent); }
+.gs-diag-content { position: absolute; border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.gs-diag-badge { position: absolute; top: 0; left: 0; padding: 0 3px; font-size: 10px; background: #f59e0b; color: #1a1623; font-weight: bold; }
+.gs-diag-summary { margin-top: 6px; padding: 5px 8px; border-radius: 6px; font-size: 12px; }
+.gs-diag-summary.ok { background: color-mix(in srgb, #34d399 12%, transparent); color: #34d399; }
+.gs-diag-summary.bad { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #fbbf24; }
+
 /* 场景拆分弹窗 */
 .scene-split-modal { max-width: 1040px; width: 92vw; }
 .scene-layout { display: flex; gap: 12px; align-items: flex-start; }

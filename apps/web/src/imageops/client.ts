@@ -3,6 +3,7 @@
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
 import { quantizeImageData, type PaletteColor, type QuantizeOptions } from "./quantize";
 import { analyzeUiSmartSlicesData, type UiSmartSliceOptions, type UiSmartSliceResult } from "../graph/uiSlice";
+import { diagnoseSheetCells, type SheetDiagnostic } from "./frameDiag";
 
 
 let worker: Worker | null = null;
@@ -289,7 +290,35 @@ export async function quantizeImage(blob: Blob, options: QuantizeOptions): Promi
 
 export type { QuantizeOptions, QuantizeMethod, DitheringMethod, PaletteColor } from "./quantize";
 
-// ---- UI 智能切片（graph/uiSlice.ts 算法，worker 优先）----
+// ---- 网格切帧诊断（frameDiag.ts 算法，worker 优先）----
+
+async function mainFrameDiag(blob: Blob, rows: number, cols: number): Promise<SheetDiagnostic> {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    return diagnoseSheetCells(imageData.data, bitmap.width, bitmap.height, rows, cols);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** 按网格切帧前诊断：每帧内容框/占比/偏移/警告（切坏帧提前可见）；worker 失败自动降级主线程。 */
+export async function frameDiagnose(blob: Blob, rows: number, cols: number): Promise<SheetDiagnostic> {
+  try {
+    const r = await runInWorker({ op: "frameDiag", blob, frameDiagRows: rows, frameDiagCols: cols });
+    if (!r.ok || !r.frameDiag) throw new Error(r.error ?? "frameDiag 失败");
+    return r.frameDiag;
+  } catch {
+    return mainFrameDiag(blob, rows, cols);
+  }
+}
+
+export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "./frameDiag";
 
 async function mainSliceAnalyze(blob: Blob, options: Partial<UiSmartSliceOptions>): Promise<UiSmartSliceResult> {
   const bitmap = await createImageBitmap(blob);

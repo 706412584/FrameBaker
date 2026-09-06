@@ -90,7 +90,8 @@ describe("动作生成 prompt", () => {
       extra: "x".repeat(2_000),
     });
     expect(sheet).toContain("1:walk/walk cycle");
-    expect(sheet).toContain("x".repeat(500));
+    // spriteflow 合同移植后 extra 预算收窄（合同优先于超长附加描述）；验证 extra 被截断且总长守 1400
+    expect(sheet).toContain("x".repeat(100));
     expect(sheet.length).toBeLessThanOrEqual(1400);
 
     expect(buildActionVideoPrompt({ actions: [] })).toBe("Pixel art game character idle loop. Plain bg, no text.");

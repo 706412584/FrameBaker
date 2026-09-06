@@ -52,11 +52,14 @@ import type { QuantizeOptions, PaletteColor } from "./quantize";
 // UI 智能切片类型（实现与算法在 ../graph/uiSlice.ts；连通域复用本文件的 connectedComponentsOnMask）
 export type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
 import type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
+// 网格切帧诊断类型（实现与算法在 ./frameDiag.ts；移植 sprite 工坊 spriteflow/slicer）
+export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "./frameDiag";
+import type { SheetDiagnostic } from "./frameDiag";
 
 export interface ImageOpRequest {
   id: number;
 
-  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp" | "quantize" | "sliceAnalyze" | "sliceCrop";
+  op: "bounds" | "crop" | "analyze" | "edit" | "components" | "warp" | "quantize" | "sliceAnalyze" | "sliceCrop" | "frameDiag";
 
   blob: Blob;
   rect?: CropRect;
@@ -74,6 +77,9 @@ export interface ImageOpRequest {
   sliceOptions?: Partial<UiSmartSliceOptions>;
   /** UI 切片裁剪框（op=sliceCrop）。 */
   sliceRect?: UiSliceRect;
+  /** 网格切帧诊断行列（op=frameDiag）。 */
+  frameDiagRows?: number;
+  frameDiagCols?: number;
 }
 
 export interface ImageOpResponse {
@@ -89,6 +95,8 @@ export interface ImageOpResponse {
   slices?: UiSliceCandidate[];
   /** op=sliceAnalyze 的整体结果（含 warnings） */
   sliceResult?: UiSmartSliceResult;
+  /** op=frameDiag 的网格切帧诊断（每帧内容框/占比/偏移/警告） */
+  frameDiag?: SheetDiagnostic;
   error?: string;
 }
 

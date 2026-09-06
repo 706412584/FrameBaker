@@ -218,8 +218,11 @@ export const api = {
   generateMaterial: (body: GenerateBody) =>
     req<JobCreatedResponse>("/api/materials/generate", { method: "POST", ...json(body) }),
   /** pipeline 非空走 sprite 管线（chroma/birefnet…）；缺省走 rembg（设置页模型） */
-  matteMaterial: (id: string, pipeline?: string) =>
-    req<JobCreatedResponse>(`/api/materials/${id}/matting`, { method: "POST", ...json(pipeline ? { pipeline } : {}) }),
+  matteMaterial: (id: string, pipeline?: string, model?: string, mattingParams?: Record<string, number | string | boolean>) =>
+    req<JobCreatedResponse>(`/api/materials/${id}/matting`, {
+      method: "POST",
+      ...json({ ...(pipeline ? { pipeline } : {}), ...(model ? { model } : {}), ...(mattingParams ? { mattingParams } : {}) }),
+    }),
   layerMaterial: (id: string, body: LayerMaterialBody) =>
     req<JobCreatedResponse>(`/api/materials/${id}/layers`, { method: "POST", ...json(body) }),
   comfyLayerMaterial: (id: string, body: ComfyLayerMaterialBody) =>
@@ -233,10 +236,10 @@ export const api = {
     body?: { fps?: number; timestamps?: number[]; autoMatting?: boolean; folderId?: string | null }
   ) => req<JobCreatedResponse>(`/api/materials/${id}/extract`, { method: "POST", ...json(body ?? {}) }),
   unmatteMaterial: (id: string) => req<MaterialResponse>(`/api/materials/${id}/unmatting`, { method: "POST" }),
-  batchMatteMaterials: (ids: string[], pipeline?: string) =>
+  batchMatteMaterials: (ids: string[], pipeline?: string, model?: string) =>
     req<OkResponse & { count: number; skipped: number }>("/api/materials/batch-matting", {
       method: "POST",
-      ...json(pipeline ? { ids, pipeline } : { ids }),
+      ...json({ ids, ...(pipeline ? { pipeline } : {}), ...(model ? { model } : {}) }),
     }),
   replaceMaterialImage: (id: string, file: Blob, slot: "raw" | "processed") => {
     const fd = new FormData();

@@ -16,6 +16,7 @@ import VideoExtractModal from "./VideoExtractModal";
 import VideoPlayer from "./VideoPlayer";
 import LayerSplitModal from "./LayerSplitModal";
 import SceneSplitModal from "./SceneSplitModal";
+import MattingModeModal from "./MattingModeModal";
 import { useMaterialEditor } from "./MaterialEditor";
 
 interface Props {
@@ -46,6 +47,7 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
   const [showSplit, setShowSplit] = useState(initialAction === "frame-split" || initialAction === "skeletal-split");
   const [splitLine, setSplitLine] = useState<"frame" | "skeletal">(initialAction === "skeletal-split" ? "skeletal" : "frame");
   const [showScene, setShowScene] = useState(initialAction === "scene-split");
+  const [showMattingMode, setShowMattingMode] = useState(false);
   const [showLayers, setShowLayers] = useState(false);
   const [showActions, setShowActions] = useState(initialAction === "actions" || initialAction === "directions");
   const [actionPreset, setActionPreset] = useState<"actions" | "directions">(initialAction === "directions" ? "directions" : "actions");
@@ -101,11 +103,8 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
     }
   };
 
-  const doMatting = () =>
-    run(async () => {
-      await api.matteMaterial(m.id);
-      onToast(t("msg.matting_job_queued"));
-    });
+  // 抠图改为模式选择弹窗（rembg 模型 / sprite 管线）
+  const doMatting = () => setShowMattingMode(true);
 
   const doUnmatting = () =>
     run(async () => {
@@ -453,6 +452,12 @@ export default function MaterialModal({ material: m, v, initialAction, onClose, 
         <AnimatePresence>
           {showScene && (
             <SceneSplitModal material={m} v={v} onClose={() => setShowScene(false)} onChanged={onChanged} onToast={onToast} />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showMattingMode && (
+            <MattingModeModal material={m} onClose={() => setShowMattingMode(false)} onToast={onToast} />
           )}
         </AnimatePresence>
 

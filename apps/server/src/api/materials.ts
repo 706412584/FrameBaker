@@ -378,11 +378,12 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       if (pipeline && !isValidSpritePipeline(pipeline)) {
         return status(400, "不支持的抠图管线：" + pipeline + "（可用：chroma/spriteflow/birefnet/corridorkey/luma/additive，可逗号组合）");
       }
-      const r = createMattingJob("", "material", params.id, pipeline || undefined);
+      const model = typeof body.model === "string" ? body.model.trim() : "";
+      const r = createMattingJob("", "material", params.id, pipeline || undefined, model || undefined, body.mattingParams);
       if (r.duplicate) return status(409, "该素材已有进行中的抠图任务");
       return { jobId: r.jobId };
     },
-    { body: t.Object({ pipeline: t.Optional(t.String()) }) }
+    { body: t.Object({ pipeline: t.Optional(t.String()), model: t.Optional(t.String()), mattingParams: t.Optional(t.Record(t.String(), t.Union([t.String(), t.Number(), t.Boolean()]))) }) }
   )
   // 视频抽帧：复制到 staging → extract_frames → 每帧一个素材（同文件夹）
   // body.timestamps 有值 → 定点抽帧（仅视频）；否则整段按 fps（GIF/视频）
@@ -453,6 +454,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       if (pipeline && !isValidSpritePipeline(pipeline)) {
         return status(400, "不支持的抠图管线：" + pipeline);
       }
+      const model = typeof body.model === "string" ? body.model.trim() : "";
       let count = 0;
       let skipped = 0;
       for (const id of body.ids) {
@@ -462,7 +464,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
           skipped++;
           continue;
         }
-        const r = createMattingJob("", "material", id, pipeline || undefined);
+        const r = createMattingJob("", "material", id, pipeline || undefined, model || undefined, body.mattingParams);
         if (r.duplicate) {
           skipped++;
           continue;
@@ -471,7 +473,7 @@ export const materialsApi = new Elysia({ prefix: "/api" })
       }
       return { ok: true, count, skipped };
     },
-    { body: t.Object({ ids: t.Array(t.String()), pipeline: t.Optional(t.String()) }) }
+    { body: t.Object({ ids: t.Array(t.String()), pipeline: t.Optional(t.String()), model: t.Optional(t.String()), mattingParams: t.Optional(t.Record(t.String(), t.Union([t.String(), t.Number(), t.Boolean()]))) }) }
   )
   // 替换图片（剪裁工具产出）：slot=raw 覆盖原图；slot=processed 覆盖/建立抠图结果
   .post(

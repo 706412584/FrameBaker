@@ -3,8 +3,8 @@ import { motion } from "motion/react";
 import { Bone, Columns2, Eraser, Grid3x3, Move, Rows2, Scan, ScanSearch, Trash2, X } from "lucide-react";
 import { ARTICULATED_CHARACTER_PART_ROLES, type CharacterPartRole, type CharacterPartSet, type CharacterPartSetMember } from "@framebaker/shared";
 import { api, materialImageUrl, type Material } from "../api";
-import { analyzeImage, cropImage, detectComponents, findOpaqueBounds } from "../imageops/client";
-import { reviewSkeletalGrid, type CropRect, type SkeletalPartQualityIssue } from "../imageops/ops";
+import { analyzeImage, cropImage, detectComponents, findOpaqueBounds, frameDiagnose } from "../imageops/client";
+import { reviewSkeletalGrid, type CropRect, type SheetDiagnostic, type SkeletalPartQualityIssue } from "../imageops/ops";
 import { notify } from "../notice";
 import { useT } from "../i18n";
 import { useModalEscClose } from "../hooks/useModalEscClose";
@@ -92,6 +92,9 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
   const [deletedCellGroupIds, setDeletedCellGroupIds] = useState<number[]>([]);
   // 连通域自动检测得到的部件单元（合成 id 单格组）；非空时取代均匀网格作为基础布局。
   const [detectedGroups, setDetectedGroups] = useState<number[][] | null>(null);
+  // 网格切帧诊断（spriteflow slicer 移植）：切分前预知哪帧内容空/漂移/偏移
+  const [frameDiag, setFrameDiag] = useState<SheetDiagnostic | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
   const [splitCellRects, setSplitCellRects] = useState<Record<number, CropRect>>({});
   const [selectedCells, setSelectedCells] = useState<number[]>([]);
   const [cellContextMenu, setCellContextMenu] = useState<{ x: number; y: number; groupId: number } | null>(null);
@@ -251,6 +254,32 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
     window.addEventListener("resize", syncDisp);
     return () => window.removeEventListener("resize", syncDisp);
   }, [syncDisp, imgSize]);
+
+  // 帧模式自动诊断：网格/区域变化即重算（内容空/漂移/偏移的帧切分前就标出来）
+  useEffect(() => {
+    if (splitLine !== "frame" || !imgSize || !region) {
+      setFrameDiag(null);
+      return;
+    }
+    let alive = true;
+    setDiagBusy(true);
+    (async () => {
+      try {
+        const res = await fetch(materialImageUrl(m.id, v, slot));
+        if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
+        const diag = await frameDiagnose(await res.blob(), rows, cols);
+        if (alive) setFrameDiag(diag);
+      } catch {
+        if (alive) setFrameDiag(null);
+      } finally {
+        if (alive) setDiagBusy(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitLine, imgSize, rows, cols, region?.x, region?.y, region?.w, region?.h, slot]);
 
   const scaleX = imgSize ? disp.w / imgSize.w : 1;
   const scaleY = imgSize ? disp.h / imgSize.h : 1;
@@ -1121,6 +1150,27 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                     {Array.from({ length: rows - 1 }, (_, i) => (
                       <div key={`h${i}`} className="gs-line h" style={{ top: `${((i + 1) / rows) * 100}%` }} />
                     ))}
+                    {/* 切帧诊断叠加（spriteflow 移植）：绿框=内容包围盒，橙框=有警告的帧 */}
+                    {frameDiag && frameDiag.frames.map((f) => {
+                      const bad = f.warnings.length > 0;
+                      const rel = (r: { x: number; y: number; w: number; h: number }) => ({
+                        left: `${(r.x / frameDiag.sheetWidth) * 100}%`,
+                        top: `${(r.y / frameDiag.sheetHeight) * 100}%`,
+                        width: `${(r.w / frameDiag.sheetWidth) * 100}%`,
+                        height: `${(r.h / frameDiag.sheetHeight) * 100}%`,
+                      });
+                      return (
+                        <div
+                          key={`diag-${f.index}`}
+                          className={`gs-diag-cell${bad ? " bad" : ""}`}
+                          style={rel(f.cell)}
+                          title={`#${f.index + 1}${f.content ? ` ${t("sceneSplit.diagScore")}: ${(f.sameCellScore * 100).toFixed(0)}%` : ""}${f.warnings.length ? ` ⚠ ${f.warnings.join(", ")}` : ""}`}
+                        >
+                          {f.content && <span className="gs-diag-content" style={rel(f.content)} />}
+                          {bad && <span className="gs-diag-badge">{"⚠ " + (f.index + 1)}</span>}
+                        </div>
+                      );
+                    })}
                   </>}
                 </div>
               )}
@@ -1205,6 +1255,20 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
                 </label>
                 <strong className="gs-total">{t("msg.total_cells", { total })}</strong>
               </div>
+
+              {/* 切帧诊断摘要：有几帧坏、坏在哪，切分前直接可见 */}
+              {splitLine === "frame" && frameDiag && (() => {
+                const badFrames = frameDiag.frames.filter((f) => f.warnings.length > 0);
+                if (badFrames.length === 0) {
+                  return <div className={`gs-diag-summary ok`}>{t("sceneSplit.diagAllGood", { count: frameDiag.frames.length })}</div>;
+                }
+                return (
+                  <div className="gs-diag-summary bad">
+                    {t("sceneSplit.diagBadCount", { count: badFrames.length, total: frameDiag.frames.length })}：
+                    {badFrames.map((f) => `#${f.index + 1}（${f.warnings.map((w) => t("sceneSplit.diagWarn." + w)).join("、")}）`).join(" ")}
+                  </div>
+                );
+              })()}
 
               {splitLine === "skeletal" && activeCellGroup && activeSourceRect && <div className="gs-cell-source-settings">
                 <strong className="gs-total">{t("skeletal.split.activeSourceCell", { cells: cellGroupLabel(activeCellGroup) })}</strong>

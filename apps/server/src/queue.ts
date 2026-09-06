@@ -3,7 +3,7 @@ import { db, uid } from "./db";
 import { broadcast } from "./ws";
 import { buildGeneratedFollowUp, extractFrames, generateFrames, type ExtractPayload, type GeneratePayload } from "./jobs/extract";
 import { getSettingJson } from "./provider";
-import { matte } from "./jobs/matting";
+import { matte, type SpriteMattingParams } from "./jobs/matting";
 import { JobCancelledError } from "./jobs/run";
 import { splitImageLayers, type ImageLayersPayload } from "./jobs/imageLayers";
 import { splitComfyLayers, type ComfyLayersPayload } from "./jobs/comfyLayers";
@@ -13,7 +13,7 @@ export interface JobPayload {
   extract?: ExtractPayload;
   generate?: GeneratePayload;
   /** pipeline 非空时走 sprite 管线（chroma/birefnet…）而非 rembg */
-  matting?: { target: "frame" | "material"; id: string; pipeline?: string };
+  matting?: { target: "frame" | "material"; id: string; pipeline?: string; model?: string; mattingParams?: Record<string, unknown> };
   imageLayers?: ImageLayersPayload;
   comfyLayers?: ComfyLayersPayload;
   aiEngine?: AiEnginePayload;
@@ -118,12 +118,14 @@ export function createMattingJob(
   projectId: string,
   target: "frame" | "material",
   targetId: string,
-  pipeline?: string
+  pipeline?: string,
+  model?: string,
+  mattingParams?: Record<string, unknown>
 ): { jobId: string; duplicate: boolean } {
   // 去重按目标素材（同图重复入队无意义）；pipeline 不参与去重键
   const existing = findActiveMattingJob(target, targetId);
   if (existing) return { jobId: existing, duplicate: true };
-  return { jobId: createJob(projectId, "matting", { matting: { target, id: targetId, pipeline } }), duplicate: false };
+  return { jobId: createJob(projectId, "matting", { matting: { target, id: targetId, pipeline, model, mattingParams } }), duplicate: false };
 }
 
 function enqueueMatting(projectId: string, target: "frame" | "material", id: string) {
@@ -201,7 +203,7 @@ async function runJob(id: string) {
       if (payload.generate.followUp && generated[0]?.kind === "image") generatedReferenceId = generated[0].id;
     } else if (job.type === "matting" && payload.matting) {
       if (signal.aborted) throw new JobCancelledError();
-      const warn = await matte(payload.matting.target, payload.matting.id, signal, payload.matting.pipeline);
+      const warn = await matte(payload.matting.target, payload.matting.id, signal, payload.matting.pipeline, payload.matting.model, payload.matting.mattingParams as SpriteMattingParams | undefined);
       if (warn) report(warn); // 引擎缺失等警告写进 job.progress
     } else if (job.type === "image_layers" && payload.imageLayers) {
       await splitImageLayers(payload.imageLayers, report, signal);
