@@ -11,7 +11,7 @@ import serverPackage from "../../package.json" with { type: "json" };
 import { register as registerProjectTools } from "./tools/projects";
 import { register as registerFrameTools } from "./tools/frames";
 import { register as registerGenerationTools } from "./tools/generation";
-import { register as registerMaterialTools } from "./tools/materials";
+import { register as registerMaterialTools, registerDiagTools } from "./tools/materials";
 import { register as registerFolderTools } from "./tools/folders";
 import { register as registerJobTools } from "./tools/jobs";
 import { register as registerGraphTools } from "./tools/graphs";
@@ -25,6 +25,7 @@ export const mcpHandler = createMcpHandler(() => {
   registerTimelineTools(server);
   registerGenerationTools(server);
   registerMaterialTools(server);
+  registerDiagTools(server);
   registerFolderTools(server);
   registerJobTools(server);
   registerGraphTools(server);

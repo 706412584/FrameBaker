@@ -3,7 +3,7 @@
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type CropRect, type DetectComponentsOptions, type EraseStroke, type ImageAnalysis, type ImageOpRequest, type ImageOpResponse } from "./ops";
 import { quantizeImageData, type PaletteColor, type QuantizeOptions } from "./quantize";
 import { analyzeUiSmartSlicesData, type UiSmartSliceOptions, type UiSmartSliceResult } from "../graph/uiSlice";
-import { diagnoseSheetCells, type SheetDiagnostic } from "./frameDiag";
+import { diagnoseSheetCells, type SheetDiagnostic } from "@framebaker/shared";
 
 
 let worker: Worker | null = null;
@@ -318,7 +318,7 @@ export async function frameDiagnose(blob: Blob, rows: number, cols: number): Pro
   }
 }
 
-export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "./frameDiag";
+export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "@framebaker/shared";
 
 async function mainSliceAnalyze(blob: Blob, options: Partial<UiSmartSliceOptions>): Promise<UiSmartSliceResult> {
   const bitmap = await createImageBitmap(blob);

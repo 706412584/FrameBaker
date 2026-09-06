@@ -11,6 +11,7 @@ import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/e
 import { getImageLayerSettings, imageLayerConfigured, getSpriteMattingSettings, spriteMattingConfigured } from "../../provider";
 import { isValidSpritePipeline } from "../../jobs/matting";
 import { getAiEngineStatus } from "../../jobs/aiEngine";
+import { AI_ENGINE_PYTHON, BUNDLED_SPRITE_PYTHON } from "../../paths";
 import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
 import { invalidateProjectUndo } from "../../undo";
 
@@ -60,10 +61,12 @@ export function register(server: McpServer) {
       inputSchema: z.object({
         materialId: z.string().describe("Material UUID"),
         pipeline: z.string().optional().describe("Sprite pipeline mode(s): chroma, spriteflow, birefnet, corridorkey, luma, additive — comma-separated for combination (e.g. 'chroma,birefnet'). Empty = default rembg engine."),
+        model: z.string().optional().describe("rembg model override (u2net / u2netp / u2net_human_seg / isnet-general-use / isnet-anime / birefnet-general / birefnet-portrait). Only used when pipeline is empty."),
+        mattingParams: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe("Sprite pipeline tuning params (camelCase keys): chroma→threshold(default 20 safe)/softness/despillStrength/keyMode/manualKeyHex; spriteflow→sfTolerance(25)/sfBlendZoneRatio/sfSpillRemoval/sfSpillStrength; birefnet→aiResolution; corridorkey→corridorkeyScreen; luma→lumaBlack/lumaWhite/lumaStrength. Defaults are conservative — omit unless the matting result is wrong."),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ materialId, pipeline }) => {
+    async ({ materialId, pipeline, model, mattingParams }) => {
       const m = getMaterial(materialId);
       if (!m) return err("素材不存在");
       if (!m.raw_path || !existsSync(m.raw_path)) return err("素材缺少 raw 文件");
@@ -75,7 +78,7 @@ export function register(server: McpServer) {
       if (mode && !spriteMattingConfigured(getSpriteMattingSettings())) {
         return err("sprite 抠图未配置：设置页填 pythonBin 与 matte_cli.py 路径");
       }
-      const r = createMattingJob("", "material", m.id, mode || undefined);
+      const r = createMattingJob("", "material", m.id, mode || undefined, model?.trim() || undefined, mattingParams);
       if (r.duplicate) return err("该素材已有进行中的抠图任务");
       return ok({ jobId: r.jobId });
     }
@@ -159,10 +162,12 @@ export function register(server: McpServer) {
       inputSchema: z.object({
         ids: z.array(z.string()).describe("Material UUIDs to process"),
         pipeline: z.string().optional().describe("Sprite pipeline mode(s), comma-combined (e.g. 'birefnet' or 'chroma,luma'). Empty = default rembg engine."),
+        model: z.string().optional().describe("rembg model override (only when pipeline is empty)"),
+        mattingParams: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe("Sprite pipeline tuning params, same keys as matting_material"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ ids, pipeline }) => {
+    async ({ ids, pipeline, model, mattingParams }) => {
       const mode = pipeline?.trim() ?? "";
       if (mode && !isValidSpritePipeline(mode)) return err("不支持的抠图管线：" + mode);
       let count = 0;
@@ -174,7 +179,7 @@ export function register(server: McpServer) {
           skipped++;
           continue;
         }
-        const r = createMattingJob("", "material", id, mode || undefined);
+        const r = createMattingJob("", "material", id, mode || undefined, model?.trim() || undefined, mattingParams);
         if (r.duplicate) {
           skipped++;
           continue;
@@ -354,6 +359,137 @@ export function register(server: McpServer) {
       db.query("UPDATE materials SET status = 'raw', processed_path = NULL WHERE id = ?").run(m.id);
       broadcast("material_updated", { id: m.id });
       return ok({ material: serializeMaterial(getMaterial(m.id)!) });
+    }
+  );
+}
+
+// ===== 网格切帧诊断（AI 编排自查：切完帧知道哪帧坏了）=====
+
+/** Python 版 diagnose（语义与 shared/frameDiag.ts 一致）：PIL 解码 + 逐格内容检测 + 漂移警告 */
+const DIAG_PY = `
+import json, sys
+from PIL import Image
+
+path, rows, cols = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+img = Image.open(path).convert("RGBA")
+W, H = img.size
+px = img.load()
+
+# 背景采样（六点平均，对齐 frameDiag sampleBackground）
+samples = [(0,0),(W-1,0),(0,H-1),(W-1,H-1),(W//2,0),(W//2,H-1)]
+bg = [sum(px[x,y][c] for x,y in samples)//len(samples) for c in range(3)]
+tol2 = 30*30*3
+
+def is_content(x, y):
+    r,g,b,a = px[x,y]
+    if a < 24: return False
+    if a < 245: return True
+    dr,dg,db = r-bg[0], g-bg[1], b-bg[2]
+    return dr*dr+dg*dg+db*db > tol2
+
+cell_w, cell_h = W//cols, H//rows
+frames = []
+for row in range(rows):
+    for col in range(cols):
+        x0, y0 = col*cell_w, row*cell_h
+        x1 = W if col == cols-1 else (col+1)*cell_w
+        y1 = H if row == rows-1 else (row+1)*cell_h
+        minx=miny=10**9; maxx=maxy=-1; count=0
+        for y in range(y0,y1):
+            for x in range(x0,x1):
+                if is_content(x,y):
+                    count+=1
+                    if x<minx:minx=x
+                    if x>maxx:maxx=x
+                    if y<miny:miny=y
+                    if y>maxy:maxy=y
+        cw, ch = x1-x0, y1-y0
+        if count < max(4,(cw*ch)//5000) or maxx<minx:
+            frames.append({"index":row*cols+col,"cell":{"x":x0,"y":y0,"w":cw,"h":ch},"content":None,"occupancy":0,"centerOffsetX":0,"centerOffsetY":0,"sameCellScore":0,"warnings":["empty-or-background-only"]})
+            continue
+        content={"x":minx,"y":miny,"w":maxx-minx+1,"h":maxy-miny+1}
+        frames.append({"cell":{"x":x0,"y":y0,"w":cw,"h":ch},"content":content,"index":row*cols+col,"_":0})
+
+valid=[f for f in frames if f["content"]]
+avg_w=sum(f["content"]["w"] for f in valid)/max(1,len(valid))
+avg_h=sum(f["content"]["h"] for f in valid)/max(1,len(valid))
+centers=[((f["content"]["x"]+f["content"]["w"]/2-f["cell"]["x"])/f["cell"]["w"],(f["content"]["y"]+f["content"]["h"]/2-f["cell"]["y"])/f["cell"]["h"]) for f in valid]
+avg_cx=sum(c[0] for c in centers)/max(1,len(centers)) if centers else 0.5
+avg_cy=sum(c[1] for c in centers)/max(1,len(centers)) if centers else 0.5
+
+out_frames=[]
+for f in frames:
+    cell, content = f["cell"], f["content"]
+    warns=[]
+    if content:
+        rel_w=abs(content["w"]-avg_w)/avg_w if avg_w else 1
+        rel_h=abs(content["h"]-avg_h)/avg_h if avg_h else 1
+        ox=(content["x"]+content["w"]/2-(cell["x"]+cell["w"]/2))/cell["w"]
+        oy=(content["y"]+content["h"]/2-(cell["y"]+cell["h"]/2))/cell["h"]
+        ncx=(content["x"]+content["w"]/2-cell["x"])/cell["w"]
+        ncy=(content["y"]+content["h"]/2-cell["y"])/cell["h"]
+        gdist=((ncx-avg_cx)**2+(ncy-avg_cy)**2)**0.5
+        score=max(0,1-(rel_w+rel_h+abs(ox)+abs(oy)+gdist)/2.5)
+        occ=(content["w"]*content["h"])/(cell["w"]*cell["h"])
+        if rel_w>0.22: warns.append("width-drift")
+        if rel_h>0.22: warns.append("height-drift")
+        if abs(ox)>0.14: warns.append("horizontal-offset")
+        if abs(oy)>0.14: warns.append("vertical-offset")
+        if occ<0.04: warns.append("tiny-content")
+        out_frames.append({"index":f["index"],"cell":cell,"content":content,"occupancy":round(occ,4),"centerOffsetX":round(ox,4),"centerOffsetY":round(oy,4),"sameCellScore":round(score,4),"warnings":warns})
+    else:
+        out_frames.append(f)
+
+result={"sheetWidth":W,"sheetHeight":H,"rows":rows,"cols":cols,"frames":out_frames,"warnings":["frame-occupancy-varies"] if any(f["warnings"] for f in out_frames) else []}
+print(json.dumps(result))
+`;
+
+/** 服务端找带 PIL 的 python：AI 引擎 venv → 内置 sprite venv → 配置的 sprite venv */
+function diagPython(): string | null {
+  const candidates = [
+    AI_ENGINE_PYTHON,
+    BUNDLED_SPRITE_PYTHON,
+  ].filter((p): p is string => !!p);
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+export function registerDiagTools(server: McpServer) {
+  server.registerTool(
+    "diagnose_material_grid",
+    {
+      title: "Diagnose Material Grid Frames",
+      description:
+        "Check whether a sprite-sheet material splits cleanly into a rows×cols grid BEFORE cutting: per-frame content bounding box, occupancy, center offsets, width/height drift and warnings (empty-or-background-only / tiny-content / width-drift / height-drift / horizontal-offset / vertical-offset). Use after generating sprite sheets or before grid-splitting to catch bad frames. Runs a local Python (PIL) — needs sprite/AI engine configured.",
+      inputSchema: z.object({
+        materialId: z.string().describe("Material UUID (image)"),
+        rows: z.number().int().min(1).max(16),
+        cols: z.number().int().min(1).max(16),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ materialId, rows, cols }) => {
+      const m = getMaterial(materialId);
+      if (!m) return err("素材不存在");
+      const input = m.processed_path && existsSync(m.processed_path) ? m.processed_path : m.raw_path;
+      if (!input || !existsSync(input) || /\.(mp4|mov|webm|avi|gif)$/i.test(input)) return err("只支持图片素材");
+      const py = diagPython();
+      if (!py) return err("诊断需要本地 Python（PIL）：安装 AI 引擎或配置 sprite 抠图");
+      const proc = Bun.spawnSync([py, "-c", DIAG_PY, input, String(rows), String(cols)], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (proc.exitCode !== 0) {
+        return err("诊断失败: " + new TextDecoder().decode(proc.stderr).slice(0, 300));
+      }
+      try {
+        const diag = JSON.parse(new TextDecoder().decode(proc.stdout)) as unknown;
+        return ok({ diagnostic: diag });
+      } catch {
+        return err("诊断输出解析失败");
+      }
     }
   );
 }

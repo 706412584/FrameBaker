@@ -52,9 +52,9 @@ import type { QuantizeOptions, PaletteColor } from "./quantize";
 // UI 智能切片类型（实现与算法在 ../graph/uiSlice.ts；连通域复用本文件的 connectedComponentsOnMask）
 export type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
 import type { UiSmartSliceOptions, UiSliceRect, UiSliceCandidate, UiSmartSliceResult } from "../graph/uiSlice";
-// 网格切帧诊断类型（实现与算法在 ./frameDiag.ts；移植 sprite 工坊 spriteflow/slicer）
-export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "./frameDiag";
-import type { SheetDiagnostic } from "./frameDiag";
+// 网格切帧诊断类型（实现与算法在 @framebaker/shared frameDiag；移植 sprite 工坊 spriteflow/slicer）
+export type { DiagRect, FrameDiagnostic, SheetDiagnostic } from "@framebaker/shared";
+import type { SheetDiagnostic } from "@framebaker/shared";
 
 export interface ImageOpRequest {
   id: number;

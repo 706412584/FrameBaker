@@ -4,7 +4,7 @@
 import { computeImageAnalysis, computeOpaqueBounds, detectOpaqueComponents, warpImagePixels, type DetectComponentsOptions, type EraseStroke, type ImageOpRequest, type ImageOpResponse } from "./ops";
 import { quantizeImageData, type QuantizeOptions } from "./quantize";
 import { analyzeUiSmartSlicesData } from "../graph/uiSlice";
-import { diagnoseSheetCells } from "./frameDiag";
+import { diagnoseSheetCells } from "@framebaker/shared";
 
 
 declare function postMessage(message: ImageOpResponse): void;
