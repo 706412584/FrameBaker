@@ -50,9 +50,9 @@ export function isValidSpritePipeline(pipeline: string): boolean {
   return pipeline.split(",").map((s) => s.trim()).filter(Boolean).every((m) => SPRITE_PIPELINES.has(m));
 }
 
-/** python 是否装了 torch（结果缓存；探测一次 import，约 100-500ms） */
+/** python 是否装了 torch（结果缓存；探测一次 import，约 100-500ms）。graph 节点与素材库共用。 */
 const torchProbeCache = new Map<string, boolean>();
-function pythonHasTorch(pythonBin: string): boolean {
+export function pythonHasTorch(pythonBin: string): boolean {
   const cached = torchProbeCache.get(pythonBin);
   if (cached !== undefined) return cached;
   let has = false;
@@ -67,6 +67,18 @@ function pythonHasTorch(pythonBin: string): boolean {
 }
 
 /**
+ * 解析跑 sprite 管线用的 python：birefnet/corridorkey 需要 torch，
+ * 配置的 python（常为外部 sprite venv，只装 OpenCV 系轻依赖）没有时自动切 AI 引擎 venv-ai。
+ * 素材库抠图与 graph matte.* 节点共用此逻辑。
+ */
+export function resolveSpritePipelinePython(pythonBin: string, mode: string): string {
+  if (/birefnet|corridorkey/.test(mode) && AI_ENGINE_PYTHON && existsSync(AI_ENGINE_PYTHON) && !pythonHasTorch(pythonBin)) {
+    return AI_ENGINE_PYTHON;
+  }
+  return pythonBin;
+}
+
+/**
  * 抠图执行，解析顺序：
  * a. pipeline 参数（sprite 管线：chroma/birefnet 等，走 matte_cli.py）——素材库/帧抠图的显式选择
  * b. 设置页结构化 CLI（命令 + 参数名映射，免模板）或 env FRAMEBAKER_MATTING_CLI 遗留模板（占位符 {input} {output}，可选 {model}）
@@ -78,18 +90,14 @@ function pythonHasTorch(pythonBin: string): boolean {
  */
 export async function runMatting(input: string, output: string, signal?: AbortSignal, pipeline?: string): Promise<string | null> {
   // a. sprite 管线（显式选择，最高优先）：与图工作流 matte.pipeline 节点同一 CLI 同一语义。
-  // birefnet 等 AI 模式需要 torch：配置的 python 没有 torch 时自动切 AI 引擎的 venv-ai
+  // birefnet 等 AI 模式需要 torch：配置的 python 没有时自动切 AI 引擎的 venv-ai
   // （外部 sprite venv 常只装 OpenCV 系轻依赖）。
   if (pipeline && pipeline.trim()) {
     const settings = getSpriteMattingSettings();
     if (!spriteMattingConfigured(settings)) {
       throw new Error("sprite 抠图未配置：设置页填 pythonBin 与 matte_cli.py 路径");
     }
-    const needsTorch = /birefnet|corridorkey/.test(pipeline);
-    let pythonBin = settings.pythonBin;
-    if (needsTorch && AI_ENGINE_PYTHON && existsSync(AI_ENGINE_PYTHON) && !pythonHasTorch(pythonBin)) {
-      pythonBin = AI_ENGINE_PYTHON;
-    }
+    const pythonBin = resolveSpritePipelinePython(settings.pythonBin, pipeline);
     await runCmd(
       [pythonBin, settings.cliPath, "--input", input, "--output", output, "--pipeline", pipeline.trim()],
       AI_ENGINE_MODELS && existsSync(AI_ENGINE_MODELS)

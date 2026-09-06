@@ -7,7 +7,7 @@ import type { GraphNode } from "@framebaker/shared";
 import JSZip from "jszip";
 import { db, STORAGE_ROOT, uid } from "../db";
 import { JobCancelledError, runCmd } from "../jobs/run";
-import { runMatting } from "../jobs/matting";
+import { resolveSpritePipelinePython, runMatting } from "../jobs/matting";
 import { getSpriteMattingSettings, spriteMattingConfigured } from "../provider";
 import { MANIFEST_GENERATORS, VALID_MANIFEST_FORMATS, type FramePosition, type FormatData, type ManifestFormat } from "./exportFormats";
 import { packSheetBest } from "./rectpack";
@@ -371,6 +371,9 @@ async function spriteMatteNode(
     extraArgs.push("--decontaminate", "true");
   }
 
+  // birefnet/corridorkey 需要 torch：配置的外部 venv 没有时自动切 AI 引擎 venv-ai
+  // （否则 RuntimeError: torch is not installed —— 外部 sprite venv 常只装 OpenCV 系轻依赖）
+  const pythonBin = resolveSpritePipelinePython(settings.pythonBin, mode);
   const outPaths: string[] = [];
   for (let i = 0; i < images.paths.length; i++) {
     if (ctx.signal.aborted) throw new JobCancelledError();
@@ -378,7 +381,7 @@ async function spriteMatteNode(
     const dst = join(ctx.outputDir, `matte_${String(i).padStart(4, "0")}.png`);
     await runCmd(
       [
-        settings.pythonBin, settings.cliPath,
+        pythonBin, settings.cliPath,
         "--input", images.paths[i]!,
         "--output", dst,
         "--pipeline", mode,
