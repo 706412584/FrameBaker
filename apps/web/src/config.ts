@@ -25,6 +25,7 @@ async function fetchConfig(): Promise<ServerConfig | null> {
       // 热更新期间旧后端可能不下发 comfyLocal/aiEngine，兜底避免前端读属性崩溃。
       comfyLocal: raw.comfyLocal ?? { configured: false },
       aiEngine: raw.aiEngine ?? { installed: false, birefnetPython: false, rembgVenv: false, models: [] },
+      mcp: raw.mcp ?? { port: 5842, dedicatedPort: null, toolCount: 0 },
       promptEnhancers: Array.isArray(raw.promptEnhancers) ? raw.promptEnhancers : [],
     };
     cache = cfg;

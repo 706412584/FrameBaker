@@ -267,6 +267,30 @@ export default function SettingsPage() {
   const [savingComfy, setSavingComfy] = useState(false);
   const [aiInstalling, setAiInstalling] = useState(false);
   const [aiAllModels, setAiAllModels] = useState(false);
+  const [mcpPort, setMcpPort] = useState("");
+  const [savingMcp, setSavingMcp] = useState(false);
+
+  /** MCP 独立端口保存（清空 = 回落主端口 /mcp）；改后重启服务生效 */
+  const saveMcpPort = async () => {
+    setSavingMcp(true);
+    try {
+      const trimmed = mcpPort.trim();
+      if (trimmed !== "") {
+        const n = Number(trimmed);
+        if (!Number.isFinite(n) || n < 1 || n > 65535) throw new Error(t("msg.mcp.portInvalid"));
+        if (cfg && n === cfg.mcp.port) throw new Error(t("msg.mcp.portSameAsMain"));
+        await api.putSetting("mcpPort", n);
+      } else {
+        await api.putSetting("mcpPort", null);
+      }
+      await refreshServerConfig();
+      notify(t("msg.mcp.saved"), "info");
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setSavingMcp(false);
+    }
+  };
   const [imageLayers, setImageLayers] = useState<ImageLayerSettings>(IMAGE_LAYERS_DEFAULT);
   const [enhancers, setEnhancers] = useState<EnhancerDraft[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -284,6 +308,11 @@ export default function SettingsPage() {
   const [doctor, setDoctor] = useState<DoctorResponse | null>(null);
   const [doctorLoading, setDoctorLoading] = useState(false);
   const cfg = useServerConfig();
+
+  // MCP 独立端口回填（config 变化时同步输入框）
+  useEffect(() => {
+    if (cfg?.mcp.dedicatedPort) setMcpPort(String(cfg.mcp.dedicatedPort));
+  }, [cfg?.mcp.dedicatedPort]);
 
   // 打开时回填 settings 表中的值（env 兜底在服务端，这里只编辑设置页自己的值）
   useEffect(() => {
@@ -1051,6 +1080,47 @@ export default function SettingsPage() {
               <Trash2 size={14} /> {t("msg.aiEngine.remove")}
             </motion.button>
           )}
+        </div>
+      </section>
+
+      {/* ===== MCP 连接 ===== */}
+      <section className="settings-sec">
+        <h3>
+          <PlugZap size={14} /> {t("msg.mcp.title")}
+          <span className={`engine-status ${cfg ? "ok" : "bad"}`}>
+            <span className="dot" />
+            {cfg ? t("msg.mcp.ready", { count: cfg.mcp.toolCount }) : t("msg.detecting_engine")}
+          </span>
+        </h3>
+        <p className="hint">{t("msg.mcp.hint")}</p>
+        <div className="settings-grid">
+          <label>
+            {t("msg.mcp.mainUrl")}
+            <input readOnly value={cfg ? `http://localhost:${cfg.mcp.port}/mcp` : "…"} onFocus={(e) => e.currentTarget.select()} />
+          </label>
+          <label>
+            {t("msg.mcp.dedicatedPort")}
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              placeholder={cfg?.mcp.dedicatedPort ? String(cfg.mcp.dedicatedPort) : t("msg.mcp.portPlaceholder")}
+              value={mcpPort}
+              disabled={savingMcp}
+              onChange={(e) => setMcpPort(e.target.value)}
+            />
+          </label>
+        </div>
+        {cfg?.mcp.dedicatedPort && (
+          <p className="hint">
+            {t("msg.mcp.dedicatedUrl")}: <code>http://localhost:{cfg.mcp.dedicatedPort}/mcp</code>
+            {mcpPort !== String(cfg.mcp.dedicatedPort) ? ` · ${t("msg.mcp.pendingRestart")}` : ""}
+          </p>
+        )}
+        <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+          <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" disabled={savingMcp} onClick={() => void saveMcpPort()}>
+            <Save size={14} /> {savingMcp ? t("msg.saving") : t("msg.mcp.save")}
+          </motion.button>
         </div>
       </section>
 

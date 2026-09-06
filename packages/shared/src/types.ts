@@ -421,6 +421,15 @@ export interface ServerConfig {
     rembgVenv: boolean;
     models: string[];
   };
+  /** MCP 连接信息（设置页显示 + AI 客户端接入） */
+  mcp: {
+    /** 主服务端口（MCP 默认挂 http://localhost:port/mcp） */
+    port: number;
+    /** 独立 MCP 端口（settings mcpPort 配置后生效；null = 未配置，用主端口） */
+    dedicatedPort: number | null;
+    /** MCP 工具总数 */
+    toolCount: number;
+  };
   gen: {
     /** 全部已配置 provider（不含 apiKey）；生成时按 id 选择 */
     providers: GenProviderInfo[];
@@ -694,6 +703,7 @@ export const SETTING_KEYS = [
   "imageLayers",
   "promptEnhancers",
   "queueConcurrency",
+  "mcpPort",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 

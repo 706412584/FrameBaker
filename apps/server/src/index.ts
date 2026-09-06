@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "./app";
 import { wsHandlers } from "./ws";
+import { db } from "./db";
+import { mcpHandler } from "./mcp";
 import { assertPackagedResources, PACKAGED, WEB_DIST_ROOT } from "./paths";
 
 const port = Number(process.env.PORT ?? 5842);
@@ -109,3 +111,27 @@ serve({
 });
 
 console.log(`FrameBaker → http://localhost:${port}${PACKAGED ? "（打包模式）" : ""}`);
+
+// MCP 独立端口（可选）：settings mcpPort 非空时，在独立端口裸 serve /mcp。
+// 默认复用主端口 /mcp 路由（http://localhost:PORT/mcp）——零配置可用；
+// 独立端口给 AI 客户端专用连接（设置页可配，改后重启生效）。
+// 注意：静态 import —— compile 单文件模式下 serve() 之后的顶层 await 动态
+// import 不执行（实测），不能用动态导入。
+{
+  const row = db.query("SELECT value FROM settings WHERE key = 'mcpPort'").get() as { value: string } | undefined;
+  const mcpPort = row ? Number(JSON.parse(row.value)) : Number(process.env.FRAMEBAKER_MCP_PORT ?? 0);
+  if (Number.isFinite(mcpPort) && mcpPort >= 1 && mcpPort <= 65535 && mcpPort !== port) {
+    serve({
+      port: mcpPort,
+      fetch(req) {
+        const url = new URL(req.url);
+        // 独立端口根路径也回 MCP（客户端常直接填 host:port）
+        if (url.pathname === "/mcp" || url.pathname === "/") {
+          return mcpHandler.fetch(new Request(`http://localhost:${port}/mcp`, req));
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    console.log(`FrameBaker MCP → http://localhost:${mcpPort}/mcp（独立端口）`);
+  }
+}

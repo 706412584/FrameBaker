@@ -32,3 +32,20 @@ export const mcpHandler = createMcpHandler(() => {
   registerSystemTools(server);
   return server;
 });
+
+/** MCP 工具总数（设置页连接信息显示用）——各 tools 模块的注册名清单 */
+export const MCP_TOOL_NAMES = [
+  "list_projects", "get_project", "create_project", "update_project", "delete_project",
+  "list_frames", "update_frame", "delete_frame", "clear_frame_cell", "duplicate_frame", "reorder_frames",
+  "get_timeline", "create_track", "update_track", "delete_track", "reorder_tracks",
+  "create_step", "update_step", "delete_step", "reorder_steps", "move_frame_cell", "place_frames_batch", "upsert_attack_effect",
+  "generate_frames", "generate_materials",
+  "list_materials", "rename_material", "matting_material", "split_material_layers", "batch_matting",
+  "extract_material_frames", "import_material_to_project", "batch_import_materials", "batch_delete_materials",
+  "unmatting_material", "split_material_layers_local", "get_ai_engine_status", "diagnose_material_grid",
+  "list_folders", "create_folder", "update_folder", "delete_folder", "move_items_to_folder",
+  "list_jobs", "get_job", "cancel_job",
+  "list_graph_node_schemas", "list_graphs", "create_graph", "get_graph", "add_graph_node",
+  "connect_graph_nodes", "delete_graph", "run_graph", "cancel_graph_run", "get_graph_run_status",
+  "get_config", "run_doctor", "get_settings", "update_setting", "enhance_prompt",
+] as const;

@@ -22,7 +22,7 @@ import { graphsApi } from "./api/graphs";
 import { beginProjectUndo, finishProjectUndo, undoProject } from "./undo";
 import { timelineApi } from "./api/timeline";
 import { attackEffectsApi } from "./api/attackEffects";
-import { mcpHandler } from "./mcp";
+import { mcpHandler, MCP_TOOL_NAMES } from "./mcp";
 import { cancelJob, createJob, getQueueConcurrency } from "./queue";
 import { broadcast } from "./ws";
 import { FONTS_ROOT, PACKAGED, PIXI_BUNDLE_PATH, WORKER_PREBUILT_PATH } from "./paths";
@@ -137,6 +137,19 @@ export const app = new Elysia()
     configured: comfyLocalConfigured(getComfyLocalSettings()),
   },
   aiEngine: getAiEngineStatus(),
+      mcp: (() => {
+        const saved = db.query("SELECT value FROM settings WHERE key = 'mcpPort'").get() as { value: string } | undefined;
+        let dedicated: number | null = null;
+        try {
+          const parsed = saved ? Number(JSON.parse(saved.value)) : Number.NaN;
+          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) dedicated = parsed;
+        } catch { /* 非法配置忽略 */ }
+        return {
+          port: Number(process.env.PORT ?? 5842),
+          dedicatedPort: dedicated,
+          toolCount: MCP_TOOL_NAMES.length,
+        };
+      })(),
       gen: {
         providers: getGenProviders().map((p) => ({
           id: p.id,
