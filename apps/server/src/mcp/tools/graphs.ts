@@ -1,7 +1,10 @@
 import * as z from "zod/v4";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { GraphEdge, GraphNode } from "@framebaker/shared";
 import { db, uid } from "../../db";
 import { getNodeSchema, listNodeSchemas, portsCompatible } from "../../graph/registry";
+import { cancelGraphRun, ensureGraphStorage, isGraphRunning, runGraph } from "../../graph/executor";
+import { serializeGraph } from "../../api/graphs";
 import { ok, err } from "../helpers";
 
 function graphExists(id: string): boolean {
@@ -172,6 +175,81 @@ export function register(server: McpServer) {
         db.query("DELETE FROM graphs WHERE id = ?").run(graphId);
       })();
       return ok({ ok: true });
+    }
+  );
+
+  server.registerTool(
+    "run_graph",
+    {
+      title: "Run Graph",
+      description:
+        "Execute a workflow graph asynchronously (topological order, per-node caching by content hash). Progress is broadcast via WS graph_node_status; poll get_graph_run_status / list_jobs. Client-executed nodes (quantize/slice) require the web canvas connected — server nodes (extract/matte/export/generate) run headless. Returns error if graph is empty or already running.",
+      inputSchema: z.object({ graphId: z.string().describe("Graph UUID") }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ graphId }) => {
+      if (!graphExists(graphId)) return err("工作流不存在");
+      const doc = serializeGraph(graphId);
+      if (!doc) return err("工作流不存在");
+      if (doc.nodes.length === 0) return err("图中没有节点");
+      if (isGraphRunning(graphId)) return err("该工作流已在执行中");
+      ensureGraphStorage();
+      const nodes: GraphNode[] = doc.nodes.map((n) => ({
+        id: n.id,
+        graph_id: n.graph_id,
+        type: n.type,
+        params: n.params,
+        x: n.x,
+        y: n.y,
+      }));
+      const edges = doc.edges as GraphEdge[];
+      runGraph(graphId, { nodes, edges }).catch((e) => {
+        console.error(`[graph ${graphId}] MCP 触发执行失败:`, e instanceof Error ? e.message : e);
+      });
+      return ok({ ok: true, running: true });
+    }
+  );
+
+  server.registerTool(
+    "cancel_graph_run",
+    {
+      title: "Cancel Graph Run",
+      description: "Cancel the running execution of a workflow graph (aborts node subprocesses).",
+      inputSchema: z.object({ graphId: z.string().describe("Graph UUID") }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ graphId }) => {
+      if (!graphExists(graphId)) return err("工作流不存在");
+      if (!cancelGraphRun(graphId)) return err("没有进行中的执行");
+      return ok({ ok: true });
+    }
+  );
+
+  server.registerTool(
+    "get_graph_run_status",
+    {
+      title: "Get Graph Run Status",
+      description:
+        "Latest run of a graph: status (running/done/error) and per-node states (nodeId, type, status, error, elapsed). Also current running flag. Use after run_graph to poll completion.",
+      inputSchema: z.object({ graphId: z.string().describe("Graph UUID") }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ graphId }) => {
+      if (!graphExists(graphId)) return err("工作流不存在");
+      const run = db
+        .query("SELECT * FROM graph_runs WHERE graph_id = ? ORDER BY started_at DESC LIMIT 1")
+        .get(graphId) as { id: string; status: string; started_at: number; finished_at: number | null; node_states: string } | undefined;
+      if (!run) return ok({ running: isGraphRunning(graphId), run: null });
+      let nodeStates: unknown = [];
+      try {
+        nodeStates = JSON.parse(run.node_states);
+      } catch {
+        /* ignore */
+      }
+      return ok({
+        running: isGraphRunning(graphId),
+        run: { id: run.id, status: run.status, startedAt: run.started_at, finishedAt: run.finished_at, nodeStates },
+      });
     }
   );
 }

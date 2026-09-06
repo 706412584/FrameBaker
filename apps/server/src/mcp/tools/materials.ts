@@ -8,7 +8,9 @@ import { db, getMaterial, renameMaterial, uid, STORAGE_ROOT, serializeMaterial }
 import { broadcast } from "../../ws";
 import { createJob, createMattingJob } from "../../queue";
 import { EXTRACT_TIMESTAMPS_MAX, normalizeExtractTimestamps } from "../../jobs/extract";
-import { getImageLayerSettings, imageLayerConfigured } from "../../provider";
+import { getImageLayerSettings, imageLayerConfigured, getSpriteMattingSettings, spriteMattingConfigured } from "../../provider";
+import { isValidSpritePipeline } from "../../jobs/matting";
+import { getAiEngineStatus } from "../../jobs/aiEngine";
 import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
 import { invalidateProjectUndo } from "../../undo";
 
@@ -54,21 +56,68 @@ export function register(server: McpServer) {
     {
       title: "Matting Material",
       description:
-        "Run background removal (matting) on a single material. Creates an async job—returns jobId. Uses configured matting engine (custom CLI → bundled rembg → PATH rembg → passthrough). Same material with active matting job returns error.",
+        "Run background removal on a single material. Creates an async job—returns jobId. Engine resolution: pipeline param set (chroma/spriteflow/birefnet/corridorkey/luma/additive, comma-combined — runs sprite matte_cli.py, birefnet/corridorkey auto-switch to AI engine venv when configured python lacks torch) → else configured matting engine (custom CLI → bundled rembg → PATH rembg → passthrough). Same material with active matting job returns error.",
       inputSchema: z.object({
         materialId: z.string().describe("Material UUID"),
+        pipeline: z.string().optional().describe("Sprite pipeline mode(s): chroma, spriteflow, birefnet, corridorkey, luma, additive — comma-separated for combination (e.g. 'chroma,birefnet'). Empty = default rembg engine."),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ materialId }) => {
+    async ({ materialId, pipeline }) => {
       const m = getMaterial(materialId);
       if (!m) return err("素材不存在");
       if (!m.raw_path || !existsSync(m.raw_path)) return err("素材缺少 raw 文件");
       if (/\.(mp4|mov|webm|avi)$/i.test(m.raw_path)) return err("视频素材不能抠图，请先抽帧");
-      const r = createMattingJob("", "material", m.id);
+      const mode = pipeline?.trim() ?? "";
+      if (mode && !isValidSpritePipeline(mode)) {
+        return err("不支持的抠图管线：" + mode + "（可用：chroma/spriteflow/birefnet/corridorkey/luma/additive）");
+      }
+      if (mode && !spriteMattingConfigured(getSpriteMattingSettings())) {
+        return err("sprite 抠图未配置：设置页填 pythonBin 与 matte_cli.py 路径");
+      }
+      const r = createMattingJob("", "material", m.id, mode || undefined);
       if (r.duplicate) return err("该素材已有进行中的抠图任务");
       return ok({ jobId: r.jobId });
     }
+  );
+
+  server.registerTool(
+    "split_material_layers_local",
+    {
+      title: "Split Material Layers (Local ComfyUI)",
+      description:
+        "Decompose a flat image into RGBA layers via LOCAL ComfyUI Qwen-Image-Layered (free, needs local ComfyUI running; ~6-10 min). Alternative to split_material_layers (cloud). prompt describes the whole image incl. occluded parts to guide inpainting. Creates an async comfy_layers job; output layers land as new materials.",
+      inputSchema: z.object({
+        materialId: z.string(),
+        prompt: z.string().optional().describe("Whole-image description incl. occluded parts (guides inpaint)"),
+        layers: z.number().int().min(1).max(4).default(2).describe("Layer count; outputs = layers (+1 background, solid layers auto-filtered)"),
+        size: z.number().int().min(512).max(1024).default(640).describe("Resolution (640 recommended)"),
+        filterSolid: z.boolean().default(true).describe("Drop fully-opaque background plates"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ materialId, prompt, layers, size, filterSolid }) => {
+      const m = getMaterial(materialId);
+      if (!m) return err("素材不存在");
+      const input = m.processed_path && existsSync(m.processed_path) ? m.processed_path : m.raw_path;
+      if (!input || !existsSync(input) || /\.(mp4|mov|webm|avi|gif)$/i.test(input)) return err("只支持图片素材分层");
+      const jobId = createJob("", "comfy_layers", { comfyLayers: {
+        materialId, prompt: prompt?.trim() ?? "", layers, size, filterSolid,
+      } });
+      return ok({ jobId });
+    }
+  );
+
+  server.registerTool(
+    "get_ai_engine_status",
+    {
+      title: "Get AI Engine Status",
+      description:
+        "Check the on-demand AI matting engine (desktop packaged build): installed BiRefNet models, venv-ai (torch) and venv-rembg readiness. Source-code dev builds return installed:false (configure spriteMatting in settings instead).",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    },
+    async () => ok({ aiEngine: getAiEngineStatus() })
   );
 
   server.registerTool(
@@ -106,13 +155,16 @@ export function register(server: McpServer) {
     {
       title: "Batch Matting",
       description:
-        "Run background removal on multiple materials at once. Only materials with status=raw are enqueued; already matted, video, or with active matting jobs are skipped. Returns count of enqueued and skipped.",
+        "Run background removal on multiple materials at once. Only materials with status=raw are enqueued; already matted, video, or with active matting jobs are skipped. pipeline param routes to sprite matte_cli.py (chroma/birefnet/...) instead of the default rembg engine. Returns count of enqueued and skipped.",
       inputSchema: z.object({
         ids: z.array(z.string()).describe("Material UUIDs to process"),
+        pipeline: z.string().optional().describe("Sprite pipeline mode(s), comma-combined (e.g. 'birefnet' or 'chroma,luma'). Empty = default rembg engine."),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ ids }) => {
+    async ({ ids, pipeline }) => {
+      const mode = pipeline?.trim() ?? "";
+      if (mode && !isValidSpritePipeline(mode)) return err("不支持的抠图管线：" + mode);
       let count = 0;
       let skipped = 0;
       for (const id of ids) {
@@ -122,7 +174,7 @@ export function register(server: McpServer) {
           skipped++;
           continue;
         }
-        const r = createMattingJob("", "material", id);
+        const r = createMattingJob("", "material", id, mode || undefined);
         if (r.duplicate) {
           skipped++;
           continue;
