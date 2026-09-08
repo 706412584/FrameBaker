@@ -267,7 +267,15 @@ export default function GridSplitModal({ material: m, v, initialLine, onClose, o
       try {
         const res = await fetch(materialImageUrl(m.id, v, slot));
         if (!res.ok) throw new Error(t("msg.failed_to_read_material_image"));
-        const diag = await frameDiagnose(await res.blob(), rows, cols);
+        const blob = await res.blob();
+        // 先按用户选择的区域裁剪再诊断；overlay 渲染在 gs-region 内（百分比基准=区域尺寸），
+        // 裁剪后 diag 的 sheetWidth/Height 即区域宽高，坐标无需二次换算。
+        const rx = Math.max(0, Math.round(region.x));
+        const ry = Math.max(0, Math.round(region.y));
+        const rw = Math.max(1, Math.min(Math.round(region.w), imgSize.w - rx));
+        const rh = Math.max(1, Math.min(Math.round(region.h), imgSize.h - ry));
+        const cropped = await cropImage(blob, { x: rx, y: ry, w: rw, h: rh });
+        const diag = await frameDiagnose(cropped, rows, cols);
         if (alive) setFrameDiag(diag);
       } catch {
         if (alive) setFrameDiag(null);

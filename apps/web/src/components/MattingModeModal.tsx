@@ -172,10 +172,10 @@ export default function MattingModeModal({ material: m, onClose, onToast }: Prop
     setBusy(true);
     try {
       // 携带所选模式各自的参数（camelCase → 后端白名单 → --kebab-case）
+      // params 已用 DEFAULT_PARAMS 初始化，此处只取用户当前值，不能再用默认值覆盖
       const carry: Record<string, ParamValue> = {};
       for (const mode of selected) {
         for (const f of PARAM_FIELDS[mode]) carry[f.key] = params[f.key]!;
-        Object.assign(carry, DEFAULT_PARAMS[mode]);
       }
       await api.matteMaterial(m.id, pipeline, undefined, carry);
       onToast(t("msg.matting_job_queued"));

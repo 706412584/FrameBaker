@@ -326,6 +326,9 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
   runningGraphs.set(graphId, ac);
   const states: NodeRunState[] = [];
   let cancelled = false;
+  // 预执行阶段（topoSort/computeNodeHashes）异常：states 还是空的，
+  // 不标记的话 finally 会把终态错误写成 done。
+  let preflightError: string | undefined;
   // 执行记录（任务面板可回溯；uid 作为 run id）
   const runId = uid();
   const graphName =
@@ -335,9 +338,17 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
   ).run(runId, graphId, graphName, Date.now());
   broadcast("graph_runs_changed", {});
   try {
-    const order = topoSort(graph.nodes, graph.edges);
-    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const nodeHashes = computeNodeHashes(graph);
+    let order: string[];
+    let byId: Map<string, GraphNode>;
+    let nodeHashes: Map<string, Record<string, string>>;
+    try {
+      order = topoSort(graph.nodes, graph.edges);
+      byId = new Map(graph.nodes.map((n) => [n.id, n]));
+      nodeHashes = computeNodeHashes(graph);
+    } catch (err) {
+      preflightError = err instanceof Error ? err.message : String(err);
+      throw err;
+    }
     // 各节点已完成的输出 payload（缓存命中或刚执行）
     const outputsByNode = new Map<string, Record<string, Record<string, unknown>>>();
 
@@ -483,8 +494,9 @@ export async function runGraph(graphId: string, graph: ExecutableGraph): Promise
     return { states, cancelled };
   } finally {
     runningGraphs.delete(graphId);
-    // 终态落库：error / cancelled / done（states 里任一 error/cancelled 即整体失败）
-    const finalStatus = states.some((s) => s.status === "error")
+    // 终态落库：error / cancelled / done（states 里任一 error/cancelled 即整体失败；
+    // 预执行异常（环/未知节点类型）也整体 error，避免被误记为 done）
+    const finalStatus = preflightError !== undefined || states.some((s) => s.status === "error")
       ? "error"
       : cancelled
         ? "cancelled"
