@@ -10,7 +10,7 @@ export function register(server: McpServer) {
     {
       title: "List Jobs",
       description:
-        "List recent jobs (up to 50, newest first). Each job has id, project_id, type (extract_frames/generate_frames/matting/image_layers), status (queued/running/done/error/cancelled), progress, error, and created_at.",
+        "List recent jobs (up to 50, newest first). Each job has id, project_id, type (extract_frames/generate_frames/matting/image_layers/comfy_layers/ai_engine), status (queued/running/done/error/cancelled), progress, error, and created_at.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },

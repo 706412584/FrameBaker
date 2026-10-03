@@ -6,6 +6,8 @@ import { transformedFrameRectBounds } from "./frameGeometry";
 import { findOpaqueBounds } from "./imageops/client";
 import { transformedFrameBounds } from "./frameGeometry";
 import { createZip } from "./zip";
+import { safeFilename } from "./safeFilename";
+import { buildGodotImportReadme, buildGodotSpriteFramesTres, buildTexturePackerAtlas, type AtlasFrameInput } from "./exportFormats";
 
 function download(blob: Blob, filename: string) {
   const a = document.createElement("a");
@@ -13,11 +15,6 @@ function download(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-}
-
-/** 文件名安全化：去掉路径非法字符 */
-function safeFilename(name: string): string {
-  return name.replace(/[/\\?%*:|"<>]/g, "_").trim() || "material";
 }
 
 /** 导出可直接接入游戏运行时的骨骼包：骨架、项目角色、动作配置、MotionClip 与 PNG 纹理闭包。 */
@@ -102,7 +99,7 @@ export async function downloadMaterialImages(
   return { ok, skipped, failed };
 }
 
-export type AnimationExportFormat = "sequence" | "spritesheet";
+export type AnimationExportFormat = "sequence" | "spritesheet" | "atlas" | "godot";
 
 export const MAX_SPRITE_SHEET_DIMENSION = 16384;
 
@@ -145,7 +142,75 @@ export function spriteSheetLayout(cellWidth: number, cellHeight: number, count: 
   return { columns, rows, width, height };
 }
 
-/** 导出 PNG 序列或自动换行的单张精灵图；两者都烘焙图片变换和攻击特效。 */
+/** 在单格小画布完成一帧合成（图片变换 + 攻击特效），再贴大图或独立成 PNG；所有格式共享。 */
+function bakeStepCanvas(
+  step: TimelineResponse["steps"][number],
+  args: {
+    visible: TimelineResponse["tracks"];
+    frames: Frame[];
+    effects: AttackEffectCell[];
+    bitmapMap: Map<string, ImageBitmap>;
+    cellW: number;
+    cellH: number;
+    minX: number;
+    minY: number;
+  }
+): { canvas: HTMLCanvasElement; frameIds: string[]; effectIds: string[] } {
+  const canvas = document.createElement("canvas");
+  canvas.width = args.cellW;
+  canvas.height = args.cellH;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("帧尺寸过大，无法创建导出画布");
+  ctx.imageSmoothingEnabled = false;
+  const contributors = args.visible
+    .map((track) => args.frames.find((f) => f.track_id === track.id && f.step_id === step.id))
+    .filter((f): f is Frame => !!f);
+  const effectContributors = args.visible
+    .map((track) => args.effects.find((cell) => cell.track_id === track.id && cell.step_id === step.id))
+    .filter((cell): cell is AttackEffectCell => !!cell);
+  for (const frame of contributors) {
+    const bitmap = args.bitmapMap.get(frame.id)!;
+    ctx.save();
+    ctx.translate(-args.minX + frame.offset_x, -args.minY + frame.offset_y);
+    ctx.rotate(frame.rotation);
+    ctx.scale(frame.scale, frame.scale);
+    ctx.globalAlpha = Math.min(1, Math.max(0, frame.opacity));
+    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+    ctx.restore();
+  }
+  for (const cell of effectContributors) {
+    ctx.save();
+    ctx.translate(-args.minX, -args.minY);
+    drawAttackEffect(ctx, cell.effect);
+    ctx.restore();
+  }
+  return { canvas, frameIds: contributors.map((f) => f.id), effectIds: effectContributors.map((cell) => cell.id) };
+}
+
+/** 合成后小画布的不透明像素范围（atlas trimmed 用）；整格透明返回 null。 */
+function scanCanvasOpaqueBounds(canvas: HTMLCanvasElement): { x: number; y: number; w: number; h: number } | null {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const { width, height } = canvas;
+  if (width === 0 || height === 0) return null;
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+/** 导出 PNG 序列、自动换行精灵图、TexturePacker atlas 或 Godot SpriteFrames；全部烘焙图片变换和攻击特效。 */
 export async function exportAnimation(timeline: TimelineResponse, name: string, format: AnimationExportFormat) {
   const ordered = [...timeline.steps].sort((a,b)=>a.idx-b.idx);
   const visible = [...timeline.tracks].filter((t)=>t.visible).sort((a,b)=>a.idx-b.idx);
@@ -183,7 +248,8 @@ export async function exportAnimation(timeline: TimelineResponse, name: string, 
     const cellW = Math.max(1, maxX - minX);
     const cellH = Math.max(1, maxY - minY);
     const padLen = String(ordered.length - 1).length + 1;
-    const sheetLayout = format === "spritesheet" ? spriteSheetLayout(cellW, cellH, ordered.length) : null;
+    // atlas 与 spritesheet 共用同一网格布局；sequence 与 godot 共用逐帧 PNG
+    const sheetLayout = format === "spritesheet" || format === "atlas" ? spriteSheetLayout(cellW, cellH, ordered.length) : null;
 
     const meta = {
       frames: [] as Array<{ file: string; x: number; y: number; w: number; h: number; duration: number; frameIds: string[]; effectIds: string[] }>,
@@ -208,7 +274,7 @@ export async function exportAnimation(timeline: TimelineResponse, name: string, 
     };
 
     const entries: { name: string; data: Uint8Array }[] = [];
-    const sheet = format === "spritesheet" ? document.createElement("canvas") : null;
+    const sheet = sheetLayout ? document.createElement("canvas") : null;
     if (sheet && sheetLayout) {
       sheet.width = sheetLayout.width;
       sheet.height = sheetLayout.height;
@@ -217,33 +283,34 @@ export async function exportAnimation(timeline: TimelineResponse, name: string, 
     if (sheet && !sheetCtx) throw new Error("帧尺寸过大，无法创建精灵图画布");
     if (sheetCtx) sheetCtx.imageSmoothingEnabled = false;
 
+    const atlasFrames: AtlasFrameInput[] = [];
+
     for (let i = 0; i < ordered.length; i++) {
       const step = ordered[i];
-      // 始终先在单格小画布完成合成，再贴到大图；避免大型 GPU 画布在编码时丢失中间纹理块。
-      const canvas = document.createElement("canvas");
-      canvas.width = cellW;
-      canvas.height = cellH;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (!ctx) throw new Error("帧尺寸过大，无法创建导出画布");
-      ctx.imageSmoothingEnabled = false;
-      const contributors = visible.map((track)=>frames.find((f)=>f.track_id===track.id&&f.step_id===step.id)).filter((f):f is Frame=>!!f);
-      const effectContributors = visible.map((track)=>effects.find((cell)=>cell.track_id===track.id&&cell.step_id===step.id)).filter((cell):cell is AttackEffectCell=>!!cell);
+      const baked = bakeStepCanvas(step, { visible, frames, effects, bitmapMap, cellW, cellH, minX, minY });
       const cellX = sheet && sheetLayout ? (i % sheetLayout.columns) * cellW : 0;
       const cellY = sheet && sheetLayout ? Math.floor(i / sheetLayout.columns) * cellH : 0;
-      for(const frame of contributors){const bitmap=bitmapMap.get(frame.id)!;ctx.save();ctx.translate(-minX+frame.offset_x,-minY+frame.offset_y);ctx.rotate(frame.rotation);ctx.scale(frame.scale,frame.scale);ctx.globalAlpha=Math.min(1,Math.max(0,frame.opacity));ctx.globalCompositeOperation="source-over";ctx.drawImage(bitmap,-bitmap.width/2,-bitmap.height/2);ctx.restore();}
-      for(const cell of effectContributors){ctx.save();ctx.translate(-minX,-minY);drawAttackEffect(ctx,cell.effect);ctx.restore();}
-
       const filename = `${name}_${String(i).padStart(padLen, "0")}.png`;
+
       if (sheet && sheetCtx) {
-        sheetCtx.drawImage(canvas, cellX, cellY);
+        sheetCtx.drawImage(baked.canvas, cellX, cellY);
+        if (format === "atlas") {
+          atlasFrames.push({
+            filename,
+            sheet: { x: cellX, y: cellY },
+            cell: { w: cellW, h: cellH },
+            trimmed: scanCanvasOpaqueBounds(baked.canvas),
+            duration: step.duration,
+          });
+        }
       } else {
-        const png = await canvasBlob(canvas);
+        const png = await canvasBlob(baked.canvas);
         entries.push({ name: filename, data: new Uint8Array(await png.arrayBuffer()) });
       }
-      meta.frames.push({ file: sheet ? `${name}.png` : filename, x: cellX, y: cellY, w: cellW, h: cellH, duration: step.duration, frameIds: contributors.map((f)=>f.id), effectIds: effectContributors.map((cell)=>cell.id) });
+      meta.frames.push({ file: sheet ? `${name}.png` : filename, x: cellX, y: cellY, w: cellW, h: cellH, duration: step.duration, frameIds: baked.frameIds, effectIds: baked.effectIds });
     }
 
-    if (sheet) {
+    if (sheet && sheetLayout) {
       const png = await canvasBlob(sheet);
       entries.push({ name: `${name}.png`, data: new Uint8Array(await png.arrayBuffer()) });
     }
@@ -253,6 +320,35 @@ export async function exportAnimation(timeline: TimelineResponse, name: string, 
       name: `${name}.frames.json`,
       data: new TextEncoder().encode(JSON.stringify(meta, null, 2)),
     });
+
+    // TexturePacker JSON Hash（Phaser 3 / PixiJS / Cocos 通用 atlas）
+    if (format === "atlas" && sheetLayout) {
+      const atlas = buildTexturePackerAtlas(atlasFrames, `${name}.png`, timeline.axis.fps, {
+        width: sheetLayout.width,
+        height: sheetLayout.height,
+      });
+      entries.push({
+        name: `${name}.json`,
+        data: new TextEncoder().encode(JSON.stringify(atlas, null, 2)),
+      });
+    }
+
+    // Godot 4 SpriteFrames 资源 + 导入说明
+    if (format === "godot") {
+      const safe = safeFilename(name);
+      const godotFrames = ordered.map((step, i) => ({
+        resPath: `res://${safe}/${name}_${String(i).padStart(padLen, "0")}.png`,
+        duration: step.duration,
+      }));
+      entries.push({
+        name: `${name}.tres`,
+        data: new TextEncoder().encode(buildGodotSpriteFramesTres(name, timeline.axis.fps, true, godotFrames)),
+      });
+      entries.push({
+        name: `${name}-godot-import.md`,
+        data: new TextEncoder().encode(buildGodotImportReadme(name)),
+      });
+    }
 
     const zip = await createZip(entries);
     download(zip, `${name}_${format}.zip`);

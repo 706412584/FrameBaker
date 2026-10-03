@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   status TEXT NOT NULL DEFAULT 'queued',
   progress TEXT,
   error TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  payload TEXT
 );
 
 CREATE TABLE IF NOT EXISTS materials (
@@ -263,6 +264,8 @@ ensureColumn("frames", "track_id", "TEXT");
 ensureColumn("frames", "step_id", "TEXT");
 ensureColumn("frames", "is_asset", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("frames", "attack_effect", "TEXT");
+// 任务负载 JSON：队列重启恢复用（存量行 NULL → 恢复时按「负载缺失」标 error）
+ensureColumn("jobs", "payload", "TEXT");
 
 // v1：把旧项目无损投影到“默认轴 / 主轨 / 共享步骤”。确定性顺序为 idx,id。
 db.transaction(() => {

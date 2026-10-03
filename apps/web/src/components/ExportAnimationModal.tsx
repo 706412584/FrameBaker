@@ -1,4 +1,4 @@
-import { Images, LayoutGrid, X } from "lucide-react";
+import { Boxes, Gamepad2, Images, LayoutGrid, X } from "lucide-react";
 import { motion } from "motion/react";
 import type { AnimationExportFormat } from "../export";
 import { useT } from "../i18n";
@@ -27,6 +27,14 @@ export default function ExportAnimationModal({ exporting, onExport, onClose }: P
         <button type="button" className="export-format-card" disabled={exporting} onClick={() => onExport("spritesheet")}>
           <LayoutGrid size={28} />
           <span><strong>{t("exportAnimation.spritesheet")}</strong><small>{t("exportAnimation.spritesheetHint")}</small></span>
+        </button>
+        <button type="button" className="export-format-card" disabled={exporting} onClick={() => onExport("atlas")}>
+          <Boxes size={28} />
+          <span><strong>{t("exportAnimation.atlas")}</strong><small>{t("exportAnimation.atlasHint")}</small></span>
+        </button>
+        <button type="button" className="export-format-card" disabled={exporting} onClick={() => onExport("godot")}>
+          <Gamepad2 size={28} />
+          <span><strong>{t("exportAnimation.godot")}</strong><small>{t("exportAnimation.godotHint")}</small></span>
         </button>
         {exporting && <p className="muted">{t("exportAnimation.exporting")}</p>}
       </motion.div>

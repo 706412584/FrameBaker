@@ -15,4 +15,5 @@ export const SOURCE_LABEL_KEYS: Record<FrameSource, string> = {
   extract: "msg.extract_tag",
   duplicate: "msg.duplicate",
   raster: "Raster",
+  file: "file.source",
 };

@@ -270,6 +270,64 @@ export default function SettingsPage() {
   const [mcpPort, setMcpPort] = useState("");
   const [savingMcp, setSavingMcp] = useState(false);
 
+  // ===== 桌面版自动更新（仅 Electron 壳渲染本节；preload 桥不存在则隐藏）=====
+  type UpdateState =
+    | { phase: "idle" }
+    | { phase: "checking" }
+    | { phase: "latest" }
+    | { phase: "available"; version?: string }
+    | { phase: "downloading"; percent?: number }
+    | { phase: "downloaded"; version?: string }
+    | { phase: "error"; message: string };
+  const desktop = typeof window !== "undefined" ? window.framebakerDesktop : undefined;
+  const [updateState, setUpdateState] = useState<UpdateState>({ phase: "idle" });
+
+  // 主进程更新事件 → 状态机（函数式 setState，避免闭包旧值）
+  useEffect(() => {
+    if (!desktop?.onUpdate) return;
+    return desktop.onUpdate((event) => {
+      setUpdateState((prev) => {
+        switch (event.type) {
+          case "checking":
+            return { phase: "checking" };
+          case "latest":
+            return { phase: "latest" };
+          case "available":
+            return { phase: "available", version: event.version };
+          case "downloading":
+            return { phase: "downloading", percent: event.percent };
+          case "downloaded":
+            return { phase: "downloaded", version: event.version };
+          case "error":
+            return { phase: "error", message: event.error ?? "unknown" };
+          default:
+            return prev;
+        }
+      });
+    });
+  }, [desktop]);
+
+  const runUpdateCheck = async () => {
+    setUpdateState({ phase: "checking" });
+    const result = await desktop?.checkUpdates?.();
+    // autoUpdater 事件驱动状态；调用失败（dev 模式返回 unavailable）直接落 error
+    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+      setUpdateState({ phase: "error", message: String((result as { reason?: string }).reason ?? "unavailable") });
+    }
+  };
+
+  const runUpdateDownload = async () => {
+    setUpdateState({ phase: "downloading" });
+    const result = await desktop?.downloadUpdate?.();
+    if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+      setUpdateState({ phase: "error", message: String((result as { reason?: string }).reason ?? "unavailable") });
+    }
+  };
+
+  const runUpdateInstall = () => {
+    desktop?.installUpdate?.();
+  };
+
   /** MCP 独立端口保存（清空 = 回落主端口 /mcp）；改后重启服务生效 */
   const saveMcpPort = async () => {
     setSavingMcp(true);
@@ -1123,6 +1181,64 @@ export default function SettingsPage() {
           </motion.button>
         </div>
       </section>
+
+      {/* ===== 软件更新（仅桌面壳）===== */}
+      {desktop && (
+        <section className="settings-sec">
+          <h3>
+            <RefreshCw size={14} /> {t("msg.update.title")}
+            {desktop.version && <code style={{ marginLeft: 8 }}>v{desktop.version}</code>}
+          </h3>
+          <p className="hint">{t("msg.update.hint")}</p>
+          {updateState.phase === "error" && (
+            <p className="hint" style={{ color: "var(--danger, #e5484d)" }}>
+              {t("msg.update.error")}: {updateState.message}
+            </p>
+          )}
+          {updateState.phase === "latest" && <p className="hint">{t("msg.update.latest")}</p>}
+          {updateState.phase === "available" && (
+            <p className="hint">
+              {t("msg.update.available", { version: updateState.version ?? "?" })}
+            </p>
+          )}
+          {updateState.phase === "downloading" && (
+            <p className="hint">
+              {t("msg.update.downloading")}
+              {typeof updateState.percent === "number" ? ` ${Math.floor(updateState.percent)}%` : "…"}
+            </p>
+          )}
+          {updateState.phase === "downloaded" && (
+            <p className="hint">{t("msg.update.downloaded", { version: updateState.version ?? "?" })}</p>
+          )}
+          <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.95 }}
+              className="px-btn"
+              disabled={updateState.phase === "checking" || updateState.phase === "downloading"}
+              onClick={() => void runUpdateCheck()}
+            >
+              <RefreshCw size={14} /> {updateState.phase === "checking" ? t("msg.update.checking") : t("msg.update.check")}
+            </motion.button>
+            {(updateState.phase === "available" || updateState.phase === "downloading") && (
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.95 }}
+                className="px-btn accent"
+                disabled={updateState.phase === "downloading"}
+                onClick={() => void runUpdateDownload()}
+              >
+                <Download size={14} /> {t("msg.update.download")}
+              </motion.button>
+            )}
+            {updateState.phase === "downloaded" && (
+              <motion.button type="button" whileTap={{ scale: 0.95 }} className="px-btn accent" onClick={runUpdateInstall}>
+                <Download size={14} /> {t("msg.update.installNow")}
+              </motion.button>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ===== 本地生成（ComfyUI）===== */}
       <section className="settings-sec">

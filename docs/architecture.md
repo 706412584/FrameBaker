@@ -33,7 +33,7 @@
 │   └─ /api/jobs(/:id)   Job list (panel initial load) / single query │
 │                                                                     │
 │  mcp/ (MCP server: POST /mcp JSON-RPC 2.0 Streamable HTTP)         │
-│       48 tools directly operating db/internal modules for AI agents │
+│       69 tools directly operating db/internal modules for AI agents │
 │                                                                     │
 │  provider.ts (multi-gen provider / matting config: settings > env)  │
 │  providerAdapter.ts (generation validation/execution adapter +      │
@@ -112,11 +112,11 @@ Root `scripts/version.ts` implements the `MAJOR.WEEK.BUG` main-release policy an
 AI client → POST /mcp { jsonrpc, method: "initialize" }
   → server returns protocolVersion/capabilities/serverInfo + Mcp-Session-Id
   → client sends notifications/initialized
-  → tools/list returns 48 tools
+  → tools/list returns 69 tools
   → tools/call { name, arguments } → direct db ops → returns { content: [{ type:"text", text:JSON }] }
 ```
 
-`mcp/` tools directly call `db` / `queue.ts` / `providerAdapter.ts` / `enhance.ts` / `doctor.ts`; logic is consistent with corresponding `/api/*` handlers but without HTTP self-calls.
+`mcp/` tools directly call `db` / `queue.ts` / `providerAdapter.ts` / `enhance.ts` / `doctor.ts` / `materialImport.ts`; logic is consistent with corresponding `/api/*` handlers but without HTTP self-calls.
 
 ### Import (GIF/MP4/Single Image)
 

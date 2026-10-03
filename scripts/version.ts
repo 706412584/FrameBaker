@@ -49,7 +49,10 @@ function nextVersion(current: string, target: string): string {
   fail("目标必须是 bug、week、major 或完整版本号（patch/minor 为兼容别名）");
 }
 
-function latestChangelogBlock(changelog: string, lang: "en" | "zh"): string {
+function latestChangelogBlock(changelogRaw: string, lang: "en" | "zh"): string {
+  // 归一化行尾：changelog 在 Windows 上常是 CRLF，而 README 是 LF（core.autocrlf 无 .gitattributes 时）。
+  // 否则 `([^\n]+)` 会把 \r 吞进版本日期，生成的块永远与 README 对不上（version:check 必失败）。
+  const changelog = changelogRaw.replace(/\r\n?/g, "\n");
   const releases = [...changelog.matchAll(/^## \[((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\] - ([^\n]+)\n([\s\S]*?)(?=^## \[|(?![\s\S]))/gm)].slice(0, 2);
   if (releases.length < 2) fail(`${lang === "en" ? CHANGELOG_FILES[0] : CHANGELOG_FILES[1]} 至少需要两个已发布版本`);
   const changelogPath = lang === "en" ? "docs/CHANGELOG.md" : "docs/CHANGELOG.zh-CN.md";
@@ -92,7 +95,8 @@ for (let i = 0; i < readmes.length; i++) {
   if (expected !== readmes[i]) fail(`${README_FILES[i]} 的最近两个版本与 ${CHANGELOG_FILES[i]} 不一致，请运行 version:bump 或同步该区域`);
 }
 
-const lockText = await read("bun.lock");
+// 归一化行尾：bun.lock 在 Windows 上常为 CRLF，下面的版本正则按 \n 匹配。
+const lockText = (await read("bun.lock")).replace(/\r\n?/g, "\n");
 for (const name of WORKSPACE_NAMES) {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(`"name": "${escapedName}",\\n\\s+"version": "([^"]+)"`).exec(lockText);

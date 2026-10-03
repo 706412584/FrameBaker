@@ -1,7 +1,7 @@
 // FrameBaker Electron 桌面壳：拉起后端（打包产物 FrameBaker-server.exe / 开发模式 bun dev）
 // → 等端口就绪 → BrowserWindow 加载 localhost → 退出时杀后端。
 // 参照 layout-editor main.cjs 的关键实践：单例锁、GUI 进程 PATH 修复、后台进程日志。
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -51,6 +51,48 @@ if (!singleLock) {
 
 let backend = null;
 let mainWindow = null;
+
+// ---------- 自动更新（electron-updater，仅打包版启用；GitHub Releases 为更新源） ----------
+// 交互约定：启动后台静默检查一次；下载与安装由用户在设置页触发（autoDownload=false）。
+const UPDATE_CHANNEL = "framebaker:update";
+let updateEvents = []; // 窗口未就绪时缓冲事件，ready 后 flush
+let autoUpdater = null;
+
+function pushUpdateEvent(data) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(UPDATE_CHANNEL, data);
+  } else {
+    updateEvents.push(data);
+  }
+}
+
+function flushBufferedUpdateEvents() {
+  if (!updateEvents.length || !mainWindow || mainWindow.isDestroyed()) return;
+  for (const data of updateEvents) mainWindow.webContents.send(UPDATE_CHANNEL, data);
+  updateEvents = [];
+}
+
+function setupAutoUpdater() {
+  if (!IS_PACKAGED_APP) return;
+  try {
+    const { autoUpdater: updater } = require("electron-updater");
+    autoUpdater = updater;
+    updater.setFeedURL({ provider: "github", owner: "706412584", repo: "FrameBaker" });
+    updater.autoDownload = false;
+    updater.autoInstallOnAppQuit = false;
+    updater.on("checking-for-update", () => pushUpdateEvent({ type: "checking" }));
+    updater.on("update-available", (info) => pushUpdateEvent({ type: "available", version: info?.version }));
+    updater.on("update-not-available", () => pushUpdateEvent({ type: "latest" }));
+    updater.on("download-progress", (p) =>
+      pushUpdateEvent({ type: "downloading", percent: p?.percent, bytesPerSecond: p?.bytesPerSecond })
+    );
+    updater.on("update-downloaded", (info) => pushUpdateEvent({ type: "downloaded", version: info?.version }));
+    updater.on("error", (err) => pushUpdateEvent({ type: "error", error: err?.message ?? String(err) }));
+    updater.checkForUpdates().catch((err) => pushUpdateEvent({ type: "error", error: err?.message ?? String(err) }));
+  } catch (err) {
+    console.error("[updater] 初始化失败:", err?.message ?? err);
+  }
+}
 
 function startBackend() {
   const { cmd, args } = backendCommand();
@@ -144,15 +186,38 @@ async function createWindow() {
        <p>日志位于 ${path.join(app.getPath("userData"), "logs", "server.log")}</p></body>`
     )}`);
   }
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.show();
+    flushBufferedUpdateEvents();
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
 app.whenReady().then(() => {
+  // 更新 IPC（dev 模式返回不可用标记，设置页显示提示不崩）
+  ipcMain.on("framebaker:app-info", (event) => {
+    event.returnValue = { version: app.getVersion(), platform: process.platform };
+  });
+  ipcMain.handle("framebaker:update-check", () => {
+    if (!autoUpdater) return { ok: false, reason: "unavailable" };
+    return autoUpdater.checkForUpdates().catch((err) => ({ ok: false, reason: err?.message ?? String(err) }));
+  });
+  ipcMain.handle("framebaker:update-download", () => {
+    if (!autoUpdater) return { ok: false, reason: "unavailable" };
+    return autoUpdater.downloadUpdate().catch((err) => ({ ok: false, reason: err?.message ?? String(err) }));
+  });
+  ipcMain.on("framebaker:update-install", () => {
+    if (!autoUpdater) return;
+    // 先杀后端进程树（避免 NSIS 安装器与后端 exe 文件锁冲突），before-quit 钩子仍会兜底 stopBackend
+    stopBackend();
+    autoUpdater.quitAndInstall();
+  });
+
   startBackend();
   createWindow();
+  setupAutoUpdater();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

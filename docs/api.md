@@ -600,7 +600,7 @@ Copy and paste the following to your AI agent to get started:
 ```
 FrameBaker is running at http://localhost:3000 with an MCP server at /mcp (Streamable HTTP).
 Connect to it and use `list_projects` to get started.
-Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, matting_material, list_jobs, get_config, and 40 more.
+Available tools: list_projects, create_project, list_frames, generate_frames, list_materials, import_local_material, matting_material, list_jobs, get_config, and 60 more.
 All tools manage pixel-art animation projects — frames, materials, generation, matting, folders, jobs, and settings.
 ```
 
@@ -610,7 +610,7 @@ All tools manage pixel-art animation projects — frames, materials, generation,
 // Request
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // Response
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.4.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.5.0" } } }
 ```
 
 After handshake, send `notifications/initialized` notification (no response needed), then `tools/list` and `tools/call` are available. 2026-07-28 clients can skip the handshake and call directly.
@@ -635,6 +635,7 @@ After handshake, send `notifications/initialized` notification (no response need
 | `generate_frames` | Generate frames for a project (AI provider) |
 | `generate_materials` | Generate materials (AI provider) |
 | `list_materials` | List all materials |
+| `import_local_material` | Register a local file/directory into the material library (source=file) |
 | `rename_material` | Rename one image or video material |
 | `matting_material` | Single material background removal |
 | `split_material_layers` | Split an image material with the standalone image-layer service |
@@ -662,7 +663,17 @@ After handshake, send `notifications/initialized` notification (no response need
 | `create_graph` | Create a workflow graph |
 | `get_graph` | Get graph document (nodes + edges) |
 | `add_graph_node` | Add a node |
+| `update_graph_node` | Update a node's params / canvas position |
+| `delete_graph_node` | Delete a node and all its edges |
 | `connect_graph_nodes` | Connect nodes (with port type validation) |
+| `delete_graph_edge` | Delete one edge |
+| `update_graph` | Rename a graph |
+| `import_graph` | Import a graph from a JSON document |
+| `list_graph_templates` | List built-in workflow templates |
+| `create_graph_from_template` | Instantiate a template into a new graph |
+| `run_graph` | Run a graph (async, content-addressed cache) |
+| `cancel_graph_run` | Cancel a running graph |
+| `get_graph_run_status` | Latest run status + per-node states |
 | `delete_graph` | Delete a graph |
 
 ### Tool Call Examples

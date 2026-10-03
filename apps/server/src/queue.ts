@@ -19,7 +19,7 @@ export interface JobPayload {
   aiEngine?: AiEnginePayload;
 }
 
-// 任务负载只存内存（状态落 SQLite），重启后 queued/running 任务不会恢复
+// 任务负载双写：内存 Map 供运行热路径（findActiveMattingJob / runJob），SQLite payload 列供重启恢复。
 const payloads = new Map<string, JobPayload>();
 const controllers = new Map<string, AbortController>();
 const waiting: string[] = [];
@@ -38,16 +38,90 @@ export function getQueueConcurrency(): number {
   return 2;
 }
 
-// 启动时把上次进程遗留的 queued/running 任务标记为中断（负载随内存丢失，不可能再继续）
-db.query("UPDATE jobs SET status = 'error', error = '服务重启，任务中断' WHERE status IN ('queued', 'running')").run();
+export interface InterruptedJobRow {
+  id: string;
+  project_id: string;
+  type: string;
+  status: string;
+  payload: string | null;
+}
+
+export type RecoveryVerdict = { action: "requeue" } | { action: "error"; reason: string };
+
+/**
+ * 纯函数：评估一条重启遗留任务能否恢复。
+ * - 无 payload（升级前遗留）→ error
+ * - running → error（无法断点续传；重跑对 extract/generate 等有重复副作用，不做）
+ * - queued 且拆帧源文件已不在 → error
+ * - 其余 queued → requeue（从未启动，无副作用，重跑安全）
+ */
+export function assessJobRecovery(
+  type: string,
+  status: string,
+  hasPayload: boolean,
+  stagingFileExists: boolean
+): RecoveryVerdict {
+  if (!hasPayload) return { action: "error", reason: "任务负载缺失，无法恢复（可能由旧版本创建），请重新发起" };
+  if (status === "running") return { action: "error", reason: "服务重启，任务执行中断，请重新发起" };
+  if (type === "extract_frames" && !stagingFileExists) {
+    return { action: "error", reason: "导入源文件已不存在（重启期间被清理），请重新导入" };
+  }
+  return { action: "requeue" };
+}
+
+/** 从 jobs 行反序列化负载；损坏时抛错（由调用方决定处置） */
+function parseJobPayload(row: { type: string; payload: string | null }): JobPayload | null {
+  if (!row.payload) return null;
+  const parsed = JSON.parse(row.payload) as JobPayload;
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+/**
+ * 恢复重启遗留的 queued/running 任务：可恢复的重新入队（保持 queued 状态），
+ * 不可恢复的标 error 并给出原因。模块加载与测试共用。
+ */
+export function recoverInterruptedJobsFrom(rows: InterruptedJobRow[]): void {
+  const { existsSync } = require("node:fs") as typeof import("node:fs");
+  for (const row of rows) {
+    if (row.status !== "queued" && row.status !== "running") continue;
+    let payload: JobPayload | null = null;
+    let parseError = false;
+    try {
+      payload = parseJobPayload(row);
+    } catch {
+      parseError = true;
+    }
+    const stagingFileExists = payload?.extract?.stagingFile ? existsSync(payload.extract.stagingFile) : true;
+    let verdict: RecoveryVerdict;
+    if (parseError) {
+      verdict = { action: "error", reason: "任务负载损坏，无法恢复" };
+    } else {
+      verdict = assessJobRecovery(row.type, row.status, payload !== null, stagingFileExists);
+    }
+    if (verdict.action === "requeue" && payload) {
+      payloads.set(row.id, payload);
+      waiting.push(row.id);
+    } else if (verdict.action === "error") {
+      setJob(row.id, "error", null, verdict.reason);
+      broadcast("job_error", { id: row.id, projectId: row.project_id, type: row.type, error: verdict.reason });
+    }
+  }
+}
+
+// 启动时恢复上次进程遗留的任务（payload 已持久化，queued 可无损续跑）
+recoverInterruptedJobsFrom(
+  db.query("SELECT id, project_id, type, status, payload FROM jobs WHERE status IN ('queued', 'running')").all() as InterruptedJobRow[]
+);
+pump();
 
 export function createJob(projectId: string, type: JobType, payload: JobPayload): string {
   const id = uid();
-  db.query("INSERT INTO jobs (id, project_id, type, status, created_at) VALUES (?, ?, ?, 'queued', ?)").run(
+  db.query("INSERT INTO jobs (id, project_id, type, status, created_at, payload) VALUES (?, ?, ?, 'queued', ?, ?)").run(
     id,
     projectId,
     type,
-    Date.now()
+    Date.now(),
+    JSON.stringify(payload)
   );
   payloads.set(id, payload);
   waiting.push(id);
@@ -176,9 +250,19 @@ async function runJob(id: string) {
     id: string;
     project_id: string;
     type: string;
+    payload: string | null;
   } | null;
   if (!job) return;
-  const payload = payloads.get(id) ?? {};
+  // 内存命中（常规路径）；未命中则从持久化 payload 反序列化（重启恢复的任务）
+  let payload = payloads.get(id) ?? null;
+  if (!payload && job.payload) {
+    try {
+      payload = JSON.parse(job.payload) as JobPayload;
+    } catch {
+      payload = null;
+    }
+  }
+  if (!payload) payload = {};
   const ac = new AbortController();
   controllers.set(id, ac);
   const signal = ac.signal;

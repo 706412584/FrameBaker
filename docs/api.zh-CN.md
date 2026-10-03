@@ -600,7 +600,7 @@ claude mcp add framebaker --transport http http://localhost:3000/mcp
 ```
 FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable HTTP）。
 请连接并调用 list_projects 开始。
-可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、matting_material、list_jobs、get_config 等共 48 个。
+可用工具：list_projects、create_project、list_frames、generate_frames、list_materials、import_local_material、matting_material、list_jobs、get_config 等共 69 个。
 覆盖功能：像素动画项目、帧、素材、AI 生成、抠图、文件夹、任务与系统设置。
 ```
 
@@ -610,7 +610,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 // 请求
 { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "my-client", "version": "1.0" } } }
 // 响应
-{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.4.0" } } }
+{ "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "framebaker", "version": "0.5.0" } } }
 ```
 
 握手后发送 `notifications/initialized` 通知（无需响应），随后可 `tools/list` 和 `tools/call`。2026-07-28 客户端无需握手，直接调用即可。
@@ -635,6 +635,7 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `generate_frames` | 为项目生成帧（AI provider） |
 | `generate_materials` | 生成素材（AI provider） |
 | `list_materials` | 列出全部素材 |
+| `import_local_material` | 把服务器本地文件/目录登记进素材库（source=file） |
 | `rename_material` | 重命名单个图片或视频素材 |
 | `matting_material` | 单素材抠图 |
 | `split_material_layers` | 使用独立图片分层服务拆分素材图层 |
@@ -662,7 +663,17 @@ FrameBaker 正在 http://localhost:3000 运行，MCP 端点为 /mcp（Streamable
 | `create_graph` | 创建工作流图 |
 | `get_graph` | 查询图文档（节点+连线） |
 | `add_graph_node` | 添加节点 |
+| `update_graph_node` | 修改节点参数 / 画布位置 |
+| `delete_graph_node` | 删除节点及其全部连线 |
 | `connect_graph_nodes` | 连线（含端口类型校验） |
+| `delete_graph_edge` | 删除单条连线 |
+| `update_graph` | 重命名工作流 |
+| `import_graph` | 从 JSON 文档导入工作流 |
+| `list_graph_templates` | 列出内置工作流模板 |
+| `create_graph_from_template` | 用模板实例化新工作流 |
+| `run_graph` | 执行工作流（异步，内容寻址缓存） |
+| `cancel_graph_run` | 取消执行中的工作流 |
+| `get_graph_run_status` | 最近一次执行状态与逐节点状态 |
 | `delete_graph` | 删除图 |
 
 ### 工具调用示例

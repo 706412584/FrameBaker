@@ -1156,9 +1156,12 @@ function GraphCanvas({
         setTimeout(() => {
           const target = nodesRef.current.find((n) => n.id === nodeId);
           if (target) {
-            api.patchGraphNode(graphId, nodeId, { params: (target.data as GraphNodeData).params }).catch((err) =>
-              notify(String((err as Error).message))
-            );
+            api.patchGraphNode(graphId, nodeId, { params: (target.data as GraphNodeData).params }).catch((err) => {
+              const message = String((err as Error).message);
+              // 节点可能已被其他客户端 / MCP 删除：本次自动保存作废即可，不必弹错打扰用户
+              if (message.includes("节点不存在")) return;
+              notify(message);
+            });
           }
           timers.delete(nodeId);
         }, 400)

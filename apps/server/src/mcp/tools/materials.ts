@@ -12,7 +12,8 @@ import { getImageLayerSettings, imageLayerConfigured, getSpriteMattingSettings, 
 import { isValidSpritePipeline } from "../../jobs/matting";
 import { getAiEngineStatus } from "../../jobs/aiEngine";
 import { AI_ENGINE_PYTHON, BUNDLED_SPRITE_PYTHON } from "../../paths";
-import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject } from "../helpers";
+import { ok, err, sortMaterialsByFrameNumber, importMaterialToProject, getFolderRow } from "../helpers";
+import { importLocalPathToLibrary } from "../../materialImport";
 import { invalidateProjectUndo } from "../../undo";
 
 export function register(server: McpServer) {
@@ -30,6 +31,59 @@ export function register(server: McpServer) {
         .query("SELECT * FROM materials ORDER BY created_at DESC")
         .all() as MaterialRow[];
       return ok({ materials: rows.map(serializeMaterial) });
+    }
+  );
+
+  server.registerTool(
+    "import_local_material",
+    {
+      title: "Import Local Material",
+      description:
+        "Register a file on the SERVER's local disk into the material library (the MCP equivalent of the UI import button). Accepts an absolute path to a single file OR a directory. One file = one material (no frame extraction — call extract_material_frames afterwards to split a video/GIF). Supported: images png/jpg/jpeg/webp/bmp/tga/gif/psd and videos mp4/mov/webm/avi; kind is inferred from the extension. A directory imports every supported file inside it (natural filename order, each as its own material). Use this to feed externally generated assets (e.g. ffmpeg-extracted PNG frames, an mp4 from another tool) into the library so material.video / material.image graph nodes and the editor can consume them. Returns materialId for a file, or materialIds for a directory.",
+      inputSchema: z.object({
+        path: z.string().trim().min(1).describe("Absolute path to a local file or directory on the machine running the server"),
+        name: z.string().trim().min(1).max(200).optional().describe("Material name (file only; defaults to the file name without extension). Ignored for directories."),
+        folderId: z.string().optional().describe("Target material folder UUID (must exist and be kind=material)"),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ path: inputPath, name, folderId }) => {
+      if (folderId) {
+        const folder = getFolderRow(folderId);
+        if (!folder) return err("文件夹不存在");
+        if (folder.kind !== "material") return err("目标文件夹不是素材文件夹");
+      }
+      try {
+        const result = importLocalPathToLibrary(inputPath, { name, folderId: folderId ?? null });
+        // 仅在有成功项时广播；目录批量全部失败时不惊动前端
+        if (result.materials.length > 0) broadcast("materials_changed", {});
+        const isBatch = result.materials.length > 1;
+        const payload = {
+          count: result.materials.length,
+          materials: result.materials.map((m) => ({
+            materialId: m.id,
+            name: m.name,
+            kind: m.kind,
+            source: m.source,
+            originalPath: m.originalPath,
+          })),
+          // 单文件返回 materialId 便于直接取用；目录返回 materialIds
+          ...(isBatch
+            ? { materialIds: result.materials.map((m) => m.id) }
+            : result.materials.length === 1
+              ? { materialId: result.materials[0].id }
+              : {}),
+          ...(result.skipped.length ? { skipped: result.skipped } : {}),
+          ...(result.failed.length ? { failed: result.failed } : {}),
+        };
+        // 全部失败（有 failed、无成功）时明确标 ok:false，避免调用方误判成功
+        if (result.materials.length === 0 && result.failed.length > 0) {
+          return ok({ ok: false, ...payload });
+        }
+        return ok({ ok: true, ...payload });
+      } catch (e) {
+        return err((e as Error).message);
+      }
     }
   );
 

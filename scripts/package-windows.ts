@@ -196,8 +196,11 @@ async function main() {
     await run("bun", [join(ROOT, "scripts", "make-installer-icon.ts")]);
   }
   const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+  // 有 GH_TOKEN 时把安装包 + blockmap + latest.yml 发布到 GitHub Releases（electron-updater 更新源）；
+  // 无 token 保持本地打包行为（build-windows.bat 习惯不变）。
+  const publishMode = process.env.GH_TOKEN ? "always" : "never";
   await run(npxCmd, [
-    "electron-builder", "--win", "nsis", "--publish", "never",
+    "electron-builder", "--win", "nsis", "--publish", publishMode,
     "-c.extraMetadata.version=" + pkg.version,
   ], {
     env: {
@@ -211,7 +214,8 @@ async function main() {
   const exeSize = (statSync(join(RELEASE_DIR, "FrameBaker-server.exe")).size / 1024 / 1024).toFixed(1);
   log(`  便携版: ${zipPath}`);
   log(`    解压后运行 FrameBaker-server.exe（浏览器访问 http://localhost:5842）`);
-  const setupExe = join(ROOT, "release", "desktop", `FrameBaker Setup ${pkg.version}.exe`);
+  log(`  发布模式: ${publishMode === "always" ? "GitHub Releases（GH_TOKEN 已注入）" : "仅本地（未设置 GH_TOKEN）"}`);
+  const setupExe = join(ROOT, "release", "desktop", `FrameBaker-Setup-${pkg.version}.exe`);
   log(`  桌面版: ${existsSync(setupExe) ? setupExe : join(ROOT, "release", "desktop")}`);
   log(`    安装后双击 FrameBaker 即开窗口（Electron 壳自动拉起后端）`);
 }

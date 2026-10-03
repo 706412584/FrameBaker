@@ -4,11 +4,13 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
 ### 新增
 
 - 新增无限画布节点工作流（`/graphs` 页）：React Flow 画布 + 节点连线搭建资产管线（视频素材 → 抽帧 → 批量抠图 → 导出精灵表），节点拖动位置持久化，执行状态经 WS 实时回填节点（运行/完成/缓存命中/错误描边）。
 - 工作流执行引擎：拓扑排序 + 内容寻址缓存（`content_hash` = 节点类型 + 规范化参数 + 上游端口哈希），改末端参数重跑时上游节点全部缓存命中；产物与 payload 全部落库，重启后已完成节点直接命中；支持执行中取消（AbortSignal 杀 ffmpeg 子进程）。
-- 新增 graphs / graph_nodes / graph_edges / graph_outputs 四表与图 CRUD API（端口类型校验、单输入端口唯一、级联删除），以及 7 个 MCP 工作流工具。
+- 新增 graphs / graph_nodes / graph_edges / graph_outputs 四表与图 CRUD API（端口类型校验、单输入端口唯一、级联删除），以及 7 个 MCP 工作流工具（后续补齐至 17 个，见下）。
 - 迁移 sprite 工坊抠图管线：`matte_cli.py` CLI 薄壳 + `matte.pipeline` 组合节点（与 sprite `apply_matte_pipeline` 逐像素一致）+ 6 个单步原子抠图节点 + `image.decontaminate` 边缘净化；配置走 `spriteMatting` 设置项，与全局 rembg 抠图共存。
 - 迁移 sprite 像素量化：`quantize.pixel` 节点（imageops worker 执行，主线程降级），与原版逐字节一致。
 - 迁移 sprite UI 智能切片：`slice.ui.analyze` 检测 + `slice.ui.crop` 裁剪（连通域复用 imageops 单份实现），检测候选框与原版逐值一致。
@@ -30,6 +32,11 @@
 - 节点内联参数编辑（ComfyUI 风格）：全部参数以「标签+输入控件」平铺在节点卡片上直接改（数字/文本/布尔/下拉，防抖 400ms 落库，nodrag 不干扰画布拖拽），参数摘要与双击弹窗编辑退役为兜底；素材字段下拉内置「上传素材…」入口 —— 视频/GIF/PSD 以 graphRaw 模式原样直存为单素材（不拆帧），上传即选中即绑定。
 - 工作流模板：「从模板新建…」下拉一键创建 sprite 视频抽帧流水线默认模板（视频素材→抽帧 8fps→组合抠图→画布归一→智能选帧→完整包/透明视频/帧图片三分支，8 节点 7 连线参数全预设）；GET /api/graph/templates 列模板、POST /api/graph/templates/:id/graphs 建图。
 - 完整对齐补遗：export.package 支持 rectpack 紧凑装箱布局（MaxRectsBssf 自实现，不等大帧自动 packed，layout/frame_positions 记录真实坐标）；图集合成全部改走 PIL paste（ffmpeg overlay 有色度抖动，PIL 逐像素零损——与 sprite 一致）；lightbox 支持多帧序列播放（播放/暂停、fps 滑杆 1-30、帧缩略条点选），产物预览在图文档里持久化（后开页面/重启也显示）；新增 PSD 分层（material.psd）、背景修补（image.bg-inpaint，LaMa→OpenCV 回退）、姿态检测（pose.detect）、人体解析（human.parse）、场景分层（image.layers，复用 FrameBaker image_layers）五个节点——AI 依赖未安装时给出明确安装指引。
+- 任务队列持久化：任务负载随 jobs 表落库（payload 列），服务重启后 queued 任务自动恢复入队继续执行（从未启动、无副作用）；running 任务因无法断点续传统一标记中断并提示重新发起；拆帧源文件已不存在的恢复任务给出明确指引；升级前遗留的无负载任务按「负载缺失」标记。任务负载在运行中丢失内存记录时也可从库中反序列化重建。
+- 逐帧动画导出新增两种游戏引擎格式：TexturePacker JSON Hash 图集（Phaser 3 / PixiJS / Cocos 直接加载，逐帧声明不透明矩形，引擎按 spriteSourceSize/sourceSize 还原对齐、帧原点稳定不抖）；Godot 4 SpriteFrames 资源（PNG 序列 + .tres，AnimatedSprite2D 直接选用；speed/duration 按官方公式零失真换算，附导入说明）。原有 PNG 序列、单张精灵图与 frames.json 元数据保持不变。
+- 桌面版自动更新：集成 electron-updater（更新源 GitHub Releases），启动后台静默检查新版本；设置页新增「软件更新」节（仅 Electron 壳内显示），展示当前版本并支持手动检查、下载（实时进度）与安装重启（自动清理后端进程后退出安装）。安装包产物名统一为 `FrameBaker-Setup-x.y.z.exe`，修复 latest.yml 引用名与实际产物名不一致导致的下载 404 隐患；打包脚本在检测到 GH_TOKEN 时自动发布到 GitHub Releases，本地打包行为不变。
+- MCP 新增本地文件导入口 `import_local_material`：把服务器本地绝对路径（单文件或目录）登记进素材库，等价于 UI 的「导入」按钮。一个文件 = 一个素材、不拆帧（视频/GIF 想拆帧再调 `extract_material_frames`）；目录按文件名自然序批量导入其中全部受支持文件；支持 png/jpg/jpeg/webp/bmp/tga/gif/psd 与 mp4/mov/webm/avi，kind 由扩展名推断。素材来源新增独立枚举 `file`（徽标「本地文件」），与 UI 上传、AI 生成可区分。用于把外部产物（ffmpeg 抽帧、外部 AI 输出）直接喂进库，供 `material.video` / `material.image` 图节点与编辑器消费。拷贝与写库视为一个单元（写库失败清理素材目录，不留孤儿）；拒绝符号链接（避免绕过扩展名白名单）；目录批量逐文件容错，失败项经 `failed[]` 返回；子目录与不支持的文件均计入 `skipped`（不静默丢弃）。
+- MCP 工作流工具补齐至 17 个（对齐图 REST 全能力）：新增 `update_graph_node`（改节点参数/位置——此前只能用 `add_graph_node` 一次性带参数，建完就改不了，是程序化搭图的实际阻碍）、`delete_graph_node`（级联删边）、`delete_graph_edge`、`update_graph`（重命名）、`import_graph`（JSON 导入）、`list_graph_templates` 与 `create_graph_from_template`（模板实例化）；`create_graph` / `add_graph_node` / `connect_graph_nodes` / `delete_graph` 补齐 `graphs_changed` 广播与 `updated_at` 刷新，与 REST 处理器行为一致。
 
 ### 移除
 
